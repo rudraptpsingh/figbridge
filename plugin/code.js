@@ -664,6 +664,259 @@ async function exportAppSpec() {
   };
 }
 
+// ── Write-side helpers ────────────────────────────────────────
+function normalizeHex(s) {
+  if (!s) return null;
+  var t = String(s).trim().toLowerCase().replace(/\s+/g, "");
+  if (t.charAt(0) === "#") t = t.slice(1);
+  if (t.length === 3) t = t.split("").map(function (c) { return c + c; }).join("");
+  if (!/^[0-9a-f]{6}([0-9a-f]{2})?$/.test(t)) return null;
+  return "#" + t;
+}
+
+function colorToHex(c) {
+  var r = Math.round(c.r * 255), g = Math.round(c.g * 255), b = Math.round(c.b * 255);
+  return "#" + [r, g, b].map(function (v) { return v.toString(16).padStart(2, "0"); }).join("");
+}
+
+function hexToRGB(hex) {
+  var h = normalizeHex(hex); if (!h) return null;
+  return { r: parseInt(h.slice(1, 3), 16) / 255, g: parseInt(h.slice(3, 5), 16) / 255, b: parseInt(h.slice(5, 7), 16) / 255 };
+}
+
+async function applyTextReplacements(root, replacements) {
+  if (!replacements || !Object.keys(replacements).length) return 0;
+  var keys = Object.keys(replacements);
+  var changed = 0;
+  var stack = [root];
+  while (stack.length) {
+    var n = stack.shift();
+    if (n.type === "TEXT") {
+      if (n.fontName === figma.mixed) continue;
+      var txt = String(n.characters || "");
+      var next = txt;
+      for (var i = 0; i < keys.length; i++) { next = next.split(keys[i]).join(replacements[keys[i]]); }
+      if (next !== txt) {
+        try { await figma.loadFontAsync(n.fontName); n.characters = next; changed++; }
+        catch (e) { /* skip unloadable font */ }
+      }
+    }
+    if ("children" in n && n.children) for (var k = 0; k < n.children.length; k++) stack.push(n.children[k]);
+  }
+  return changed;
+}
+
+async function cloneScreen(args) {
+  var src = await figma.getNodeByIdAsync(args.sourceNodeId);
+  if (!src) return { ok: false, error: "source not found: " + args.sourceNodeId };
+  if (typeof src.clone !== "function") return { ok: false, error: "node is not cloneable (type=" + src.type + ")" };
+  var copy = src.clone();
+  if (args.name) copy.name = args.name;
+  // Place to the right of source if it has a parent frame with x/y
+  if ("x" in copy && "x" in src) copy.x = src.x + src.width + 48;
+  if ("y" in copy && "y" in src) copy.y = src.y;
+  var textChanges = 0;
+  if (args.textReplacements) textChanges = await applyTextReplacements(copy, args.textReplacements);
+  try { figma.currentPage.selection = [copy]; figma.viewport.scrollAndZoomIntoView([copy]); } catch (e) {}
+  return { ok: true, nodeId: copy.id, name: copy.name, textReplacements: textChanges };
+}
+
+function scopeToNodes(scope) {
+  if (!scope) return figma.currentPage.selection.length ? figma.currentPage.selection : figma.currentPage.children;
+  if (scope === "selection") return figma.currentPage.selection;
+  if (scope === "page") return figma.currentPage.children;
+  if (scope === "file") { var all = []; for (var i = 0; i < figma.root.children.length; i++) all = all.concat(figma.root.children[i].children); return all; }
+  return [];
+}
+
+async function recolor(args) {
+  var mapping = args && args.mapping ? args.mapping : {};
+  var keys = Object.keys(mapping);
+  if (!keys.length) return { ok: false, error: "mapping required: { '#oldHex': '#newHex', ... }" };
+  var normMap = {};
+  for (var i = 0; i < keys.length; i++) {
+    var k = normalizeHex(keys[i]); var v = hexToRGB(mapping[keys[i]]);
+    if (k && v) normMap[k] = v;
+  }
+  var roots = [];
+  if (args && args.nodeId) {
+    var n = await figma.getNodeByIdAsync(args.nodeId); if (n) roots.push(n);
+  } else {
+    roots = scopeToNodes(args && args.scope);
+  }
+  var changes = 0, visited = 0;
+  var stack = roots.slice();
+  while (stack.length) {
+    var node = stack.shift(); visited++;
+    if (node.fills && Array.isArray(node.fills) && node.fills !== figma.mixed) {
+      var newFills = node.fills.map(function (p) {
+        if (p.type === "SOLID" && p.color) {
+          var hex = colorToHex(p.color);
+          if (normMap[hex]) { changes++; return Object.assign({}, p, { color: normMap[hex] }); }
+        }
+        return p;
+      });
+      node.fills = newFills;
+    }
+    if (node.strokes && Array.isArray(node.strokes) && node.strokes !== figma.mixed) {
+      var newStrokes = node.strokes.map(function (p) {
+        if (p.type === "SOLID" && p.color) {
+          var hex = colorToHex(p.color);
+          if (normMap[hex]) { changes++; return Object.assign({}, p, { color: normMap[hex] }); }
+        }
+        return p;
+      });
+      node.strokes = newStrokes;
+    }
+    if ("children" in node && node.children) for (var c = 0; c < node.children.length; c++) stack.push(node.children[c]);
+  }
+  return { ok: true, changes: changes, nodesVisited: visited };
+}
+
+async function applyTokens(args) {
+  // Bind loose SOLID colors to matching local color variables (by hex match).
+  var varsByHex = {};
+  try {
+    var cols = await figma.variables.getLocalVariableCollectionsAsync();
+    for (var i = 0; i < cols.length; i++) {
+      var col = cols[i];
+      for (var j = 0; j < col.variableIds.length; j++) {
+        var v = await figma.variables.getVariableByIdAsync(col.variableIds[j]);
+        if (!v || v.resolvedType !== "COLOR") continue;
+        var val = v.valuesByMode[col.defaultModeId];
+        if (!val || val.type === "VARIABLE_ALIAS") continue;
+        var hex = colorToHex(val);
+        if (!varsByHex[hex]) varsByHex[hex] = v;
+      }
+    }
+  } catch (e) { return { ok: false, error: "variables API unavailable: " + (e && e.message ? e.message : e) }; }
+
+  var root = args && args.nodeId ? await figma.getNodeByIdAsync(args.nodeId) : null;
+  var roots = root ? [root] : (figma.currentPage.selection.length ? figma.currentPage.selection.slice() : figma.currentPage.children.slice());
+  var bound = 0, unbound = 0;
+  var stack = roots.slice();
+  while (stack.length) {
+    var node = stack.shift();
+    if (node.fills && Array.isArray(node.fills) && node.fills !== figma.mixed) {
+      var newFills = node.fills.map(function (p) {
+        if (p.type !== "SOLID" || !p.color) return p;
+        if (p.boundVariables && p.boundVariables.color) return p;
+        var hex = colorToHex(p.color);
+        var match = varsByHex[hex];
+        if (match) { bound++; return figma.variables.setBoundVariableForPaint(p, "color", match); }
+        unbound++; return p;
+      });
+      node.fills = newFills;
+    }
+    if ("children" in node && node.children) for (var k = 0; k < node.children.length; k++) stack.push(node.children[k]);
+  }
+  return { ok: true, bound: bound, unboundRemaining: unbound, availableColorVariables: Object.keys(varsByHex).length };
+}
+
+function isIconCandidate(node) {
+  var name = String(node.name || "").toLowerCase();
+  if (/^(ic|icon)[-_/]/.test(name)) return true;
+  if (node.parent && node.parent.type === "PAGE" && /icons?/i.test(node.parent.name || "")) return true;
+  if ((node.type === "FRAME" || node.type === "COMPONENT") && node.width <= 64 && node.height <= 64) return true;
+  return false;
+}
+
+function hasImageFill(node) {
+  if (!node.fills || !Array.isArray(node.fills)) return false;
+  return node.fills.some(function (p) { return p.type === "IMAGE" && p.visible !== false; });
+}
+
+function bytesToBase64(u8) {
+  var chunk = 0x8000, parts = [];
+  for (var i = 0; i < u8.length; i += chunk) {
+    parts.push(String.fromCharCode.apply(null, u8.subarray(i, i + chunk)));
+  }
+  return figma.base64Encode ? figma.base64Encode(u8) : btoa(parts.join(""));
+}
+
+async function listAssets(args) {
+  var kind = (args && args.kind) || "icon";
+  var limit = args && typeof args.limit === "number" ? args.limit : 40;
+  var results = [];
+  var stack = figma.root.children.slice();
+  while (stack.length && results.length < limit) {
+    var n = stack.shift();
+    var match = false, format = "SVG";
+    if (kind === "icon" && isIconCandidate(n)) { match = true; format = "SVG"; }
+    else if (kind === "image" && hasImageFill(n)) { match = true; format = "PNG"; }
+    else if (kind === "illustration" && (n.type === "FRAME" || n.type === "COMPONENT") && n.width >= 200 && n.height >= 200) {
+      var parentName = n.parent && n.parent.name ? String(n.parent.name).toLowerCase() : "";
+      if (/illust|art|graphic|scene|empty/.test(parentName) || /illust|art|scene/.test(String(n.name).toLowerCase())) { match = true; format = "SVG"; }
+    }
+    if (match) {
+      try {
+        var bytes = await n.exportAsync({ format: format, constraint: format === "PNG" ? { type: "SCALE", value: 2 } : undefined });
+        results.push({
+          nodeId: n.id, name: n.name, format: format, bytes: bytes.length,
+          data: bytesToBase64(bytes),
+          width: Math.round(n.width), height: Math.round(n.height)
+        });
+      } catch (e) { /* skip un-exportable */ }
+    }
+    if (results.length >= limit) break;
+    if ("children" in n && n.children) for (var i = 0; i < n.children.length; i++) stack.push(n.children[i]);
+  }
+  return { ok: true, kind: kind, count: results.length, limit: limit, assets: results };
+}
+
+async function lintDesignSystem(args) {
+  args = args || {};
+  var findings = [];
+  var roots = args.pageId ? figma.root.children.filter(function (p) { return p.id === args.pageId; }) : figma.root.children;
+  var nameCounts = {};
+  var componentsUsed = {};
+  var componentsDefined = [];
+  for (var p = 0; p < roots.length; p++) {
+    var page = roots[p];
+    await figma.setCurrentPageAsync(page);
+    var stack = page.children.slice();
+    while (stack.length) {
+      var n = stack.shift();
+      if (n.type === "COMPONENT" || n.type === "COMPONENT_SET") componentsDefined.push({ id: n.id, name: n.name });
+      if (n.type === "INSTANCE" && n.mainComponent) componentsUsed[n.mainComponent.id] = (componentsUsed[n.mainComponent.id] || 0) + 1;
+      if (n.name) nameCounts[n.name] = (nameCounts[n.name] || 0) + 1;
+      // unbound colors
+      if (n.fills && Array.isArray(n.fills) && n.fills !== figma.mixed) {
+        for (var f = 0; f < n.fills.length; f++) {
+          var fp = n.fills[f];
+          if (fp.type === "SOLID" && fp.visible !== false && (!fp.boundVariables || !fp.boundVariables.color)) {
+            findings.push({ rule: "unbound-color", nodeId: n.id, name: n.name, detail: colorToHex(fp.color) });
+          }
+        }
+      }
+      // non-grid spacing (divisible by 4)
+      if (n.layoutMode && n.layoutMode !== "NONE") {
+        var vals = { paddingTop: n.paddingTop, paddingBottom: n.paddingBottom, paddingLeft: n.paddingLeft, paddingRight: n.paddingRight, itemSpacing: n.itemSpacing };
+        Object.keys(vals).forEach(function (k) {
+          var v = vals[k];
+          if (typeof v === "number" && v > 0 && v % 4 !== 0) {
+            findings.push({ rule: "non-grid-spacing", nodeId: n.id, name: n.name, detail: k + "=" + v });
+          }
+        });
+      }
+      if ("children" in n && n.children) for (var c = 0; c < n.children.length; c++) stack.push(n.children[c]);
+    }
+  }
+  // orphan components
+  for (var d = 0; d < componentsDefined.length; d++) {
+    var def = componentsDefined[d];
+    if (!componentsUsed[def.id]) findings.push({ rule: "orphan-component", nodeId: def.id, name: def.name, detail: "defined but not instanced" });
+  }
+  // duplicate names (>3 is suspicious for frames)
+  Object.keys(nameCounts).forEach(function (name) {
+    if (nameCounts[name] >= 3 && /[A-Za-z]/.test(name)) findings.push({ rule: "duplicate-name", nodeId: null, name: name, detail: "used " + nameCounts[name] + " times" });
+  });
+  // cap findings
+  var MAX = 500;
+  var truncated = findings.length > MAX;
+  return { ok: true, findingsCount: findings.length, findings: findings.slice(0, MAX), truncated: truncated };
+}
+
 // ── Agent commands (from MCP via SSE → UI → here) ─────────────
 async function handleCommand(cmdId, action, args) {
   try {
@@ -721,6 +974,14 @@ async function handleCommand(cmdId, action, args) {
       var spec = await exportAppSpec();
       return { ok: true, spec: spec };
     }
+    if (action === "clone-screen") {
+      if (!args || !args.sourceNodeId) return { ok: false, error: "sourceNodeId required" };
+      return await cloneScreen(args);
+    }
+    if (action === "recolor") return await recolor(args || {});
+    if (action === "apply-tokens") return await applyTokens(args || {});
+    if (action === "list-assets") return await listAssets(args || {});
+    if (action === "lint-ds") return await lintDesignSystem(args || {});
     return { ok: false, error: "unknown action: " + action };
   } catch (e) {
     return { ok: false, error: (e && e.message) ? e.message : String(e) };

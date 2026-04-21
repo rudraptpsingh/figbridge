@@ -184,6 +184,82 @@ export async function main() {
     }
   );
 
+  // ── Write-side tools (agent generates / mutates Figma) ────
+  server.tool(
+    "clone_screen",
+    "Duplicate a frame (screen) inside Figma, optionally renaming it and applying text replacements to every TEXT child. Places the clone to the right of the source. Returns { nodeId, name, textReplacements }.",
+    {
+      sourceNodeId: z.string().describe("Figma node id of the frame to clone."),
+      name: z.string().optional().describe("Name to give the clone."),
+      textReplacements: z.record(z.string(), z.string()).optional().describe("Map of find → replace strings applied to every TEXT node in the clone. Requires the fonts used to be available.")
+    },
+    async ({ sourceNodeId, name, textReplacements }) => {
+      try {
+        const r = await sendCommand("clone-screen", { sourceNodeId, name, textReplacements }, 15000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "recolor",
+    "Swap SOLID fill/stroke colors across a scope. Scope is 'selection' (default), 'page', 'file', or a specific nodeId. Mapping maps old hex → new hex (case-insensitive, 3- or 6-digit hex, with or without #). Returns { changes, nodesVisited }.",
+    {
+      scope: z.enum(["selection", "page", "file"]).optional(),
+      nodeId: z.string().optional().describe("Override scope with a specific node subtree."),
+      mapping: z.record(z.string(), z.string()).describe("Old → new hex color map, e.g. { '#ff7a29': '#3ddc97' }.")
+    },
+    async ({ scope, nodeId, mapping }) => {
+      try {
+        const r = await sendCommand("recolor", { scope, nodeId, mapping }, 15000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "apply_tokens",
+    "Bind loose SOLID color fills to matching local color variables (matched by exact hex). Scope is a nodeId or the current selection. Returns { bound, unboundRemaining, availableColorVariables }.",
+    {
+      nodeId: z.string().optional().describe("Target node subtree. Omit to use current selection (falls back to current page).")
+    },
+    async ({ nodeId }) => {
+      try {
+        const r = await sendCommand("apply-tokens", { nodeId }, 15000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "list_assets",
+    "Export bulk assets from the file as base64. kind='icon' scans small vector frames + names like ic-* and exports SVG. kind='image' finds IMAGE-fill nodes and exports PNG@2x. kind='illustration' finds large vectors on 'Illustrations' pages and exports SVG. limit caps the number of assets returned (default 40).",
+    {
+      kind: z.enum(["icon", "image", "illustration"]).describe("Asset type to export."),
+      limit: z.number().optional().describe("Max assets to return. Default 40.")
+    },
+    async ({ kind, limit }) => {
+      try {
+        const r = await sendCommand("list-assets", { kind, limit }, 30000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "lint_ds",
+    "Lint the file for design-system violations: unbound colors (SOLID fills not using a variable), non-grid spacing (padding/gap not divisible by 4), orphan components (defined but never instanced), and duplicate names. Returns findings grouped by rule.",
+    {
+      pageId: z.string().optional().describe("Restrict to a single page id.")
+    },
+    async ({ pageId }) => {
+      try {
+        const r = await sendCommand("lint-ds", { pageId }, 20000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   // ── Diff ───────────────────────────────────────────────────
   server.tool(
     "diff_since",

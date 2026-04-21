@@ -304,6 +304,30 @@ async function main() {
             counts: { pages: 2, screens: 1, components: 1 }
           }};
           break;
+        case "clone-screen":
+          body = { ok: true, nodeId: "1:9-copy", name: parsed.args?.name || "S09 Splash (clone)",
+            textReplacements: Object.keys(parsed.args?.textReplacements || {}).length };
+          break;
+        case "recolor":
+          body = { ok: true, changes: 7, nodesVisited: 42 };
+          break;
+        case "apply-tokens":
+          body = { ok: true, bound: 12, unboundRemaining: 3, availableColorVariables: 24 };
+          break;
+        case "list-assets":
+          body = { ok: true, kind: parsed.args?.kind, count: 2, limit: parsed.args?.limit || 40,
+            assets: [
+              { nodeId: "i:1", name: "ic-home", format: "SVG", bytes: 340, data: "PHN2Zy4uLjwvc3ZnPg==", width: 24, height: 24 },
+              { nodeId: "i:2", name: "ic-search", format: "SVG", bytes: 312, data: "PHN2Zy4uLjwvc3ZnPg==", width: 24, height: 24 }
+            ]};
+          break;
+        case "lint-ds":
+          body = { ok: true, findingsCount: 3, truncated: false, findings: [
+            { rule: "unbound-color", nodeId: "x:1", name: "Rect", detail: "#ff7a29" },
+            { rule: "non-grid-spacing", nodeId: "x:2", name: "Card", detail: "paddingTop=7" },
+            { rule: "orphan-component", nodeId: "c:99", name: "LegacyChip", detail: "defined but not instanced" }
+          ]};
+          break;
         default:
           body = { ok: true };
       }
@@ -391,6 +415,50 @@ async function main() {
     if (!actions.includes(need)) fail(`SSE never received "${need}" command`);
   }
   ok(`all 4 catalog commands were dispatched via SSE`);
+
+  // Phase 10 ────────────────────────────────────────────────────
+  log("phase 10: write-side tools (clone / recolor / apply_tokens / list_assets / lint_ds)");
+
+  const clone = await s2.rpc("tools/call", {
+    name: "clone_screen",
+    arguments: { sourceNodeId: "1:9", name: "S09 Splash (variant)",
+      textReplacements: { "Draftr": "Scribl", "Write fearlessly": "Think sharper" } }
+  });
+  const cloneParsed = JSON.parse(clone.result.content[0].text);
+  if (!cloneParsed.ok || cloneParsed.textReplacements !== 2) fail(`clone_screen: ${JSON.stringify(cloneParsed)}`);
+  ok(`clone_screen → nodeId=${cloneParsed.nodeId}, ${cloneParsed.textReplacements} text replacements applied`);
+
+  const rec = await s2.rpc("tools/call", {
+    name: "recolor", arguments: { scope: "page", mapping: { "#ff7a29": "#3ddc97" } }
+  });
+  const recParsed = JSON.parse(rec.result.content[0].text);
+  if (recParsed.changes !== 7) fail("recolor changes count wrong");
+  ok(`recolor → ${recParsed.changes} fills updated across ${recParsed.nodesVisited} nodes`);
+
+  const at = await s2.rpc("tools/call", { name: "apply_tokens", arguments: {} });
+  const atParsed = JSON.parse(at.result.content[0].text);
+  if (atParsed.bound !== 12) fail("apply_tokens bound count wrong");
+  ok(`apply_tokens → bound ${atParsed.bound}, still unbound ${atParsed.unboundRemaining} (of ${atParsed.availableColorVariables} variables)`);
+
+  const assets = await s2.rpc("tools/call", { name: "list_assets", arguments: { kind: "icon", limit: 10 } });
+  const assetsParsed = JSON.parse(assets.result.content[0].text);
+  if (assetsParsed.count !== 2 || assetsParsed.kind !== "icon") fail("list_assets wrong");
+  if (!assetsParsed.assets[0].data) fail("asset missing base64 data");
+  ok(`list_assets (icon) → ${assetsParsed.count} assets, first: ${assetsParsed.assets[0].name} (${assetsParsed.assets[0].bytes}B SVG)`);
+
+  const lint = await s2.rpc("tools/call", { name: "lint_ds", arguments: {} });
+  const lintParsed = JSON.parse(lint.result.content[0].text);
+  if (lintParsed.findingsCount !== 3) fail("lint_ds findings count wrong");
+  const rules = [...new Set(lintParsed.findings.map(f => f.rule))];
+  if (!rules.includes("unbound-color") || !rules.includes("orphan-component")) fail("lint_ds missing rule categories");
+  ok(`lint_ds → ${lintParsed.findingsCount} findings across rules: ${rules.join(", ")}`);
+
+  // Verify all write-side commands dispatched through SSE
+  const writeActions = ["clone-screen", "recolor", "apply-tokens", "list-assets", "lint-ds"];
+  for (const act of writeActions) {
+    if (!receivedCommands.some(c => c.action === act)) fail(`SSE never received "${act}"`);
+  }
+  ok(`all 5 write-side commands dispatched via SSE`);
 
   reader.cancel();
   s2.child.kill();
