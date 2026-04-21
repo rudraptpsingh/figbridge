@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Figbridge — Free MCP bridge from Figma to Claude &amp; any agent</title>
+<meta name="description" content="Free, local MCP bridge that lets Claude, Cursor, and any agent read and edit Figma — no Dev Mode seat, no PAT, no cloud. Just Figma Desktop + your model of choice.">
+<meta property="og:title" content="Figbridge — Figma ↔ AI agents, free and local">
+<meta property="og:description" content="17 MCP tools. No $25/seat Dev Mode. No account. Runs on your machine.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://rudraptpsingh.github.io/figbridge/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23ff7a29'/%3E%3Ctext x='50%25' y='58%25' text-anchor='middle' font-family='system-ui,sans-serif' font-weight='800' font-size='38' fill='%230e0f12'%3EF%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0a08;
+    --panel: #121110;
+    --panel-2: #1a1918;
+    --ink: #f5f2ec;
+    --ink-dim: #a8a49b;
+    --brand: #ff7a29;
+    --brand-soft: #ff7a2922;
+    --line: #2a2825;
+    --green: #3ddc97;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: var(--mono); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+  header {
+    padding: 22px 0;
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; background: rgba(11,10,8,0.85); backdrop-filter: blur(8px); z-index: 10;
+  }
+  .nav { display: flex; align-items: center; gap: 28px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
+  .logo .dot { width: 26px; height: 26px; border-radius: 7px; background: var(--brand); display: grid; place-items: center; color: var(--bg); font-weight: 900; }
+  .nav-links { margin-left: auto; display: flex; gap: 22px; color: var(--ink-dim); font-size: 14px; }
+  .nav-links a { color: var(--ink-dim); }
+  .nav-links a:hover { color: var(--ink); text-decoration: none; }
+  .gh { padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink) !important; }
+
+  .hero { padding: 72px 0 48px; }
+  .pill { display: inline-block; font-size: 12px; color: var(--brand); background: var(--brand-soft); padding: 5px 12px; border-radius: 99px; letter-spacing: 0.02em; text-transform: uppercase; font-weight: 600; }
+  h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.02; letter-spacing: -0.03em; margin: 18px 0 18px; font-weight: 800; }
+  h1 .accent { color: var(--brand); }
+  .lede { font-size: 20px; color: var(--ink-dim); max-width: 720px; }
+  .cta-row { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 18px; border-radius: 10px; font-weight: 600; font-size: 15px; border: 1px solid var(--line); }
+  .btn.primary { background: var(--brand); color: #0b0a08; border-color: var(--brand); }
+  .btn.primary:hover { background: #ff8c47; text-decoration: none; }
+  .btn.ghost { color: var(--ink); }
+  .btn.ghost:hover { border-color: var(--ink-dim); text-decoration: none; }
+  .copy-cmd { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-family: var(--mono); font-size: 14px; display: inline-flex; gap: 10px; align-items: center; cursor: pointer; user-select: all; }
+  .copy-cmd::before { content: "$"; color: var(--brand); }
+  .copy-cmd .copied { color: var(--green); font-family: inherit; font-size: 12px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 56px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .kpi .n { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+  .kpi .l { color: var(--ink-dim); font-size: 13px; margin-top: 2px; }
+  @media (max-width: 720px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+
+  section { padding: 72px 0; border-top: 1px solid var(--line); }
+  section h2 { font-size: 32px; letter-spacing: -0.02em; margin: 0 0 8px; }
+  section .sub { color: var(--ink-dim); margin-bottom: 36px; }
+
+  .flows { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  @media (max-width: 820px) { .flows { grid-template-columns: 1fr; } }
+  .flow { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .flow .tag { font-size: 11px; color: var(--brand); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+  .flow h3 { margin: 8px 0 6px; font-size: 19px; }
+  .flow p { color: var(--ink-dim); margin: 0 0 14px; }
+  .chat { background: var(--panel-2); border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.5; }
+  .chat .u, .chat .a { display: block; }
+  .chat .u { color: var(--ink); }
+  .chat .u::before { content: "you › "; color: #b388ff; font-weight: 600; }
+  .chat .a { color: var(--ink-dim); margin-top: 6px; }
+  .chat .a::before { content: "claude › "; color: #5cc8ff; font-weight: 600; }
+  .chat code { background: #0b0a08; color: var(--brand); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; }
+
+  .install { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 28px; }
+  .install ol { margin: 0; padding-left: 22px; }
+  .install li { margin: 10px 0; color: var(--ink); }
+  .install li code { background: var(--panel-2); padding: 2px 8px; border-radius: 6px; font-size: 13.5px; }
+  .install .note { color: var(--ink-dim); font-size: 14px; margin-top: 16px; }
+
+  table.tools { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.tools th, table.tools td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.tools th { color: var(--ink-dim); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.tools td code { background: var(--panel-2); padding: 1px 7px; border-radius: 5px; color: var(--brand); }
+  table.tools td:nth-child(2) { color: var(--ink-dim); }
+
+  .compare { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); font-size: 14px; }
+  .compare > div { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .compare > div:nth-child(-n+4) { background: var(--panel-2); font-weight: 600; color: var(--ink-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .compare .y { color: var(--green); }
+  .compare .n { color: #ff5a4a; }
+  @media (max-width: 720px) { .compare { grid-template-columns: 2fr 1fr 1fr 1fr; font-size: 12px; } .compare > div { padding: 10px 8px; } }
+
+  footer { padding: 60px 0 80px; border-top: 1px solid var(--line); color: var(--ink-dim); font-size: 14px; text-align: center; }
+  footer a { color: var(--ink-dim); }
+  footer a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="logo"><span class="dot">F</span> Figbridge</div>
+    <div class="nav-links">
+      <a href="#flows">Flows</a>
+      <a href="#install">Install</a>
+      <a href="#tools">Tools</a>
+      <a href="#compare">vs Dev Mode</a>
+      <a class="gh" href="https://github.com/rudraptpsingh/figbridge">GitHub</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero" style="border: none; padding-top: 88px;">
+    <span class="pill">Free · Local · MCP</span>
+    <h1>Your Figma file, <span class="accent">in any agent's hands</span>.</h1>
+    <p class="lede">
+      A free, local MCP bridge that exposes Figma Desktop to Claude, Cursor, Continue, and any MCP-speaking agent.
+      Seventeen tools for reading, describing, linting, and <em>mutating</em> Figma — no $25/seat Dev Mode, no PAT, no cloud.
+    </p>
+    <div class="cta-row">
+      <a class="btn primary" href="#install">Install in 60 seconds →</a>
+      <span class="copy-cmd" onclick="navigator.clipboard.writeText('npx figbridge-mcp init'); this.querySelector('.copied').textContent='copied';">npx figbridge-mcp init <span class="copied"></span></span>
+      <a class="btn ghost" href="https://github.com/rudraptpsingh/figbridge">Star on GitHub</a>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="n">17</div><div class="l">MCP tools</div></div>
+      <div class="kpi"><div class="n">$0</div><div class="l">vs $25/seat Dev Mode</div></div>
+      <div class="kpi"><div class="n">100%</div><div class="l">local, no cloud</div></div>
+      <div class="kpi"><div class="n">0</div><div class="l">accounts or PATs required</div></div>
+    </div>
+  </section>
+
+  <section id="flows">
+    <h2>What you can do, today</h2>
+    <p class="sub">Every flow below runs against your real Figma file, driven by natural-language prompts to Claude.</p>
+    <div class="flows">
+
+      <div class="flow">
+        <div class="tag">Flow 1 · Spec to app</div>
+        <h3>"Ship the whole app from this Figma file."</h3>
+        <p>One tool call returns every screen, every component variant, tokens, CSS vars, and Tailwind config. Claude writes the Next.js project.</p>
+        <div class="chat">
+          <span class="u">Use <code>export_app_spec</code>. Scaffold a Next.js + Tailwind app with one route per screen, grouped by category.</span>
+          <span class="a">Got the full catalog: 37 screens, 43 components, 35 color tokens. Writing <code>app/(onboarding)/splash</code>, <code>app/(auth)/sign-in</code>, <code>tailwind.config.js</code>…</span>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="tag">Flow 2 · Rebrand</div>
+        <h3>"Flip the brand color across the whole file."</h3>
+        <p><code>recolor</code> swaps hex-to-hex file-wide. <code>apply_tokens</code> binds loose fills to variables so the next swap is a one-line change.</p>
+        <div class="chat">
+          <span class="u">Recolor <code>#ff7a29 → #3ddc97</code> file-wide, then bind loose fills to variables.</span>
+          <span class="a">Recolored 9 fills across 58 nodes. Bound 14 layers to <code>--color-brand-primary</code>, 1 remaining unbound.</span>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="tag">Flow 3 · Design review</div>
+        <h3>"Lint the file for DS violations."</h3>
+        <p>The <code>/design-review</code> slash command ships with Figbridge. Unbound colors, off-grid spacing, orphan components, dup names — PR-ready markdown.</p>
+        <div class="chat">
+          <span class="u">/design-review</span>
+          <span class="a">500+ findings across 3 rules — unbound-color, non-grid-spacing, orphan-component. Reply "fix bindings" to run <code>apply_tokens</code>.</span>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="tag">Flow 4 · Asset dump</div>
+        <h3>"Export every icon into my repo."</h3>
+        <p><code>list_assets kind:icon</code> returns base64 SVGs. Claude decodes and writes them to <code>src/icons/</code> using node names.</p>
+        <div class="chat">
+          <span class="u">Export all icons as SVG and write them to <code>src/icons/</code>.</span>
+          <span class="a">Exported 24 icons. Wrote <code>src/icons/home.svg</code>, <code>src/icons/scripts.svg</code>, … sizes 311B–814B.</span>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="tag">Flow 5 · Translate</div>
+        <h3>"Ship a JA version of the onboarding flow."</h3>
+        <p><code>clone_screen</code> with <code>textReplacements</code> duplicates frames and swaps strings — fonts auto-loaded.</p>
+        <div class="chat">
+          <span class="u">Clone every screen tagged <code>onboarding</code> and translate text EN → JA using this glossary.</span>
+          <span class="a">Cloned 5 screens, applied 42 replacements. New frames placed at +1600px to the right.</span>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="tag">Flow 6 · Pair-design</div>
+        <h3>"Fix a11y on whatever I'm selecting."</h3>
+        <p>Live bridge auto-pushes on every selection. Claude sees what you see, suggests fixes, offers to clone-with-fix so you can diff side-by-side.</p>
+        <div class="chat">
+          <span class="u">Rewrite this hierarchy for a11y, clone with the fix.</span>
+          <span class="a">H2 demoted to H3, CTA contrast 3.1 → 7.2, cloned as "S09 Splash (a11y)".</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>Install</h2>
+    <p class="sub">One command wires Claude Desktop. One menu click loads the plugin. You own the whole stack.</p>
+    <div class="install">
+      <ol>
+        <li><strong>Run the installer:</strong> <code>npx figbridge-mcp init</code>
+          <div class="note">Patches <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or the Windows equivalent. No globals, no sudo.</div>
+        </li>
+        <li><strong>Load the plugin in Figma:</strong> Plugins → Development → Import plugin from manifest… → <code>figbridge/plugin/manifest.json</code></li>
+        <li><strong>Run Figbridge, toggle Live bridge on</strong> (green dot).</li>
+        <li><strong>Restart Claude Desktop.</strong> Ask <em>"what tools does figbridge expose?"</em> — you should see 17.</li>
+      </ol>
+      <div class="note">Runs on localhost:7331. Everything stays on your machine. Source: <a href="https://github.com/rudraptpsingh/figbridge">github.com/rudraptpsingh/figbridge</a>.</div>
+    </div>
+  </section>
+
+  <section id="tools">
+    <h2>17 MCP tools</h2>
+    <p class="sub">Read, write, catalog, and diff. Every tool below is plugin-only — no Figma REST, no PAT.</p>
+    <table class="tools">
+      <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>get_current_selection</code></td><td>HTML / CSS / Tailwind / tokens / cssVars / tailwind.config for the current selection.</td></tr>
+        <tr><td><code>get_last_export</code></td><td>Alias. The last pushed payload.</td></tr>
+        <tr><td><code>list_history</code></td><td>Recent selections (metadata, newest first).</td></tr>
+        <tr><td><code>get_tokens</code></td><td>Design tokens + CSS vars + Tailwind config.</td></tr>
+        <tr><td><code>bridge_status</code></td><td>Health + plugin-connected status.</td></tr>
+        <tr><td><code>select_node</code></td><td>Select a node by id or name substring (viewport follows).</td></tr>
+        <tr><td><code>export_node</code></td><td>Export a specific node without requiring a user click.</td></tr>
+        <tr><td><code>list_screens</code></td><td>Every top-level frame, categorized (splash, onboarding, auth, home, detail, settings, …).</td></tr>
+        <tr><td><code>list_components</code></td><td>Components &amp; component sets with variants.</td></tr>
+        <tr><td><code>describe_screen</code></td><td>Semantic description — size, background, text, components, one-paragraph summary.</td></tr>
+        <tr><td><code>export_app_spec</code></td><td>One-shot JSON spec of the whole file — screens, components, tokens, flows.</td></tr>
+        <tr><td><code>clone_screen</code></td><td>Duplicate a frame with optional text replacements.</td></tr>
+        <tr><td><code>recolor</code></td><td>Swap SOLID fill/stroke hex colors across selection / page / file.</td></tr>
+        <tr><td><code>apply_tokens</code></td><td>Bind loose fills to matching local color variables.</td></tr>
+        <tr><td><code>list_assets</code></td><td>Bulk-export icons (SVG), images (PNG@2x), illustrations (SVG) as base64.</td></tr>
+        <tr><td><code>lint_ds</code></td><td>Unbound colors, non-grid spacing, orphan components, duplicate names.</td></tr>
+        <tr><td><code>diff_since</code></td><td>History with SHA-1 fingerprints — detect real changes vs re-selections.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="compare">
+    <h2>vs Figma Dev Mode</h2>
+    <p class="sub">Both let agents read Figma. Only one is free and two-way.</p>
+    <div class="compare">
+      <div>Capability</div><div>Dev Mode MCP</div><div>Code Connect</div><div>Figbridge</div>
+
+      <div>Price</div>
+      <div class="n">$25/seat/mo</div><div class="n">Org plan</div><div class="y">Free</div>
+
+      <div>Requires cloud / account</div>
+      <div class="n">Yes</div><div class="n">Yes</div><div class="y">No (localhost only)</div>
+
+      <div>Read screens / components / tokens</div>
+      <div class="y">Yes</div><div class="y">Yes</div><div class="y">Yes</div>
+
+      <div><strong>Write back to Figma (recolor, clone, apply tokens)</strong></div>
+      <div class="n">No</div><div class="n">No</div><div class="y">Yes</div>
+
+      <div>One-call whole-file spec export</div>
+      <div class="n">Selection-scoped</div><div class="n">No</div><div class="y">export_app_spec</div>
+
+      <div>Design-system linting</div>
+      <div class="n">No</div><div class="n">No</div><div class="y">lint_ds</div>
+
+      <div>Live pair-design (push on selection)</div>
+      <div class="n">No</div><div class="n">No</div><div class="y">Live bridge (SSE)</div>
+
+      <div>Works offline</div>
+      <div class="n">No</div><div class="n">No</div><div class="y">Yes</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Built by a human who ships.</h2>
+    <p class="sub" style="margin-bottom: 0;">
+      Figbridge is MIT-licensed and built by <a href="https://github.com/rudraptpsingh">Rudra Pratap Singh</a>.
+      Issues and pull requests welcome — <a href="https://github.com/rudraptpsingh/figbridge/issues">open an issue</a> if you hit a wall.
+    </p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Figbridge · MIT © 2026 Rudra Pratap Singh</div>
+    <div style="margin-top: 6px;">
+      <a href="https://github.com/rudraptpsingh/figbridge">GitHub</a> ·
+      <a href="https://github.com/rudraptpsingh/figbridge/issues">Issues</a> ·
+      <a href="https://github.com/rudraptpsingh/figbridge#readme">Docs</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

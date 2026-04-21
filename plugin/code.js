@@ -523,13 +523,18 @@ function dominantBackground(node) {
   return null;
 }
 
-function countInstances(node, set) {
+async function countInstances(node, set) {
   set = set || {};
-  if (node.type === "INSTANCE" && node.mainComponent) {
-    var key = node.mainComponent.name || node.mainComponent.id;
-    set[key] = (set[key] || 0) + 1;
+  if (node.type === "INSTANCE") {
+    try {
+      var mc = await node.getMainComponentAsync();
+      if (mc) {
+        var key = mc.name || mc.id;
+        set[key] = (set[key] || 0) + 1;
+      }
+    } catch (e) {}
   }
-  if ("children" in node) for (var i = 0; i < node.children.length; i++) countInstances(node.children[i], set);
+  if ("children" in node) for (var i = 0; i < node.children.length; i++) await countInstances(node.children[i], set);
   return set;
 }
 
@@ -541,7 +546,9 @@ async function listScreens(opts) {
     var page = pages[i];
     await figma.setCurrentPageAsync(page);
     var screens = page.children.filter(function (n) {
-      return n.type === "FRAME" || n.type === "COMPONENT" || n.type === "COMPONENT_SET";
+      if (n.type !== "FRAME" && n.type !== "COMPONENT" && n.type !== "COMPONENT_SET") return false;
+      // Skip tiny frames (icons, tokens chips, etc.). 200px floor covers phones (390), tablets, desktop.
+      return Math.max(n.width || 0, n.height || 0) >= 200;
     });
     screens.sort(function (a, b) { return orderHint(a.name) - orderHint(b.name); });
     for (var j = 0; j < screens.length; j++) {
@@ -602,7 +609,7 @@ async function describeScreen(nodeId) {
   while (page && page.type !== "PAGE") page = page.parent;
   var texts = collectTextContent(node).slice(0, 40);
   var bg = dominantBackground(node);
-  var instances = countInstances(node);
+  var instances = await countInstances(node);
   var category = categorizeScreen(node.name);
   var summary =
     "Screen \"" + node.name + "\"" +
@@ -878,7 +885,12 @@ async function lintDesignSystem(args) {
     while (stack.length) {
       var n = stack.shift();
       if (n.type === "COMPONENT" || n.type === "COMPONENT_SET") componentsDefined.push({ id: n.id, name: n.name });
-      if (n.type === "INSTANCE" && n.mainComponent) componentsUsed[n.mainComponent.id] = (componentsUsed[n.mainComponent.id] || 0) + 1;
+      if (n.type === "INSTANCE") {
+        try {
+          var mc = await n.getMainComponentAsync();
+          if (mc) componentsUsed[mc.id] = (componentsUsed[mc.id] || 0) + 1;
+        } catch (e) {}
+      }
       if (n.name) nameCounts[n.name] = (nameCounts[n.name] || 0) + 1;
       // unbound colors
       if (n.fills && Array.isArray(n.fills) && n.fills !== figma.mixed) {
@@ -911,10 +923,15 @@ async function lintDesignSystem(args) {
   Object.keys(nameCounts).forEach(function (name) {
     if (nameCounts[name] >= 3 && /[A-Za-z]/.test(name)) findings.push({ rule: "duplicate-name", nodeId: null, name: name, detail: "used " + nameCounts[name] + " times" });
   });
-  // cap findings
-  var MAX = 500;
+  // per-rule counts (computed over ALL findings, before truncation)
+  var counts = {};
+  for (var fi = 0; fi < findings.length; fi++) {
+    var rr = findings[fi].rule;
+    counts[rr] = (counts[rr] || 0) + 1;
+  }
+  var MAX = 1000;
   var truncated = findings.length > MAX;
-  return { ok: true, findingsCount: findings.length, findings: findings.slice(0, MAX), truncated: truncated };
+  return { ok: true, findingsCount: findings.length, counts: counts, findings: findings.slice(0, MAX), truncated: truncated };
 }
 
 // ── Agent commands (from MCP via SSE → UI → here) ─────────────
