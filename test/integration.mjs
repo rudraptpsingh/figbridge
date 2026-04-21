@@ -259,8 +259,54 @@ async function main() {
     const parsed = JSON.parse(data);
     if (event === "command") {
       receivedCommands.push(parsed);
-      // Auto-reply ok for select commands
-      let body = { ok: true, selected: { id: parsed.args?.nodeId || "auto:1", name: parsed.args?.name || "FakeNode", type: "FRAME" } };
+      let body;
+      switch (parsed.action) {
+        case "select":
+          body = { ok: true, selected: { id: parsed.args?.nodeId || "auto:1", name: parsed.args?.name || "FakeNode", type: "FRAME" } };
+          break;
+        case "list-screens": {
+          const screens = [
+            { nodeId: "1:9", name: "S09 Splash", pageId: "0:1", pageName: "Onboarding", width: 390, height: 844, type: "FRAME", category: "splash", orderHint: 9 },
+            { nodeId: "1:10", name: "S10 Onboarding-Write", pageId: "0:1", pageName: "Onboarding", width: 390, height: 844, type: "FRAME", category: "onboarding", orderHint: 10 },
+            { nodeId: "2:1", name: "Home", pageId: "0:2", pageName: "Main", width: 390, height: 844, type: "FRAME", category: "home", orderHint: 9999 }
+          ];
+          body = { ok: true, screens, count: screens.length };
+          break;
+        }
+        case "list-components": {
+          const components = [
+            { nodeId: "c:1", name: "Button", kind: "COMPONENT_SET", variantCount: 4,
+              variants: parsed.args?.includeVariants ? [
+                { nodeId: "c:1a", name: "primary/lg", width: 160, height: 48 },
+                { nodeId: "c:1b", name: "primary/sm", width: 120, height: 36 }
+              ] : undefined },
+            { nodeId: "c:2", name: "Card", kind: "COMPONENT", width: 343, height: 120 }
+          ];
+          body = { ok: true, components, count: components.length };
+          break;
+        }
+        case "describe-screen":
+          body = { ok: true, nodeId: parsed.args?.nodeId, name: "S09 Splash", pageName: "Onboarding",
+            width: 390, height: 844, category: "splash", background: "#0e0f12",
+            textContent: ["Draftr", "Write fearlessly"], instances: { "Button": 1 },
+            summary: 'Screen "S09 Splash" on page "Onboarding" — 390×844, background #0e0f12, category=splash. Text: "Draftr", "Write fearlessly". Components used: Button×1.' };
+          break;
+        case "export-app-spec":
+          body = { ok: true, spec: {
+            fileName: "Draftr — iOS App Design", generatedAt: Date.now(),
+            screens: [{ nodeId: "1:9", name: "S09 Splash", pageName: "Onboarding", category: "splash" }],
+            components: [{ nodeId: "c:1", name: "Button", kind: "COMPONENT_SET" }],
+            tokens: { colors: { "amber/default": "#ff7a29" }, numbers: {}, strings: {}, booleans: {} },
+            cssVars: ":root {\n  --amber-default: #ff7a29;\n}\n",
+            tailwindConfig: "module.exports = {};",
+            screensByCategory: { splash: [{ nodeId: "1:9", name: "S09 Splash" }] },
+            flowsByPage: { Onboarding: [{ nodeId: "1:9", name: "S09 Splash", category: "splash" }] },
+            counts: { pages: 2, screens: 1, components: 1 }
+          }};
+          break;
+        default:
+          body = { ok: true };
+      }
       fetch(`http://127.0.0.1:${PORT}/command/${parsed.cmdId}/result`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
       });
@@ -306,6 +352,45 @@ async function main() {
   if (!sel2.result.content[0].text.includes(`"ok"`)) fail("select_node by name failed");
   if (receivedCommands[1].args.name !== "Splash") fail("name arg not propagated");
   ok(`select_node by name → plugin received args.name="Splash"`);
+
+  // Phase 9 ─────────────────────────────────────────────────────
+  log("phase 9: catalog tools (list_screens / list_components / describe_screen / export_app_spec)");
+
+  const ls = await s2.rpc("tools/call", { name: "list_screens", arguments: {} });
+  const lsParsed = JSON.parse(ls.result.content[0].text);
+  if (lsParsed.count !== 3) fail(`list_screens count: got ${lsParsed.count}`);
+  if (!lsParsed.screens.find(s => s.category === "splash")) fail("list_screens missing splash category");
+  if (!lsParsed.screens.find(s => s.category === "onboarding")) fail("list_screens missing onboarding category");
+  ok(`list_screens → 3 screens, categories: ${[...new Set(lsParsed.screens.map(s => s.category))].join(", ")}`);
+
+  const lc = await s2.rpc("tools/call", { name: "list_components", arguments: { includeVariants: true } });
+  const lcParsed = JSON.parse(lc.result.content[0].text);
+  if (lcParsed.count !== 2) fail(`list_components count: got ${lcParsed.count}`);
+  const btn = lcParsed.components.find(c => c.name === "Button");
+  if (!btn || btn.kind !== "COMPONENT_SET") fail("list_components Button not a COMPONENT_SET");
+  if (!Array.isArray(btn.variants) || btn.variants.length !== 2) fail("includeVariants=true didn't return variants");
+  ok(`list_components → Button (${btn.variantCount} variants incl. "${btn.variants[0].name}"), Card (COMPONENT)`);
+
+  const ds = await s2.rpc("tools/call", { name: "describe_screen", arguments: { nodeId: "1:9" } });
+  const dsParsed = JSON.parse(ds.result.content[0].text);
+  if (dsParsed.category !== "splash") fail("describe_screen category wrong");
+  if (!dsParsed.summary.includes("Draftr")) fail("describe_screen summary missing text content");
+  if (!dsParsed.summary.includes("Button×1")) fail("describe_screen summary missing component usage");
+  ok(`describe_screen → category=${dsParsed.category}, summary: "${dsParsed.summary.slice(0, 80)}..."`);
+
+  const spec = await s2.rpc("tools/call", { name: "export_app_spec", arguments: {} });
+  const specParsed = JSON.parse(spec.result.content[0].text);
+  if (!specParsed.screensByCategory || !specParsed.screensByCategory.splash) fail("export_app_spec missing screensByCategory.splash");
+  if (!specParsed.flowsByPage?.Onboarding) fail("export_app_spec missing flowsByPage.Onboarding");
+  if (!specParsed.tokens?.colors?.["amber/default"]) fail("export_app_spec tokens missing");
+  ok(`export_app_spec → fileName="${specParsed.fileName}", ${specParsed.counts.screens} screens, ${specParsed.counts.components} components, grouped by category + flow`);
+
+  // Verify that the new actions were actually dispatched via SSE
+  const actions = receivedCommands.map(c => c.action);
+  for (const need of ["list-screens", "list-components", "describe-screen", "export-app-spec"]) {
+    if (!actions.includes(need)) fail(`SSE never received "${need}" command`);
+  }
+  ok(`all 4 catalog commands were dispatched via SSE`);
 
   reader.cancel();
   s2.child.kill();

@@ -131,6 +131,59 @@ export async function main() {
     }
   );
 
+  // ── Catalog tools (app-level views) ───────────────────────
+  server.tool(
+    "list_screens",
+    "List every top-level frame (screen) across pages in the currently open Figma file. Each result has { nodeId, name, pageName, width, height, category, orderHint }. Category is inferred from name: splash | onboarding | auth | home | detail | settings | overlay | editor | search | state | commerce | error | other. Requires the Figbridge plugin to be open with Live bridge on.",
+    {
+      pageId: z.string().optional().describe("Restrict to a single page id. Omit for all pages.")
+    },
+    async ({ pageId }) => {
+      try {
+        const result = await sendCommand("list-screens", { pageId }, 10000);
+        return asText({ count: result.count, screens: result.screens });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "list_components",
+    "List local components and component sets (with variants) in the currently open Figma file. Returns [{ nodeId, name, kind: 'COMPONENT' | 'COMPONENT_SET', variantCount?, variants? }].",
+    {
+      includeVariants: z.boolean().optional().describe("If true, include the list of variant components inside each COMPONENT_SET.")
+    },
+    async ({ includeVariants }) => {
+      try {
+        const result = await sendCommand("list-components", { includeVariants: !!includeVariants }, 10000);
+        return asText({ count: result.count, components: result.components });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "describe_screen",
+    "Return a semantic description of a single screen: size, background color, all text content, components used, inferred category, and a one-paragraph natural-language summary. Useful for agents that want to reason about a screen without fetching its full HTML.",
+    { nodeId: z.string().describe("Figma node id of the screen/frame.") },
+    async ({ nodeId }) => {
+      try {
+        const result = await sendCommand("describe-screen", { nodeId }, 10000);
+        return asText(result);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "export_app_spec",
+    "Return a complete JSON catalog of the currently open Figma file: every screen, every component (with variants), design tokens, CSS variables, Tailwind config, screens grouped by category, and a per-page flow ordering. Drop this into an agent's context as the authoritative spec for the app.",
+    {},
+    async () => {
+      try {
+        const result = await sendCommand("export-app-spec", {}, 20000);
+        return asText(result.spec);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   // ── Diff ───────────────────────────────────────────────────
   server.tool(
     "diff_since",

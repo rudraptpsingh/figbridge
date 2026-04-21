@@ -485,6 +485,185 @@ function onSelectionChange() {
   figma.on("selectionchange", onSelectionChange);
 })();
 
+// ── Catalog helpers ───────────────────────────────────────────
+function categorizeScreen(name) {
+  var s = String(name || "").toLowerCase();
+  if (/splash|launch/.test(s)) return "splash";
+  if (/onboard|welcome|intro|tour/.test(s)) return "onboarding";
+  if (/sign\s*in|log\s*in|login|sign\s*up|signup|register|forgot|reset|otp|verif|auth/.test(s)) return "auth";
+  if (/home|feed|dashboard|explore|discover/.test(s)) return "home";
+  if (/detail|view|read|post|article/.test(s)) return "detail";
+  if (/profile|account|settings|preferences/.test(s)) return "settings";
+  if (/modal|sheet|popup|dialog|alert|toast/.test(s)) return "overlay";
+  if (/write|compose|edit|create|new/.test(s)) return "editor";
+  if (/search|filter|sort/.test(s)) return "search";
+  if (/empty|placeholder|skeleton/.test(s)) return "state";
+  if (/paywall|subscribe|upgrade|billing|checkout/.test(s)) return "commerce";
+  if (/error|404|offline|maintenance/.test(s)) return "error";
+  return "other";
+}
+
+function orderHint(name) {
+  var m = String(name || "").match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : 9999;
+}
+
+function collectTextContent(node, acc) {
+  acc = acc || [];
+  if (node.type === "TEXT" && typeof node.characters === "string") acc.push(node.characters);
+  if ("children" in node) for (var i = 0; i < node.children.length; i++) collectTextContent(node.children[i], acc);
+  return acc;
+}
+
+function dominantBackground(node) {
+  if (node.fills && node.fills.length) {
+    var c = paintToCSS(node.fills);
+    if (c) return c;
+  }
+  return null;
+}
+
+function countInstances(node, set) {
+  set = set || {};
+  if (node.type === "INSTANCE" && node.mainComponent) {
+    var key = node.mainComponent.name || node.mainComponent.id;
+    set[key] = (set[key] || 0) + 1;
+  }
+  if ("children" in node) for (var i = 0; i < node.children.length; i++) countInstances(node.children[i], set);
+  return set;
+}
+
+async function listScreens(opts) {
+  opts = opts || {};
+  var pages = opts.pageId ? figma.root.children.filter(function (p) { return p.id === opts.pageId; }) : figma.root.children;
+  var out = [];
+  for (var i = 0; i < pages.length; i++) {
+    var page = pages[i];
+    await figma.setCurrentPageAsync(page);
+    var screens = page.children.filter(function (n) {
+      return n.type === "FRAME" || n.type === "COMPONENT" || n.type === "COMPONENT_SET";
+    });
+    screens.sort(function (a, b) { return orderHint(a.name) - orderHint(b.name); });
+    for (var j = 0; j < screens.length; j++) {
+      var s = screens[j];
+      out.push({
+        nodeId: s.id,
+        name: s.name,
+        pageId: page.id,
+        pageName: page.name,
+        width: Math.round(s.width),
+        height: Math.round(s.height),
+        type: s.type,
+        category: categorizeScreen(s.name),
+        orderHint: orderHint(s.name)
+      });
+    }
+  }
+  return out;
+}
+
+async function listComponents(opts) {
+  opts = opts || {};
+  var includeVariants = !!opts.includeVariants;
+  var out = [];
+  var seen = {};
+  var stack = figma.root.children.slice();
+  while (stack.length) {
+    var n = stack.shift();
+    if (n.type === "COMPONENT_SET") {
+      var variants = [];
+      if (includeVariants && n.children) {
+        for (var c = 0; c < n.children.length; c++) {
+          var v = n.children[c];
+          if (v.type === "COMPONENT") variants.push({ nodeId: v.id, name: v.name, width: Math.round(v.width), height: Math.round(v.height) });
+        }
+      }
+      out.push({ nodeId: n.id, name: n.name, kind: "COMPONENT_SET", variantCount: (n.children || []).length, variants: includeVariants ? variants : undefined });
+      seen[n.id] = true;
+      continue;
+    }
+    if (n.type === "COMPONENT" && !seen[n.id]) {
+      // Only top-level components (not children of COMPONENT_SET)
+      if (!n.parent || n.parent.type !== "COMPONENT_SET") {
+        out.push({ nodeId: n.id, name: n.name, kind: "COMPONENT", width: Math.round(n.width), height: Math.round(n.height) });
+      }
+      continue;
+    }
+    if ("children" in n && n.children) for (var k = 0; k < n.children.length; k++) stack.push(n.children[k]);
+  }
+  out.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+  return out;
+}
+
+async function describeScreen(nodeId) {
+  var node = await figma.getNodeByIdAsync(nodeId);
+  if (!node) return { error: "node not found: " + nodeId };
+  var page = node;
+  while (page && page.type !== "PAGE") page = page.parent;
+  var texts = collectTextContent(node).slice(0, 40);
+  var bg = dominantBackground(node);
+  var instances = countInstances(node);
+  var category = categorizeScreen(node.name);
+  var summary =
+    "Screen \"" + node.name + "\"" +
+    (page ? " on page \"" + page.name + "\"" : "") +
+    " — " + Math.round(node.width) + "×" + Math.round(node.height) +
+    (bg ? ", background " + bg : "") +
+    ", category=" + category + "." +
+    (texts.length ? " Text: " + texts.map(function (t) { return JSON.stringify(t); }).join(", ") + "." : "") +
+    (Object.keys(instances).length
+      ? " Components used: " + Object.keys(instances).map(function (k) { return k + "×" + instances[k]; }).join(", ") + "."
+      : "");
+  return {
+    nodeId: node.id,
+    name: node.name,
+    pageName: page ? page.name : null,
+    width: Math.round(node.width),
+    height: Math.round(node.height),
+    category: category,
+    background: bg,
+    textContent: texts,
+    instances: instances,
+    summary: summary
+  };
+}
+
+async function exportAppSpec() {
+  var screens = await listScreens({});
+  var components = await listComponents({ includeVariants: true });
+  var tok = await extractTokens();
+  // Group screens by category
+  var byCategory = {};
+  for (var i = 0; i < screens.length; i++) {
+    var s = screens[i];
+    if (!byCategory[s.category]) byCategory[s.category] = [];
+    byCategory[s.category].push(s);
+  }
+  // Inferred flows: contiguous ordered screens per page
+  var flows = {};
+  for (var j = 0; j < screens.length; j++) {
+    var sc = screens[j];
+    if (!flows[sc.pageName]) flows[sc.pageName] = [];
+    flows[sc.pageName].push({ nodeId: sc.nodeId, name: sc.name, category: sc.category });
+  }
+  return {
+    fileName: figma.root.name,
+    generatedAt: Date.now(),
+    screens: screens,
+    components: components,
+    tokens: tok.tokens,
+    cssVars: tok.cssVars,
+    tailwindConfig: tok.tailwindConfig,
+    screensByCategory: byCategory,
+    flowsByPage: flows,
+    counts: {
+      pages: figma.root.children.length,
+      screens: screens.length,
+      components: components.length
+    }
+  };
+}
+
 // ── Agent commands (from MCP via SSE → UI → here) ─────────────
 async function handleCommand(cmdId, action, args) {
   try {
@@ -524,6 +703,23 @@ async function handleCommand(cmdId, action, args) {
       // Tell the UI so it pushes to the bridge (which persists + broadcasts).
       figma.ui.postMessage(Object.assign({ type: "auto-push" }, payload));
       return { ok: true, nodeId: target.id, nodeName: target.name };
+    }
+    if (action === "list-screens") {
+      var screens = await listScreens(args || {});
+      return { ok: true, screens: screens, count: screens.length };
+    }
+    if (action === "list-components") {
+      var comps = await listComponents(args || {});
+      return { ok: true, components: comps, count: comps.length };
+    }
+    if (action === "describe-screen") {
+      if (!args || !args.nodeId) return { ok: false, error: "nodeId required" };
+      var desc = await describeScreen(args.nodeId);
+      return Object.assign({ ok: true }, desc);
+    }
+    if (action === "export-app-spec") {
+      var spec = await exportAppSpec();
+      return { ok: true, spec: spec };
     }
     return { ok: false, error: "unknown action: " + action };
   } catch (e) {
