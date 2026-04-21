@@ -115,7 +115,10 @@
 </div>
 
 <script>
-  var BRIDGE_URL = "http://localhost:7331/push";
+  var BRIDGE_BASE = "http://localhost:7331";
+  var BRIDGE_URL = BRIDGE_BASE + "/push";
+  var EVENTS_URL = BRIDGE_BASE + "/events";
+  var eventSource = null;
   var el = function (id) { return document.getElementById(id); };
   var state = { tab: "html", data: null, bridge: false };
   var bridgeOk = null;
@@ -201,6 +204,34 @@
     });
   }
 
+  function openEventStream() {
+    if (eventSource) return;
+    try {
+      eventSource = new EventSource(EVENTS_URL);
+      eventSource.addEventListener("hello", function () {
+        setStatus("ok", "Bridge connected"); setFoot("Connected to MCP bridge (live)");
+      });
+      eventSource.addEventListener("command", function (e) {
+        try {
+          var cmd = JSON.parse(e.data);
+          parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmd.cmdId, action: cmd.action, args: cmd.args } }, "*");
+        } catch (err) { setFoot("Bad command: " + err.message); }
+      });
+      eventSource.onerror = function () {
+        setStatus("err", "Bridge offline"); setFoot("SSE disconnected — is figbridge-mcp running?");
+      };
+    } catch (e) { setFoot("EventSource error: " + e.message); }
+  }
+  function closeEventStream() {
+    if (eventSource) { try { eventSource.close(); } catch {}; eventSource = null; }
+  }
+  function postCmdResult(cmdId, body) {
+    return fetch(BRIDGE_BASE + "/command/" + cmdId + "/result", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).catch(function () {});
+  }
+
   function renderPages(pages) {
     var root = el("pages"); root.innerHTML = "";
     pages.forEach(function (p) {
@@ -236,6 +267,10 @@
         state.bridge = msg.enabled;
         el("bridgeToggle").checked = msg.enabled;
         setStatus(msg.enabled ? "busy" : "", msg.enabled ? "Bridge on" : "Ready");
+        if (msg.enabled) openEventStream(); else closeEventStream();
+        break;
+      case "cmd-result":
+        postCmdResult(msg.cmdId, msg.body);
         break;
       case "result":
         state.data = msg; render();

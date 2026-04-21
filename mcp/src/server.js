@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getLatest, getHistory } from "./store.js";
-import { startBridge } from "./bridge.js";
+import { getLatest, getHistory, getHistorySince } from "./store.js";
+import { startBridge, sendCommand, clientCount } from "./bridge.js";
 
 const FORMATS = ["html", "css", "tailwind", "tokens", "cssVars", "tailwindConfig", "all"];
 
@@ -82,16 +82,61 @@ export async function main() {
 
   server.tool(
     "bridge_status",
-    "Health check for the Figbridge HTTP bridge and the stored payload.",
+    "Health check for the Figbridge HTTP bridge and the stored payload. Also reports whether a plugin is currently connected (pluginConnected).",
     {},
     async () => {
       const p = getLatest();
       return asText({
         bridge: { port, running: true },
+        pluginConnected: clientCount() > 0,
+        connectedClients: clientCount(),
         hasLatest: !!p,
-        latest: p ? { pageName: p.pageName, nodeNames: p.nodeNames, capturedAt: p.capturedAt } : null
+        latest: p ? { pageName: p.pageName, nodeNames: p.nodeNames, capturedAt: p.capturedAt, fingerprint: p._fingerprint } : null
       });
     }
+  );
+
+  // ── Bidirectional tools (agent → plugin) ──────────────────
+  server.tool(
+    "select_node",
+    "Select a node in Figma and scroll the viewport to it. Provide either a nodeId (e.g. '1:2') or a name substring. Requires the Figbridge plugin to be open with Live bridge enabled.",
+    {
+      nodeId: z.string().optional().describe("Exact Figma node id, e.g. '49:137'"),
+      name: z.string().optional().describe("Case-insensitive substring match on node name (used if nodeId is not provided)")
+    },
+    async ({ nodeId, name }) => {
+      if (!nodeId && !name) return asText({ error: "Provide nodeId or name." });
+      try {
+        const result = await sendCommand("select", { nodeId, name });
+        return asText({ ok: true, selected: result.selected || null });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "export_node",
+    "Trigger the plugin to export a specific node (by id) without requiring the user to click. Returns the same payload shape as get_current_selection.",
+    {
+      nodeId: z.string().describe("Figma node id, e.g. '49:137'"),
+      format: z.enum(FORMATS).optional()
+    },
+    async ({ nodeId, format }) => {
+      try {
+        await sendCommand("export-node", { nodeId }, 10000);
+        // The plugin, after executing, POSTs to /push — which updates store.
+        // Give it a moment to land.
+        await new Promise((r) => setTimeout(r, 250));
+        return asText(formatPayload(getLatest(), format || "all"));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  // ── Diff ───────────────────────────────────────────────────
+  server.tool(
+    "diff_since",
+    "Return history entries captured after the given timestamp (milliseconds since epoch). Each entry includes a 12-char SHA-1 fingerprint of the payload so you can detect real content changes vs re-selections.",
+    { sinceMs: z.number().describe("Return entries with capturedAt > sinceMs. Use 0 for full history.") },
+    async ({ sinceMs }) => asText({ since: sinceMs, entries: getHistorySince(sinceMs) })
   );
 
   const transport = new StdioServerTransport();

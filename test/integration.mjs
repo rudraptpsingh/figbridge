@@ -215,6 +215,99 @@ async function main() {
   if (histParsed.history[0].pageName !== "Dashboard") fail("history order wrong (newest first)");
   ok(`list_history → ${histParsed.history.length} entries, newest="${histParsed.history[0].pageName}"`);
 
+  // Phase 7 ─────────────────────────────────────────────────────
+  log("phase 7: diff_since");
+  const t0 = Date.now() - 10_000;
+  const diff = await s2.rpc("tools/call", { name: "diff_since", arguments: { sinceMs: t0 } });
+  const diffParsed = JSON.parse(diff.result.content[0].text);
+  if (!Array.isArray(diffParsed.entries) || diffParsed.entries.length < 2) {
+    fail(`diff_since expected ≥2 entries, got ${diffParsed.entries?.length}`);
+  }
+  if (!diffParsed.entries[0].fingerprint) fail("diff entry missing fingerprint");
+  ok(`diff_since (10s window) → ${diffParsed.entries.length} entries, each with fingerprint`);
+
+  // Phase 8 ─────────────────────────────────────────────────────
+  log("phase 8: bidirectional command — simulate plugin subscribing via SSE");
+  // bridge_status should report pluginConnected=false right now
+  let stat = await s2.rpc("tools/call", { name: "bridge_status", arguments: {} });
+  let statParsed = JSON.parse(stat.result.content[0].text);
+  if (statParsed.pluginConnected !== false) fail("expected pluginConnected=false before SSE client connects");
+  ok("bridge_status: pluginConnected=false (no client yet)");
+
+  // select_node without a client should fail fast
+  const noClient = await s2.rpc("tools/call", { name: "select_node", arguments: { nodeId: "1:2" } });
+  const noClientText = noClient.result.content[0].text;
+  if (!noClientText.includes("not connected")) fail("expected 'not connected' error, got: " + noClientText);
+  ok("select_node without client → fails fast with clear error");
+
+  // Spin up a fake plugin client: SSE reader + command responder
+  log("  starting fake plugin SSE client...");
+  const receivedCommands = [];
+  const sseResp = await fetch(`http://127.0.0.1:${PORT}/events`);
+  const reader = sseResp.body.getReader();
+  const decoder = new TextDecoder();
+  let sseBuf = "";
+
+  function handleSSEFrame(frame) {
+    const lines = frame.split("\n");
+    let event = "message", data = "";
+    for (const l of lines) {
+      if (l.startsWith("event: ")) event = l.slice(7);
+      else if (l.startsWith("data: ")) data += l.slice(6);
+    }
+    if (!data) return;
+    const parsed = JSON.parse(data);
+    if (event === "command") {
+      receivedCommands.push(parsed);
+      // Auto-reply ok for select commands
+      let body = { ok: true, selected: { id: parsed.args?.nodeId || "auto:1", name: parsed.args?.name || "FakeNode", type: "FRAME" } };
+      fetch(`http://127.0.0.1:${PORT}/command/${parsed.cmdId}/result`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+      });
+    }
+  }
+
+  (async function readLoop() {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        sseBuf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = sseBuf.indexOf("\n\n")) >= 0) {
+          const frame = sseBuf.slice(0, idx);
+          sseBuf = sseBuf.slice(idx + 2);
+          if (frame.startsWith(":")) continue; // comment / keepalive
+          try { handleSSEFrame(frame); } catch {}
+        }
+      }
+    } catch {}
+  })();
+
+  await delay(200);
+  stat = await s2.rpc("tools/call", { name: "bridge_status", arguments: {} });
+  statParsed = JSON.parse(stat.result.content[0].text);
+  if (!statParsed.pluginConnected) fail("expected pluginConnected=true after SSE subscribe");
+  ok(`bridge_status: pluginConnected=${statParsed.pluginConnected} (1 client)`);
+
+  // Now select_node should round-trip through the fake client
+  const sel = await s2.rpc("tools/call", {
+    name: "select_node", arguments: { nodeId: "49:137" }
+  });
+  const selText = sel.result.content[0].text;
+  if (!selText.includes(`"ok": true`) && !selText.includes(`"ok":true`)) fail("select_node did not succeed: " + selText);
+  if (receivedCommands.length !== 1) fail(`expected 1 command received, got ${receivedCommands.length}`);
+  if (receivedCommands[0].action !== "select") fail("wrong action");
+  if (receivedCommands[0].args.nodeId !== "49:137") fail("wrong nodeId");
+  ok(`select_node → SSE command dispatched → plugin reply → tool returned ok`);
+
+  // select_node by name
+  const sel2 = await s2.rpc("tools/call", { name: "select_node", arguments: { name: "Splash" } });
+  if (!sel2.result.content[0].text.includes(`"ok"`)) fail("select_node by name failed");
+  if (receivedCommands[1].args.name !== "Splash") fail("name arg not propagated");
+  ok(`select_node by name → plugin received args.name="Splash"`);
+
+  reader.cancel();
   s2.child.kill();
   log("\n\x1b[32mALL INTEGRATION TESTS PASSED\x1b[0m");
   process.exit(0);

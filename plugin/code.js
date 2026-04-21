@@ -485,6 +485,52 @@ function onSelectionChange() {
   figma.on("selectionchange", onSelectionChange);
 })();
 
+// ── Agent commands (from MCP via SSE → UI → here) ─────────────
+async function handleCommand(cmdId, action, args) {
+  try {
+    if (action === "select") {
+      var node = null;
+      if (args && args.nodeId) {
+        node = await figma.getNodeByIdAsync(args.nodeId);
+      } else if (args && args.name) {
+        var needle = String(args.name).toLowerCase();
+        // Breadth-first scan across all pages
+        var stack = figma.root.children.slice();
+        while (stack.length) {
+          var n = stack.shift();
+          if (n.name && String(n.name).toLowerCase().indexOf(needle) >= 0
+              && (n.type === "FRAME" || n.type === "COMPONENT" || n.type === "GROUP" || n.type === "INSTANCE" || n.type === "TEXT")) {
+            node = n; break;
+          }
+          if ("children" in n && n.children) { for (var k = 0; k < n.children.length; k++) stack.push(n.children[k]); }
+        }
+      }
+      if (!node) return { ok: false, error: "node not found" };
+      var page = node;
+      while (page && page.type !== "PAGE") page = page.parent;
+      if (page) await figma.setCurrentPageAsync(page);
+      if (node.type !== "PAGE") figma.currentPage.selection = [node];
+      try { figma.viewport.scrollAndZoomIntoView([node]); } catch (e) {}
+      return { ok: true, selected: { id: node.id, name: node.name, type: node.type, pageName: page ? page.name : null } };
+    }
+    if (action === "export-node") {
+      if (!args || !args.nodeId) return { ok: false, error: "nodeId required" };
+      var target = await figma.getNodeByIdAsync(args.nodeId);
+      if (!target) return { ok: false, error: "node not found: " + args.nodeId };
+      var p2 = target;
+      while (p2 && p2.type !== "PAGE") p2 = p2.parent;
+      if (p2) await figma.setCurrentPageAsync(p2);
+      var payload = await exportPayload([target], p2 ? p2.name : figma.currentPage.name);
+      // Tell the UI so it pushes to the bridge (which persists + broadcasts).
+      figma.ui.postMessage(Object.assign({ type: "auto-push" }, payload));
+      return { ok: true, nodeId: target.id, nodeName: target.name };
+    }
+    return { ok: false, error: "unknown action: " + action };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) ? e.message : String(e) };
+  }
+}
+
 // ── Router ────────────────────────────────────────────────────
 figma.ui.onmessage = async function (msg) {
   switch (msg.type) {
@@ -492,6 +538,11 @@ figma.ui.onmessage = async function (msg) {
     case "get-frames":       await sendFramesForPage(msg.pageId); break;
     case "export-selection": await exportSelection(); break;
     case "export-nodes":     await exportNodes(msg.pageId, msg.nodeIds); break;
+    case "cmd": {
+      var body = await handleCommand(msg.cmdId, msg.action, msg.args);
+      figma.ui.postMessage({ type: "cmd-result", cmdId: msg.cmdId, body: body });
+      break;
+    }
     case "export-all":       await exportAllPages(); break;
     case "set-bridge":
       _liveBridge = !!msg.enabled;

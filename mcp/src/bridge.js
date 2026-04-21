@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { setLatest, getLatest } from "./store.js";
 
 const CORS_HEADERS = {
@@ -13,16 +14,73 @@ function send(res, status, body, type = "application/json") {
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 }
 
+// ── SSE registry ─────────────────────────────────────────────
+const clients = new Set();
+
+function broadcast(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of clients) {
+    try { res.write(payload); } catch {}
+  }
+}
+
+// ── Command queue (agent → plugin round-trip) ────────────────
+const pending = new Map(); // cmdId → { resolve, reject, timer }
+
+export function sendCommand(action, args, timeoutMs = 5000) {
+  if (clients.size === 0) {
+    return Promise.reject(new Error("Figbridge plugin is not connected. Open the plugin in Figma and toggle Live bridge on."));
+  }
+  const cmdId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(cmdId);
+      reject(new Error(`Command "${action}" timed out after ${timeoutMs}ms. Is the plugin still open?`));
+    }, timeoutMs);
+    pending.set(cmdId, { resolve, reject, timer });
+    broadcast("command", { cmdId, action, args });
+  });
+}
+
+export function clientCount() { return clients.size; }
+
+// ── HTTP server ──────────────────────────────────────────────
 export function startBridge(port = 7331, log = () => {}) {
   const server = http.createServer((req, res) => {
     if (req.method === "OPTIONS") { res.writeHead(204, CORS_HEADERS); return res.end(); }
 
     if (req.method === "GET" && req.url === "/health") {
-      return send(res, 200, { ok: true, hasLatest: !!getLatest(), name: "figbridge-bridge" });
+      return send(res, 200, {
+        ok: true, name: "figbridge-bridge",
+        hasLatest: !!getLatest(), clients: clients.size
+      });
     }
+
     if (req.method === "GET" && req.url === "/latest") {
       return send(res, 200, getLatest() || { empty: true });
     }
+
+    // SSE — plugin subscribes here
+    if (req.method === "GET" && req.url === "/events") {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        ...CORS_HEADERS
+      });
+      res.write(`event: hello\ndata: ${JSON.stringify({ ok: true, serverTime: Date.now() })}\n\n`);
+      clients.add(res);
+      log(`client connected (total=${clients.size})`);
+      const keepalive = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 20000);
+      req.on("close", () => {
+        clients.delete(res);
+        clearInterval(keepalive);
+        log(`client disconnected (total=${clients.size})`);
+      });
+      return;
+    }
+
+    // Plugin push a new selection payload
     if (req.method === "POST" && req.url === "/push") {
       let chunks = [];
       req.on("data", (c) => chunks.push(c));
@@ -31,14 +89,38 @@ export function startBridge(port = 7331, log = () => {}) {
           const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
           setLatest(body);
           log(`push: ${body.pageName || "?"} / ${(body.nodeNames || []).join(", ")}`);
+          broadcast("selection", {
+            pageName: body.pageName, nodeNames: body.nodeNames,
+            nodeIds: body.nodeIds, capturedAt: body.capturedAt
+          });
           send(res, 200, { ok: true });
-        } catch (e) {
-          send(res, 400, { ok: false, error: e.message });
-        }
+        } catch (e) { send(res, 400, { ok: false, error: e.message }); }
       });
       req.on("error", (e) => send(res, 500, { ok: false, error: e.message }));
       return;
     }
+
+    // Plugin reports a command result
+    const m = req.url && req.url.match(/^\/command\/([^/]+)\/result$/);
+    if (req.method === "POST" && m) {
+      const cmdId = m[1];
+      let chunks = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+          const p = pending.get(cmdId);
+          if (!p) return send(res, 404, { ok: false, error: "unknown cmdId" });
+          clearTimeout(p.timer);
+          pending.delete(cmdId);
+          if (body.ok === false) p.reject(new Error(body.error || "command failed"));
+          else p.resolve(body);
+          send(res, 200, { ok: true });
+        } catch (e) { send(res, 400, { ok: false, error: e.message }); }
+      });
+      return;
+    }
+
     send(res, 404, { error: "not found" });
   });
 
