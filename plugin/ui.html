@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Figbridge</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14171c; --panel-2: #1b1f26; --line: #262b33;
+    --text: #e7eaf0; --dim: #8892a0; --accent: #ff7a29; --ok: #3ddc97; --err: #ff5d6c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text", system-ui, sans-serif; }
+  .app { display:flex; flex-direction:column; height:100vh; }
+  header { padding:10px 14px; border-bottom:1px solid var(--line); background:var(--panel);
+    display:flex; align-items:center; gap:10px; }
+  .logo { font-weight:700; letter-spacing:0.2px; }
+  .badge { font-size:10px; padding:2px 6px; border-radius:4px; background:var(--panel-2);
+    color:var(--dim); border:1px solid var(--line); }
+  .spacer { flex:1; }
+  .bridge { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--dim); }
+  .bridge input { accent-color: var(--accent); }
+  .pill { font-size:10px; padding:2px 7px; border-radius:999px; background:var(--panel-2);
+    border:1px solid var(--line); color:var(--dim); }
+  .pill.ok { color:var(--ok); border-color:rgba(61,220,151,0.3); }
+  .pill.err { color:var(--err); border-color:rgba(255,93,108,0.3); }
+  .pill.busy { color:var(--accent); border-color:rgba(255,122,41,0.3); }
+
+  main { flex:1; display:grid; grid-template-columns: 240px 1fr; min-height:0; }
+  .sidebar { border-right:1px solid var(--line); background:var(--panel);
+    overflow:auto; padding:10px; }
+  .sidebar h4 { font-size:10px; text-transform:uppercase; letter-spacing:0.6px;
+    color:var(--dim); margin:12px 8px 6px; font-weight:600; }
+  .page-item, .frame-item { padding:7px 8px; border-radius:6px; cursor:pointer;
+    display:flex; align-items:center; gap:8px; }
+  .page-item:hover, .frame-item:hover { background:var(--panel-2); }
+  .page-item.current { background:var(--panel-2); }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--dim); }
+  .page-item.current .dot { background:var(--accent); }
+  .page-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .meta { color:var(--dim); font-size:11px; }
+
+  .content { display:flex; flex-direction:column; min-width:0; }
+  .toolbar { padding:8px 12px; border-bottom:1px solid var(--line);
+    display:flex; gap:6px; align-items:center; background:var(--panel); flex-wrap:wrap; }
+  button { font:inherit; color:var(--text); background:var(--panel-2);
+    border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; }
+  button:hover:not(:disabled) { background:#20252e; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  button.primary { background:var(--accent); color:#1a0b02; border-color:var(--accent); font-weight:600; }
+  button.primary:hover:not(:disabled) { filter:brightness(1.05); }
+
+  .tabs { display:flex; gap:2px; padding:0 12px; background:var(--panel);
+    border-bottom:1px solid var(--line); }
+  .tab { padding:8px 12px; cursor:pointer; font-size:12px; color:var(--dim);
+    border-bottom:2px solid transparent; }
+  .tab.active { color:var(--text); border-bottom-color:var(--accent); }
+  .panes { flex:1; overflow:auto; background:var(--bg); }
+  pre { margin:0; padding:12px; font:12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color:#c7cdd6; white-space:pre-wrap; word-break:break-word; }
+  .empty { color:var(--dim); padding:40px; text-align:center; }
+  .err { color:var(--err); padding:12px 14px; border-top:1px solid rgba(255,93,108,0.2);
+    background:rgba(255,93,108,0.06); display:none; font-size:12px; }
+  .footer { padding:6px 12px; border-top:1px solid var(--line); background:var(--panel);
+    color:var(--dim); font-size:11px; display:flex; align-items:center; gap:10px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">Figbridge</div>
+    <div class="badge">Figma → Code + MCP</div>
+    <div class="spacer"></div>
+    <label class="bridge">
+      <input type="checkbox" id="bridgeToggle" />
+      <span>Live bridge</span>
+    </label>
+    <span class="pill" id="status">Ready</span>
+  </header>
+
+  <main>
+    <aside class="sidebar">
+      <h4>Pages</h4>
+      <div id="pages"></div>
+      <h4 id="framesHeader" style="display:none">Frames</h4>
+      <div id="frames"></div>
+    </aside>
+
+    <section class="content">
+      <div class="toolbar">
+        <button class="primary" id="exportSel">Export selection</button>
+        <button id="exportAll">Export all pages</button>
+        <div class="spacer" style="flex:1"></div>
+        <button id="copyBtn" disabled>Copy</button>
+        <button id="dlBtn" disabled>Download</button>
+      </div>
+      <div class="tabs">
+        <div class="tab active" data-tab="html">HTML</div>
+        <div class="tab" data-tab="css">CSS</div>
+        <div class="tab" data-tab="tailwind">Tailwind</div>
+        <div class="tab" data-tab="tokens">Tokens</div>
+        <div class="tab" data-tab="tailwindConfig">tailwind.config</div>
+      </div>
+      <div class="panes">
+        <pre id="out"><div class="empty">No export yet. Select a frame and click <b>Export selection</b>, or enable <b>Live bridge</b> to auto-push selections to the MCP.</div></pre>
+      </div>
+      <div class="err" id="err"></div>
+      <div class="footer">
+        <span id="footState">Idle</span>
+        <span class="spacer" style="flex:1"></span>
+        <span>MCP bridge: <code>http://localhost:7331</code></span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  var BRIDGE_URL = "http://localhost:7331/push";
+  var el = function (id) { return document.getElementById(id); };
+  var state = { tab: "html", data: null, bridge: false };
+  var bridgeOk = null;
+
+  function setStatus(kind, text) {
+    var s = el("status"); s.textContent = text;
+    s.className = "pill" + (kind ? " " + kind : "");
+  }
+  function setFoot(t) { el("footState").textContent = t; }
+
+  function render() {
+    var out = el("out");
+    if (!state.data) {
+      out.innerHTML = '<div class="empty">No export yet. Select a frame and click <b>Export selection</b>.</div>';
+      el("copyBtn").disabled = true; el("dlBtn").disabled = true;
+      return;
+    }
+    var map = {
+      html: state.data.html || "",
+      css: state.data.css || "",
+      tailwind: state.data.tailwindHtml || "",
+      tokens: JSON.stringify(state.data.tokens || {}, null, 2) + "\n\n/* CSS variables */\n" + (state.data.cssVars || ""),
+      tailwindConfig: state.data.tailwindConfig || ""
+    };
+    var text = map[state.tab] || "";
+    out.textContent = text;
+    el("copyBtn").disabled = !text; el("dlBtn").disabled = !text;
+  }
+
+  document.querySelectorAll(".tab").forEach(function (t) {
+    t.addEventListener("click", function () {
+      document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("active"); });
+      t.classList.add("active");
+      state.tab = t.dataset.tab;
+      render();
+    });
+  });
+
+  el("exportSel").addEventListener("click", function () {
+    setStatus("busy", "Exporting..."); setFoot("Exporting selection…");
+    parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*");
+  });
+  el("exportAll").addEventListener("click", function () {
+    setStatus("busy", "Exporting all"); setFoot("Exporting all pages…");
+    parent.postMessage({ pluginMessage: { type: "export-all" } }, "*");
+  });
+
+  el("bridgeToggle").addEventListener("change", function (e) {
+    parent.postMessage({ pluginMessage: { type: "set-bridge", enabled: e.target.checked } }, "*");
+  });
+
+  el("copyBtn").addEventListener("click", function () {
+    var text = el("out").textContent;
+    navigator.clipboard.writeText(text).then(function () {
+      setStatus("ok", "Copied"); setTimeout(function () { setStatus("ok", "Ready"); }, 1200);
+    });
+  });
+  el("dlBtn").addEventListener("click", function () {
+    var exts = { html: "html", css: "css", tailwind: "html", tokens: "json", tailwindConfig: "js" };
+    var names = { html: "figbridge.html", css: "figbridge.css", tailwind: "figbridge.tailwind.html",
+      tokens: "figbridge.tokens.json", tailwindConfig: "tailwind.config.js" };
+    var blob = new Blob([el("out").textContent], { type: "text/plain" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = names[state.tab] || "figbridge.txt";
+    a.click();
+  });
+
+  function pushToBridge(payload) {
+    return fetch(BRIDGE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      bridgeOk = true; setStatus("ok", "Bridge connected");
+      setFoot("Pushed to MCP bridge at " + new Date().toLocaleTimeString());
+      return true;
+    }).catch(function (e) {
+      bridgeOk = false; setStatus("err", "Bridge offline");
+      setFoot("Bridge push failed: " + e.message);
+      return false;
+    });
+  }
+
+  function renderPages(pages) {
+    var root = el("pages"); root.innerHTML = "";
+    pages.forEach(function (p) {
+      var d = document.createElement("div");
+      d.className = "page-item" + (p.isCurrent ? " current" : "");
+      d.innerHTML = '<span class="dot"></span><span class="page-name"></span><span class="meta"></span>';
+      d.querySelector(".page-name").textContent = p.name;
+      d.querySelector(".meta").textContent = p.frameCount + "f";
+      d.addEventListener("click", function () {
+        parent.postMessage({ pluginMessage: { type: "get-frames", pageId: p.id } }, "*");
+      });
+      root.appendChild(d);
+    });
+  }
+  function renderFrames(pageName, frames) {
+    var h = el("framesHeader"); h.style.display = "block"; h.textContent = "Frames — " + pageName;
+    var root = el("frames"); root.innerHTML = "";
+    frames.forEach(function (f) {
+      var d = document.createElement("div"); d.className = "frame-item";
+      d.innerHTML = '<span class="dot"></span><span class="page-name"></span><span class="meta"></span>';
+      d.querySelector(".page-name").textContent = f.name;
+      d.querySelector(".meta").textContent = f.width + "×" + f.height;
+      root.appendChild(d);
+    });
+  }
+
+  window.onmessage = function (e) {
+    var msg = e.data.pluginMessage; if (!msg) return;
+    switch (msg.type) {
+      case "pages": renderPages(msg.pages); break;
+      case "frames": renderFrames(msg.pageName, msg.frames); break;
+      case "bridge-state":
+        state.bridge = msg.enabled;
+        el("bridgeToggle").checked = msg.enabled;
+        setStatus(msg.enabled ? "busy" : "", msg.enabled ? "Bridge on" : "Ready");
+        break;
+      case "result":
+        state.data = msg; render();
+        setStatus("ok", "Exported"); setFoot("Exported " + (msg.nodeNames || []).join(", "));
+        if (state.bridge) pushToBridge(msg);
+        break;
+      case "auto-push":
+        state.data = msg; render();
+        if (state.bridge) pushToBridge(msg);
+        break;
+      case "page-progress":
+        setFoot("Page " + msg.done + "/" + msg.total + ": " + msg.pageName);
+        break;
+      case "all-pages-result":
+        state.data = msg.pages[0] || null; render();
+        setStatus("ok", "Exported"); setFoot("Exported " + msg.pages.length + " pages");
+        break;
+      case "error":
+        el("err").style.display = "block"; el("err").textContent = msg.message;
+        setStatus("err", "Error"); setFoot(msg.message);
+        break;
+    }
+  };
+</script>
+</body>
+</html>

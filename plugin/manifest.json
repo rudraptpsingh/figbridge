@@ -1,0 +1,14 @@
+{
+  "name": "Figbridge",
+  "id": "figbridge",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma", "dev"],
+  "capabilities": ["inspect"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["http://localhost:7331", "http://127.0.0.1:7331"],
+    "reasoning": "Pushes the current export to the local Figbridge MCP bridge so AI agents (Claude Desktop, Cursor, etc.) can read it."
+  }
+}
