@@ -277,6 +277,20 @@
   .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
   @media (max-width: 900px) { .steps { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 500px) { .steps { grid-template-columns: 1fr; } }
+  .install-note {
+    margin-top: 36px; padding: 24px 28px;
+    background: var(--paper); border: 1px solid var(--line-2); border-radius: 4px;
+    border-left: 3px solid var(--accent);
+  }
+  .install-note h5 {
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: 22px; margin: 0 0 10px; color: var(--accent);
+    font-variation-settings: "opsz" 72;
+  }
+  .install-note ul { margin: 0; padding-left: 18px; font-size: 14.5px; line-height: 1.7; color: var(--ink-2); }
+  .install-note li { margin-bottom: 6px; }
+  .install-note strong { color: var(--ink); font-weight: 500; }
+  .install-note code { background: rgba(0,0,0,0.04); padding: 1px 6px; border-radius: 3px; font-size: 12.5px; }
   .stp { background: var(--paper); border: 1px solid var(--line-2); border-radius: 4px; padding: 26px 24px; position: relative; }
   .stp .num {
     font-family: var(--serif); font-weight: 300; font-style: italic;
@@ -339,7 +353,7 @@
       Read screens, ship an <em>offline agent handoff bundle</em>, lint design-systems, recolor, clone, and translate frames — <em>directly from any MCP-speaking agent, running on your own machine.</em>
     </p>
     <div class="cta-row">
-      <a class="btn primary" href="#install">Install in 60 seconds <span class="arr">→</span></a>
+      <a class="btn primary" href="#install">Install in 3 minutes <span class="arr">→</span></a>
       <span class="copy-cmd" onclick="navigator.clipboard.writeText('npx figbridge-mcp init'); this.querySelector('.ok').textContent='✓ COPIED';">npx figbridge-mcp init <span class="ok"></span></span>
       <a class="btn" href="https://github.com/rudraptpsingh/figbridge">GitHub ↗</a>
     </div>
@@ -419,7 +433,7 @@
       <div class="kpi"><div class="n">21</div><div class="l">MCP tools</div></div>
       <div class="kpi"><div class="n">$<em>0</em></div><div class="l">vs $25/seat Dev Mode</div></div>
       <div class="kpi"><div class="n">100<span style="font-size:30px;">%</span></div><div class="l">local · no account</div></div>
-      <div class="kpi"><div class="n">60s</div><div class="l">to install</div></div>
+      <div class="kpi"><div class="n">3 min</div><div class="l">to install</div></div>
     </div>
   </section>
 
@@ -734,9 +748,9 @@
 
   <!-- INSTALL ────────────────────────────────────────── -->
   <section id="install">
-    <div class="sectlabel"><span class="num">07</span><span>Setup</span><span class="r"></span><span>four steps · 60s</span></div>
-    <h2>Four steps. <em>Under a minute.</em></h2>
-    <p class="sub">One command patches Claude Desktop. One menu click loads the plugin. You own the whole stack.</p>
+    <div class="sectlabel"><span class="num">07</span><span>Setup</span><span class="r"></span><span>four steps · three minutes</span></div>
+    <h2>Four steps. <em>Three minutes.</em></h2>
+    <p class="sub">One command patches Claude Desktop. Clone the repo to get the plugin. One menu click loads it. You own the whole stack — nothing leaves your machine.</p>
 
     <div class="steps">
       <div class="stp">
@@ -746,19 +760,31 @@
       </div>
       <div class="stp">
         <div class="num">ii.</div>
-        <h4>Import the plugin</h4>
-        <p>Figma · Plugins · Development · Import plugin from manifest… pick <code>plugin/manifest.json</code>.</p>
+        <h4>Clone &amp; import the plugin</h4>
+        <p>The plugin is <em>not in Figma Community yet</em> — clone the repo locally:<br>
+        <code>git clone https://github.com/rudraptpsingh/figbridge</code><br>
+        Then: Figma · Plugins · Development · <em>Import plugin from manifest…</em> → pick <code>figbridge/plugin/manifest.json</code>. You only do this once.</p>
       </div>
       <div class="stp">
         <div class="num">iii.</div>
-        <h4>Toggle Live bridge</h4>
-        <p>Run <em>Figbridge</em>, flip <em>Live bridge</em> on. Green dot = connected.</p>
+        <h4>Restart Claude Desktop</h4>
+        <p>Quit &amp; reopen — Claude only reads its MCP config at launch. Then ask: <em>"what tools does figbridge expose?"</em> Expect 21.</p>
       </div>
       <div class="stp">
         <div class="num">iv.</div>
-        <h4>Restart Claude</h4>
-        <p>Quit &amp; reopen Claude Desktop. Ask: <em>"what tools does figbridge expose?"</em></p>
+        <h4>Toggle Live bridge</h4>
+        <p>Run the <em>Figbridge</em> plugin on any frame. Flip <em>Live bridge</em> on. Green dot in the plugin header = connected to the local bridge. The footer shows the port.</p>
       </div>
+    </div>
+
+    <div class="install-note">
+      <h5>Stuck?</h5>
+      <ul>
+        <li><strong>Claude shows "Server disconnected"</strong> → <code>npx figbridge-mcp doctor</code> reaps orphan bridges and probes ports 7331–7340. Then restart Claude.</li>
+        <li><strong>Plugin says "NO BRIDGE ON 7331–7340"</strong> → the bridge isn't running. Quit and reopen Claude Desktop; its launch spawns the bridge. If it still fails, run <code>doctor</code>.</li>
+        <li><strong>Running an older install (≤ 0.1.1)</strong> → <code>npx figbridge-mcp@latest update</code> self-heals the stale npx-cache path.</li>
+        <li><strong>Prefer to lock a version</strong> → <code>npx figbridge-mcp init --pin</code> opts out of auto-updates.</li>
+      </ul>
     </div>
   </section>
 

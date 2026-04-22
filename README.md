@@ -23,20 +23,26 @@ Figbridge:
 - **Deterministic.** No LLM rewrites. What you select is what you get.
 - **Live.** Toggle "Live bridge" and every selection change auto-pushes; agents pull the current selection instantly.
 
-## Install — 60 seconds
+## Install — ~3 minutes
+
+The plugin is **not in Figma Community yet**, so you clone the repo to get it. The MCP server comes from npm.
 
 ```bash
+# 1. Get the Figma plugin (clone the repo)
+git clone https://github.com/rudraptpsingh/figbridge
+
+# 2. Patch Claude Desktop's MCP config
 npx figbridge-mcp init
 ```
 
-That patches your Claude Desktop config and prints the next steps. Then:
+Then:
 
-1. Quit and reopen Claude Desktop.
-2. In Figma: **Plugins → Development → Import plugin from manifest…** → pick `plugin/manifest.json` from this repo.
-3. Run the Figbridge plugin, toggle **Live bridge** on.
+1. **Quit and reopen Claude Desktop** — it only reads MCP config at launch.
+2. In Figma: **Plugins → Development → Import plugin from manifest…** → pick the `plugin/manifest.json` from the clone above. (One-time.)
+3. Run the Figbridge plugin on any frame, toggle **Live bridge** on. A green dot in the plugin header = connected to the local bridge. The footer shows the port.
 4. In Claude: *"What tools does figbridge expose?"* — you should see 21.
 
-For any other MCP client, point it at the same binary: `npx figbridge-mcp`.
+For any other MCP client (Cursor, Cline, VS Code, …), point it at the same binary: `npx figbridge-mcp`.
 
 ### Via the MCP registry
 

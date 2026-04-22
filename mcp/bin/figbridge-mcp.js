@@ -8,7 +8,9 @@ if (arg === "init" || arg === "update") {
   const { runInit } = await import("../src/init.js");
   const { reapOrphans } = await import("../src/doctor.js");
   // Reap before rewriting config so the next launch lands on a clean :7331.
-  await reapOrphans({ quiet: false });
+  // Quiet: init's own section-3 "Bridge health" reports the result; we don't
+  // want raw "[figbridge] reaped N/M" lines bleeding above the pretty header.
+  await reapOrphans({ quiet: true });
   runInit({ pin: process.argv.includes("--pin") }).catch((e) => {
     process.stderr.write(`[figbridge] ${arg} failed: ${e && e.stack || e}\n`);
     process.exit(1);

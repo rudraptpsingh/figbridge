@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import http from "node:http";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -68,6 +69,28 @@ function pluginDir() {
   return null;
 }
 
+// Probe localhost:7331..7340 for live figbridge bridges so `init` can flag
+// stragglers — the top cause of "Server disconnected" after restart.
+function probePort(port, timeoutMs = 400) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: "127.0.0.1", port, path: "/health", timeout: timeoutMs }, (res) => {
+      let buf = "";
+      res.on("data", (c) => { buf += c; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(buf)); } catch { resolve(null); }
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => { req.destroy(); resolve(null); });
+  });
+}
+async function scanBridges() {
+  const results = await Promise.all(
+    Array.from({ length: 10 }, (_, i) => probePort(7331 + i).then((b) => ({ port: 7331 + i, body: b })))
+  );
+  return results.filter((r) => r.body && r.body.name === "figbridge-bridge");
+}
+
 export async function runInit(opts = {}) {
   const pin = opts.pin === true || process.argv.includes("--pin");
   console.log(`\n${BOLD}Figbridge installer${RESET} ${DIM}— free, local MCP bridge for Figma${RESET}\n`);
@@ -133,24 +156,43 @@ export async function runInit(opts = {}) {
   if (!pin && npxBin) info(`  ${DIM}auto-updates: Claude pulls the latest figbridge-mcp on every launch${RESET}`);
 
   step("2. Figma plugin install");
+  warn(`The plugin is ${BOLD}not on Figma Community${RESET} yet — you need the manifest file from this repo.`);
   const plug = pluginDir();
   if (plug) {
-    ok(`plugin manifest is at: ${plug}/manifest.json`);
-    console.log(`  ${DIM}In Figma desktop: Plugins → Development → Import plugin from manifest…${RESET}`);
-    console.log(`  ${DIM}Pick the file above, then run "Figbridge" on any frame.${RESET}`);
+    ok(`plugin manifest: ${BOLD}${plug}/manifest.json${RESET}`);
+    console.log(`  In Figma desktop: ${CYAN}Plugins → Development → Import plugin from manifest…${RESET}`);
+    console.log(`  ${DIM}Pick that file. Then run "Figbridge" from the plugin menu on any frame.${RESET}`);
   } else {
-    warn("plugin files aren't bundled with the npm package.");
-    console.log(`  ${DIM}Clone the repo to get them:${RESET}`);
-    console.log(`    git clone https://github.com/rudraptpsingh/figbridge`);
-    console.log(`  ${DIM}Then in Figma: Plugins → Development → Import plugin from manifest…${RESET}`);
-    console.log(`  ${DIM}→ figbridge/plugin/manifest.json${RESET}`);
+    warn("plugin files aren't bundled with the npm package — clone the repo:");
+    console.log(`    ${CYAN}git clone https://github.com/rudraptpsingh/figbridge${RESET}`);
+    console.log(`  Then in Figma: ${CYAN}Plugins → Development → Import plugin from manifest…${RESET}`);
+    console.log(`  Pick: ${BOLD}<clone-path>/figbridge/plugin/manifest.json${RESET}`);
   }
 
-  step("3. Next steps");
-  console.log(`  ${BOLD}1.${RESET} Quit and reopen Claude Desktop (it only reads config on launch).`);
-  console.log(`  ${BOLD}2.${RESET} Open Figma, run the Figbridge plugin, toggle ${CYAN}Live bridge${RESET} on.`);
-  console.log(`  ${BOLD}3.${RESET} In Claude, ask: ${CYAN}"What tools does figbridge expose?"${RESET}`);
-  console.log(`     You should see 21 tools (get_current_selection, export_app_spec, clone_screen, get_agent_bundle, …).`);
+  // Bridge health check — top cause of "Server disconnected" is a stale
+  // instance holding :7331 from a previous Claude launch. Surface it.
+  step("3. Bridge health");
+  try {
+    const bridges = await scanBridges();
+    if (bridges.length === 0) {
+      ok("no stale figbridge bridges running — clean slate.");
+    } else if (bridges.length === 1) {
+      const b = bridges[0];
+      info(`1 bridge already running on :${b.port} (plugin will find it once reloaded).`);
+    } else {
+      warn(`${bridges.length} bridges already running (${bridges.map(b => ":" + b.port).join(", ")}) — this is the split-brain state.`);
+      console.log(`  Run ${CYAN}npx figbridge-mcp doctor${RESET} to reap them, then restart Claude Desktop.`);
+    }
+  } catch { /* health probe is best-effort */ }
 
-  console.log(`\n${GREEN}Done.${RESET} Docs: https://rudraptpsingh.github.io/figbridge\n`);
+  step("4. Next steps — do these in order");
+  console.log(`  ${BOLD}1.${RESET} Quit and reopen Claude Desktop. ${DIM}(It only reads MCP config on launch.)${RESET}`);
+  console.log(`  ${BOLD}2.${RESET} In Figma: ${CYAN}Plugins → Development → Import plugin from manifest…${RESET} ${DIM}(skip if you've already imported)${RESET}`);
+  console.log(`  ${BOLD}3.${RESET} Run the Figbridge plugin on a frame, toggle ${CYAN}Live bridge${RESET} on.`);
+  console.log(`     ${DIM}Green dot in the plugin header = connected to the bridge. Port shows in the footer.${RESET}`);
+  console.log(`  ${BOLD}4.${RESET} In Claude, ask: ${CYAN}"What tools does figbridge expose?"${RESET}`);
+  console.log(`     ${DIM}You should see 21 tools (get_current_selection, export_app_spec, get_agent_bundle, …).${RESET}`);
+
+  console.log(`\n${GREEN}${BOLD}Done.${RESET}  Stuck? ${CYAN}npx figbridge-mcp doctor${RESET} reaps orphan processes and probes ports 7331–7340.`);
+  console.log(`       Docs: ${CYAN}https://rudraptpsingh.github.io/figbridge${RESET}\n`);
 }
