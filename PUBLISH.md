@@ -36,13 +36,13 @@ Everything lives under `docs/figma-listing/`:
 - `long-description.md` — full listing body (paste this into the "Description" field on Figma).
 - `tags.txt` — up to 12 tags to paste into the "Tags" field.
 - `reviewer-notes.md` — paste into the "Notes for reviewer" field.
-- `privacy-policy.md` — host this at `https://rudra-rps.github.io/figbridge/privacy` (or equivalent) and paste the URL.
+- `privacy-policy.md` — host this at `https://rudraptpsingh.github.io/figbridge/privacy` (or equivalent) and paste the URL.
 
 ## 3. Host the privacy policy and support page
 
 The privacy policy must be at a public URL. The repo's GitHub Pages site (`docs/`) already serves the landing page; add a `docs/privacy.html` wrapping `figma-listing/privacy-policy.md` and commit.
 
-Support URL for the listing: https://github.com/rudra-rps/figbridge/issues
+Support URL for the listing: https://github.com/rudraptpsingh/figbridge/issues
 
 ## 4. Record the listing media
 
@@ -86,7 +86,7 @@ Figma review is usually 5–10 business days. Use the time to:
 ## 7. After approval
 
 - Tag a GitHub release (`v0.1.0`) that matches the plugin manifest version.
-- Publish the bridge to npm so `npx figbridge-mcp` works without a git clone: `cd mcp && npm publish --access public`.
+- ~~Publish the bridge to npm so `npx figbridge-mcp` works without a git clone: `cd mcp && npm publish --access public`.~~ **Done:** `figbridge-mcp@0.1.0` is live on npm (https://www.npmjs.com/package/figbridge-mcp). `npx figbridge-mcp init` works cold.
 - Update the landing page at `docs/index.html` with the Figma Community URL once it is live.
 
 ## 8. Rejections — common causes

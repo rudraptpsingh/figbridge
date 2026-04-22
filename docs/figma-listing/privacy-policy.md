@@ -36,7 +36,7 @@ There are none.
 
 ## Source
 
-Both the plugin and the bridge are MIT-licensed open source. You can audit the full network surface at https://github.com/rudra-rps/figbridge.
+Both the plugin and the bridge are MIT-licensed open source. You can audit the full network surface at https://github.com/rudraptpsingh/figbridge.
 
 ## Contact
 

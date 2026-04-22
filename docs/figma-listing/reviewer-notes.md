@@ -30,10 +30,10 @@ No further setup is needed to review the plugin. Everything past the bridge togg
 3. In the plugin, toggle **Live bridge** on — the dot turns green.
 4. In another terminal: `curl http://localhost:7331/health` returns `{ "ok": true, "pluginConnected": true }`.
 
-Source for both plugin and bridge: https://github.com/rudra-rps/figbridge
+Source for both plugin and bridge: https://github.com/rudraptpsingh/figbridge
 
 ## Contact
 
 - Author: Rudra Pratap Singh
 - Email: rudra.ptp.singh@gmail.com
-- Issues: https://github.com/rudra-rps/figbridge/issues
+- Issues: https://github.com/rudraptpsingh/figbridge/issues
