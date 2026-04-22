@@ -81,6 +81,27 @@
   .footer { padding:6px 12px; border-top:1px solid var(--line); background:var(--panel);
     color:var(--dim); font-size:11px; display:flex; align-items:center; gap:10px; }
 
+  .frame-item.current { background:var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); }
+  .frame-item.current .dot { background:var(--accent); }
+
+  details.agent-opts, details.mcp-tools { background:var(--panel); border-bottom:1px solid var(--line);
+    padding: 4px 14px; font-size:12px; }
+  details.agent-opts summary, details.mcp-tools summary { cursor:pointer; padding:8px 0; color:var(--dim);
+    font-size:10px; text-transform:uppercase; letter-spacing:0.08em; list-style:none; }
+  details.agent-opts summary::before, details.mcp-tools summary::before { content:"›  "; color:var(--accent); font-weight:700; }
+  details[open] summary::before { content:"▾ "; }
+  .opts-grid { display:flex; flex-direction:column; gap:10px; padding:4px 0 14px; }
+  .opts-grid label { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--dim);
+    text-transform:uppercase; letter-spacing:0.06em; }
+  .opts-grid label.inline { flex-direction:row; align-items:center; gap:8px; text-transform:none; letter-spacing:0; }
+  .opts-grid select, .opts-grid textarea { font: inherit; font-family:var(--mono); font-size:12px;
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:6px 8px; }
+  .opts-grid textarea { resize:vertical; min-height:60px; }
+  .tool-list { display:flex; flex-wrap:wrap; gap:4px 6px; padding:4px 0 14px; }
+  .tool-list span { font-family:var(--mono); font-size:10.5px; padding:3px 8px; border-radius:999px;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text); }
+  .tool-list span.new { background:var(--text); color:var(--panel); border-color:var(--text); }
+
   /* First-run onboarding card */
   .welcome-overlay {
     position: fixed; inset: 0; background: rgba(4,6,9,0.86);
@@ -151,10 +172,38 @@
         <button class="primary" id="exportSel">Export selection</button>
         <button id="exportAll">Export all pages</button>
         <button id="exportAgent" title="Build an LLM-ready handoff bundle (hierarchy, components, tokens, DESIGN.md, AGENTS.md, ISSUES.md)">Export for Agent</button>
+        <button id="exportSpec" title="Build a catalog of screens, components, tokens">Export app spec</button>
         <div class="spacer" style="flex:1"></div>
         <button id="copyBtn" disabled>Copy</button>
         <button id="dlBtn" disabled>Download</button>
       </div>
+      <details class="agent-opts" id="agentOpts">
+        <summary>Agent bundle options</summary>
+        <div class="opts-grid">
+          <label>Budget
+            <select id="agBudget">
+              <option value="small">small — hierarchy + tokens only</option>
+              <option value="medium" selected>medium — + components + screenshots</option>
+              <option value="large">large — everything</option>
+            </select>
+          </label>
+          <label class="inline"><input type="checkbox" id="agShots" checked /> Include per-frame screenshots</label>
+          <label>Code paths (fuzzy-mapped to Figma components — one path per line)
+            <textarea id="agPaths" rows="4" placeholder="src/components/Button.tsx&#10;src/components/Card.tsx"></textarea>
+          </label>
+        </div>
+      </details>
+      <details class="mcp-tools">
+        <summary>MCP tools (available via Claude Desktop when Live bridge is on)</summary>
+        <div class="tool-list">
+          <span>get_current_selection</span><span>get_last_export</span><span>get_tokens</span>
+          <span>list_history</span><span>bridge_status</span><span>diff_since</span>
+          <span>select_node</span><span>export_node</span><span>list_screens</span>
+          <span>list_components</span><span>describe_screen</span><span>export_app_spec</span>
+          <span>clone_screen</span><span>recolor</span><span>apply_tokens</span>
+          <span>list_assets</span><span>lint_ds</span><span class="new">get_agent_bundle</span>
+        </div>
+      </details>
       <div class="tabs">
         <div class="tab active" data-tab="html">HTML</div>
         <div class="tab" data-tab="css">CSS</div>
@@ -240,8 +289,18 @@
     parent.postMessage({ pluginMessage: { type: "export-all" } }, "*");
   });
   el("exportAgent").addEventListener("click", function () {
-    setStatus("busy", "Bundling"); setFoot("Building agent bundle…");
-    parent.postMessage({ pluginMessage: { type: "export-agent", budget: "medium", screenshots: true } }, "*");
+    var budget = el("agBudget").value;
+    var screenshots = el("agShots").checked;
+    var paths = (el("agPaths").value || "").split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+    setStatus("busy", "Bundling"); setFoot("Building agent bundle (" + budget + (screenshots ? " +shots" : "") + (paths.length ? ", " + paths.length + " code paths" : "") + ")…");
+    parent.postMessage({ pluginMessage: { type: "export-agent", budget: budget, screenshots: screenshots, codePaths: paths } }, "*");
+  });
+  el("exportSpec").addEventListener("click", function () {
+    setStatus("busy", "Building spec"); setFoot("Building app spec…");
+    // Round-trip through the existing handleCommand router.
+    var cmdId = "ui-" + Date.now();
+    parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: "export-app-spec", args: {} } }, "*");
+    window._pendingSpec = cmdId;
   });
 
   el("bridgeToggle").addEventListener("change", function (e) {
@@ -324,14 +383,33 @@
       root.appendChild(d);
     });
   }
-  function renderFrames(pageName, frames) {
+  var _currentPageId = null;
+  function renderFrames(pageId, pageName, frames) {
+    _currentPageId = pageId;
     var h = el("framesHeader"); h.style.display = "block"; h.textContent = "Frames — " + pageName;
     var root = el("frames"); root.innerHTML = "";
     frames.forEach(function (f) {
       var d = document.createElement("div"); d.className = "frame-item";
+      d.title = "Click to export — Shift+click to add to selection";
       d.innerHTML = '<span class="dot"></span><span class="page-name"></span><span class="meta"></span>';
       d.querySelector(".page-name").textContent = f.name;
       d.querySelector(".meta").textContent = f.width + "×" + f.height;
+      d.addEventListener("click", function (ev) {
+        var selected = Array.from(document.querySelectorAll(".frame-item.current")).map(function (x) { return x.dataset.nodeId; });
+        var ids;
+        if (ev.shiftKey) {
+          d.classList.toggle("current");
+          ids = Array.from(document.querySelectorAll(".frame-item.current")).map(function (x) { return x.dataset.nodeId; });
+        } else {
+          document.querySelectorAll(".frame-item.current").forEach(function (x) { x.classList.remove("current"); });
+          d.classList.add("current");
+          ids = [f.id];
+        }
+        d.dataset.nodeId = f.id;
+        setStatus("busy", "Exporting"); setFoot("Exporting " + ids.length + " frame(s)…");
+        parent.postMessage({ pluginMessage: { type: "export-nodes", pageId: pageId, nodeIds: ids } }, "*");
+      });
+      d.dataset.nodeId = f.id;
       root.appendChild(d);
     });
   }
@@ -340,7 +418,7 @@
     var msg = e.data.pluginMessage; if (!msg) return;
     switch (msg.type) {
       case "pages": renderPages(msg.pages); break;
-      case "frames": renderFrames(msg.pageName, msg.frames); break;
+      case "frames": renderFrames(msg.pageId, msg.pageName, msg.frames); break;
       case "bridge-state":
         state.bridge = msg.enabled;
         el("bridgeToggle").checked = msg.enabled;
@@ -348,7 +426,15 @@
         if (msg.enabled) openEventStream(); else closeEventStream();
         break;
       case "cmd-result":
-        postCmdResult(msg.cmdId, msg.body);
+        if (window._pendingSpec && msg.cmdId === window._pendingSpec) {
+          window._pendingSpec = null;
+          var text = JSON.stringify(msg.body && msg.body.spec ? msg.body.spec : msg.body, null, 2);
+          state.data = { html: text, css: "", tailwindHtml: "", tokens: {}, cssVars: "", tailwindConfig: "" };
+          render();
+          setStatus("ok", "Spec ready"); setFoot("App spec rendered in HTML tab");
+        } else {
+          postCmdResult(msg.cmdId, msg.body);
+        }
         break;
       case "result":
         state.data = msg; render();
