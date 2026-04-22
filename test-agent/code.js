@@ -52,6 +52,8 @@ function paintToCSS(paints) {
   if (!visibles.length) return null;
   var p = visibles[visibles.length - 1];
   if (p.type === "SOLID") {
+    var tok = paintToTokenRef(p);
+    if (tok) return "var(" + tok.cssName + ")";
     var sc = { r: p.color.r, g: p.color.g, b: p.color.b, a: p.opacity == null ? 1 : p.opacity };
     return rgbaToCSS(sc);
   }
@@ -111,7 +113,8 @@ function strokeToCSS(node) {
   var dashed = node.dashPattern && node.dashPattern.length ? "dashed" : "solid";
   var sop = s.opacity == null ? 1 : s.opacity;
   var sc = { r: s.color.r, g: s.color.g, b: s.color.b, a: sop };
-  var color = rgbaToCSS(sc);
+  var stok = paintToTokenRef(s);
+  var color = stok ? "var(" + stok.cssName + ")" : rgbaToCSS(sc);
   // Mixed per-side weights → per-side declarations
   var ind = node.individualStrokeWeights;
   if (ind && (ind.top !== ind.right || ind.right !== ind.bottom || ind.bottom !== ind.left)) {
@@ -146,6 +149,7 @@ var _rules = [];
 var _mode = "css"; // "css" | "tailwind" | "react"
 var _minify = false;
 var _varMap = {}; // { [variableId]: { cssName, value } }
+var _varByHex = {}; // "#rrggbb" → { cssName, swiftName, name }
 var _assetCache = {}; // { [nodeId]: { kind: 'svg'|'png', data: string } }
 var _textStyleMap = {}; // { [styleId]: { className, decls } }
 var _emittedSelectors = new Set();
@@ -237,7 +241,53 @@ function kebab(s) {
   var k = str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
   return k || "el";
 }
-function setVariableMap(map) { _varMap = map || {}; }
+function setVariableMap(map) {
+  _varMap = map || {};
+  // Reverse index: normalized 6-digit lowercase hex → variable cssName + swiftName.
+  // Used to turn a raw SOLID fill like #0a0a0b back into var(--draftr-ink-black)
+  // (or Color("draftrInkBlack") / Color(0xFF0A0A0B)) so Claude's ported code
+  // stays wired to the host project's token system instead of baking in hex.
+  _varByHex = {};
+  var ids = Object.keys(_varMap);
+  for (var i = 0; i < ids.length; i++) {
+    var e = _varMap[ids[i]];
+    if (!e) continue;
+    var isColor = e.type === "color" || e.type === "COLOR" || (typeof e.value === "string" && e.value.charAt(0) === "#");
+    if (!isColor) continue;
+    var v = String(e.value || "").toLowerCase();
+    // only 6-digit opaque hex is safe to substitute — alpha blending in code-side
+    // tokens is project-specific and we don't want to guess.
+    var m = /^#([0-9a-f]{6})$/.exec(v);
+    if (!m) continue;
+    _varByHex["#" + m[1]] = {
+      cssName: e.cssName,                             // --draftr-ink-black
+      swiftName: sanitizeSwiftIdent(e.name || e.cssName), // draftrInkBlack
+      name: e.name || e.cssName,
+    };
+  }
+}
+
+// #0A0A0B → draftrInkBlack  (for Color("…") literals + Color extensions)
+function sanitizeSwiftIdent(raw) {
+  var s = String(raw || "").replace(/^--/, "").replace(/^-+|-+$/g, "");
+  // Preserve camelCase boundaries before lowercasing: "inkBlack" → "ink-Black"
+  s = s.replace(/([a-z0-9])([A-Z])/g, "$1-$2");
+  s = s.replace(/[\/_\s]+/g, "-").replace(/-+/g, "-").toLowerCase();
+  var parts = s.split("-").filter(Boolean);
+  if (!parts.length) return "color";
+  return parts[0] + parts.slice(1).map(function (p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join("");
+}
+
+// Return the token lookup for a paint's raw hex, or null.
+function paintToTokenRef(paint) {
+  if (!paint || paint.type !== "SOLID" || !paint.color) return null;
+  var op = paint.opacity == null ? 1 : paint.opacity;
+  if (op < 1) return null;          // skip translucent — alpha doesn't round-trip cleanly
+  var t = function (v) { return Math.round(v * 255); };
+  var hex = "#" + [paint.color.r, paint.color.g, paint.color.b]
+    .map(function (v) { return t(v).toString(16).padStart(2, "0"); }).join("").toLowerCase();
+  return _varByHex[hex] || null;
+}
 function setAssetCache(cache) { _assetCache = cache || {}; }
 
 function isVectorLike(node) {
@@ -1713,6 +1763,10 @@ function buildAgentBundle(nodes, pageTitle, opts) {
   // Stable-first ordering for prompt-cache friendliness.
   files.push({ path: "tokens.json", data: buildTokensJSON(_varMap) });
   files.push({ path: "tokens.css", data: rootVarsBlock() });
+  // iOS drop-in: Color extension so ported SwiftUI compiles without an
+  // Assets.xcassets round-trip. Also emits a .xcassets-ready JSON manifest.
+  var swiftColors = buildSwiftColorExtension(_varMap);
+  if (swiftColors) files.push({ path: "ios/Colors.swift", data: swiftColors });
   // Resolve component mapping: explicit opts.mappings wins; otherwise fuzzy-match
   // user-supplied opts.codePaths (array of file paths) against Figma components.
   var mapping = opts.mappings || {};
@@ -1766,6 +1820,35 @@ function buildAgentBundle(nodes, pageTitle, opts) {
   if (opts.budget) files = applyBudget(files, opts.budget);
   files.push({ path: "manifest.json", data: manifestJson(files) });
   return files;
+}
+
+// Emit a SwiftUI Color extension file so ported code can say `Color.draftrSnow`
+// without requiring the user to populate Assets.xcassets by hand.
+// Returns null when there are no color tokens.
+function buildSwiftColorExtension(varMap) {
+  var ids = Object.keys(varMap || {});
+  var lines = [];
+  for (var i = 0; i < ids.length; i++) {
+    var e = varMap[ids[i]];
+    if (!e) continue;
+    var isColor = e.type === "color" || e.type === "COLOR" || (typeof e.value === "string" && e.value.charAt(0) === "#");
+    if (!isColor) continue;
+    var m = /^#([0-9a-f]{6})$/i.exec(String(e.value || ""));
+    if (!m) continue;
+    var r = parseInt(m[1].slice(0, 2), 16) / 255;
+    var g = parseInt(m[1].slice(2, 4), 16) / 255;
+    var b = parseInt(m[1].slice(4, 6), 16) / 255;
+    var name = sanitizeSwiftIdent(e.name || e.cssName);
+    lines.push("  /// " + (e.name || e.cssName) + " — " + String(e.value).toLowerCase());
+    lines.push("  static let " + name +
+      " = Color(red: " + r.toFixed(3) + ", green: " + g.toFixed(3) + ", blue: " + b.toFixed(3) + ")");
+  }
+  if (!lines.length) return null;
+  return "// Auto-generated by Figbridge — design tokens as SwiftUI Colors.\n" +
+         "// Drop this file into your Xcode target; ported screens will reference\n" +
+         "// these via `Color.<tokenName>`.\n" +
+         "import SwiftUI\n\n" +
+         "extension Color {\n" + lines.join("\n") + "\n}\n";
 }
 
 function buildTailwindConfig(varMap) {
@@ -1897,6 +1980,8 @@ function buildHTML(nodes, pageTitle) {
 // ── SwiftUI emitter ───────────────────────────────────────────
 function swiftColor(paint) {
   if (!paint || paint.type !== "SOLID") return null;
+  var tok = paintToTokenRef(paint);
+  if (tok) return "Color." + tok.swiftName; // resolves via ios/Colors.swift extension in the bundle
   var c = paint.color, o = paint.opacity == null ? 1 : paint.opacity;
   return "Color(red: " + c.r.toFixed(3) + ", green: " + c.g.toFixed(3) + ", blue: " + c.b.toFixed(3) + ", opacity: " + o.toFixed(3) + ")";
 }
@@ -1980,10 +2065,14 @@ function buildSwiftUI(nodes, pageTitle) {
 // ── Jetpack Compose emitter ───────────────────────────────────
 function kotlinColor(paint) {
   if (!paint || paint.type !== "SOLID") return null;
+  // For Compose we keep the literal hex but annotate with the token name in a
+  // trailing comment so the agent can wire up MaterialTheme colors manually.
+  var tok = paintToTokenRef(paint);
   var c = paint.color, o = paint.opacity == null ? 1 : paint.opacity;
   var toHex = function (v) { return Math.round(v * 255).toString(16).padStart(2, "0").toUpperCase(); };
   var a = Math.round(o * 255).toString(16).padStart(2, "0").toUpperCase();
-  return "Color(0x" + a + toHex(c.r) + toHex(c.g) + toHex(c.b) + ")";
+  var lit = "Color(0x" + a + toHex(c.r) + toHex(c.g) + toHex(c.b) + ")";
+  return tok ? lit + " /* " + tok.name + " */" : lit;
 }
 function kotlinFontWeight(style) {
   var s = (style || "").toLowerCase();
