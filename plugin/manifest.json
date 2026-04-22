@@ -8,7 +8,16 @@
   "capabilities": ["inspect"],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["http://localhost:7331"],
-    "reasoning": "Figbridge talks only to a bridge the user runs on their own machine at http://localhost:7331. No external servers are contacted; no design data ever leaves the user's device. The bridge is an open-source Node process the user installs themselves via `npx figbridge-mcp init`. If it is not running, the plugin still works as a local export/spec tool — it simply shows an offline state."
+    "allowedDomains": [
+      "http://127.0.0.1:7331", "http://127.0.0.1:7332", "http://127.0.0.1:7333",
+      "http://127.0.0.1:7334", "http://127.0.0.1:7335", "http://127.0.0.1:7336",
+      "http://127.0.0.1:7337", "http://127.0.0.1:7338", "http://127.0.0.1:7339",
+      "http://127.0.0.1:7340",
+      "http://localhost:7331", "http://localhost:7332", "http://localhost:7333",
+      "http://localhost:7334", "http://localhost:7335", "http://localhost:7336",
+      "http://localhost:7337", "http://localhost:7338", "http://localhost:7339",
+      "http://localhost:7340"
+    ],
+    "reasoning": "Figbridge talks only to a bridge the user runs on their own machine on 127.0.0.1 / localhost. The preferred port is 7331; if it's already in use (e.g. Claude Desktop respawned us while an older instance still holds the port), the bridge auto-falls-back to 7332..7340 and the plugin probes the same range to find it. No external servers are contacted; no design data ever leaves the user's device. The bridge is an open-source Node process the user installs themselves via `npx figbridge-mcp init`. If it is not running, the plugin still works as a local export/spec tool — it simply shows an offline state."
   }
 }
