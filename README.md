@@ -38,6 +38,18 @@ That patches your Claude Desktop config and prints the next steps. Then:
 
 For any other MCP client, point it at the same binary: `npx figbridge-mcp`.
 
+### Updating
+
+`init` writes a config that runs `npx -y figbridge-mcp@latest`, so every Claude Desktop launch pulls the current version — **no action needed** after a new release.
+
+If you installed an older version (≤ 0.1.1) that baked an absolute path into your config, run this once to self-heal:
+
+```bash
+npx figbridge-mcp@latest update
+```
+
+Use `npx figbridge-mcp init --pin` if you'd rather lock to the currently installed copy (no auto-updates). `npx figbridge-mcp --version` prints the installed version.
+
 ## MCP tools
 
 **Read (8)** — `get_current_selection` · `get_last_export` · `list_history` · `get_tokens` · `bridge_status` · `diff_since` · `list_pages` · `list_frames`

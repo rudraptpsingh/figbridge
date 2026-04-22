@@ -17,6 +17,21 @@ This patches your Claude Desktop config and prints the steps for importing the F
 3. Run the Figbridge plugin, toggle **Live bridge** on.
 4. In Claude: *"What tools does figbridge expose?"* — you should see 21.
 
+## Updating
+
+`init` writes a config of the form `npx -y figbridge-mcp@latest`, so every Claude Desktop launch pulls the current release. Nothing to do after a new version ships.
+
+If you installed ≤ 0.1.1 (which baked an absolute path into your config), run once to self-heal:
+
+```
+npx figbridge-mcp@latest update
+```
+
+Flags:
+
+- `init --pin` — lock Claude to the currently installed copy (opts out of auto-updates).
+- `--version` — print the installed version.
+
 ## Tools
 
 **Read** · `get_current_selection` · `get_last_export` · `list_history` · `get_tokens` · `bridge_status` · `diff_since` · `list_pages` · `list_frames`
