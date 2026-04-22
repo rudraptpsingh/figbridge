@@ -5,333 +5,404 @@
 <title>Figbridge</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* ───────────────────────────────────────────────────────────────────
+     Figma-native UI tokens. Matches Figma's light-mode plugin panel.
+     Ref: figma.com design system — neutrals, blue #0d99ff, 11/12px Inter.
+     ─────────────────────────────────────────────────────────────────── */
   :root {
-    --bg: #ece9dd;          /* warm stone */
-    --panel: #f7f4ea;       /* cream paper */
-    --panel-2: #e4e0d0;     /* sunken cream */
-    --line: #d4cfc0;
-    --text: #0e1a15;        /* ink-green */
-    --dim: #6e7870;
-    --accent: #ad2b1f;      /* deep rust */
-    --accent-2: #d8c9a3;    /* muted gold */
-    --ok: #2f6b4a;
-    --err: #ad2b1f;
-    --code-bg: #0e1a15;
-    --code-ink: #e6dfcc;
-    --serif: "Fraunces", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --bg:           #ffffff;
+    --panel:        #ffffff;
+    --panel-hover:  #f5f5f5;
+    --panel-sunk:   #f5f5f5;
+    --border:       #e5e5e5;
+    --border-soft:  #ebebeb;
+    --text:         #1e1e1e;
+    --text-2:       #444444;
+    --text-dim:     #757575;
+    --text-disabled:#b3b3b3;
+    --accent:       #0d99ff;   /* Figma blue */
+    --accent-sel:   #e5f4ff;   /* selected row fill */
+    --accent-hover: #0b87e0;
+    --danger:       #f24822;
+    --success:      #14ae5c;
+
+    --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --radius-sm: 2px;
+    --radius:    4px;
+    --radius-lg: 6px;
   }
   * { box-sizing: border-box; }
-  html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
-    font: 13px/1.55 var(--mono); font-feature-settings: "ss01", "ss02"; }
-  .app { display:flex; flex-direction:column; height:100vh; }
-  header { padding:10px 14px; border-bottom:1px solid var(--line); background:var(--panel);
-    display:flex; align-items:center; gap:10px; }
-  .logo { font-family: var(--serif); font-weight:600; font-size:17px; letter-spacing:-0.01em; }
-  .logo em { font-style: italic; font-weight: 400; color: var(--accent); }
-  .badge { font-size:10px; padding:2px 7px; border-radius:999px; background:var(--panel-2);
-    color:var(--dim); border:1px solid var(--line); letter-spacing:0.06em; text-transform:uppercase; }
-  .spacer { flex:1; }
-  .bridge { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--dim); }
-  .bridge input { accent-color: var(--accent); }
-  .pill { font-size:10px; padding:2px 7px; border-radius:999px; background:var(--panel-2);
-    border:1px solid var(--line); color:var(--dim); }
-  .pill.ok { color:var(--ok); border-color:rgba(61,220,151,0.3); }
-  .pill.err { color:var(--err); border-color:rgba(255,93,108,0.3); }
-  .pill.busy { color:var(--accent); border-color:rgba(255,122,41,0.3); }
+  html, body { margin:0; padding:0; height:100%; background: var(--bg); color: var(--text);
+    font-family: var(--font); font-size: 11px; line-height: 16px;
+    -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; }
+  ::selection { background: var(--accent-sel); }
+  button, input, select, textarea { font: inherit; color: inherit; }
 
-  main { flex:1; display:grid; grid-template-columns: 280px 1fr; min-height:0; }
-  .sidebar { border-right:1px solid var(--line); background:var(--panel); overflow:auto; }
-  .sidebar .section-head {
-    font-family: var(--mono); font-size:10px; letter-spacing:0.18em; text-transform:uppercase;
-    color:var(--dim); padding: 16px 16px 6px; display:flex; align-items:baseline; gap:8px;
-  }
-  .sidebar .section-head::before { content:""; flex:0 0 14px; height:1px; background:var(--text); transform: translateY(-2px); }
-  .sidebar .section-head .count { margin-left:auto; font-style:italic; color:var(--line-2, #bfb8a6); font-size:10px; letter-spacing:0; }
+  /* ── Layout ────────────────────────────────────────────────── */
+  .app { display: flex; flex-direction: column; height: 100vh; }
 
-  /* Layer tree ------------------------------------------------------------ */
-  .tree { padding: 0 6px 12px; }
-  .row {
-    position:relative; display:flex; align-items:center; gap:8px;
-    padding: 5px 10px 5px 0; cursor:pointer; border-radius:2px;
-    font-size:12px; line-height:1.3; color:var(--text);
+  header {
+    height: 40px; flex: 0 0 40px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; border-bottom: 1px solid var(--border);
+    background: var(--bg);
   }
-  .row:hover { background: rgba(14,26,21,0.04); }
-  .row:hover .actions { opacity:1; transform: translateX(0); }
-  .row.current { background: rgba(173,43,31,0.06); }
-  .row.current::before {
-    content:""; position:absolute; left:0; top:3px; bottom:3px; width:2px; background:var(--accent);
-  }
-  .row .indent { flex: 0 0 auto; display:inline-block; }
-  .row .caret {
-    flex: 0 0 14px; width:14px; text-align:center; color:var(--accent);
-    font-family: var(--serif); font-size:13px; font-weight:600; user-select:none;
-    transition: transform .12s ease;
-  }
-  .row .caret.empty { color:transparent; }
-  .row .tag {
-    flex: 0 0 18px; width:18px; height:16px; display:inline-flex;
-    align-items:center; justify-content:center;
-    font-family: var(--mono); font-size:9px; font-weight:600;
-    color:var(--text); border:1px solid var(--line); border-radius:2px;
-    letter-spacing:0.04em;
-  }
-  .row .tag.t-PAGE { color:var(--accent); border-color:var(--accent); }
-  .row .tag.t-COMPONENT, .row .tag.t-COMPONENT_SET {
-    background:var(--text); color:var(--panel); border-color:var(--text);
-  }
-  .row .tag.t-INSTANCE { background:var(--accent-2); border-color:var(--accent-2); }
-  .row .tag.t-TEXT { font-style:italic; }
-  .row .name {
-    flex: 1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-    font-family: var(--mono);
-  }
-  .row.current .name { color:var(--accent); }
-  .row .meta {
-    flex: 0 0 auto; color:var(--dim); font-family: var(--mono);
-    font-size:10px; font-style:italic; letter-spacing:0.02em;
-  }
-  .row .actions {
-    position:absolute; right:6px; top:50%; transform: translate(6px, -50%);
-    opacity:0; transition: opacity .12s, transform .12s;
-    display:flex; gap:10px; background: linear-gradient(90deg, transparent, var(--panel) 18%, var(--panel)); padding-left:20px;
-  }
-  .row:hover .meta { opacity: 0; }
-  .row .actions a {
-    font-family: var(--serif); font-style: italic; font-weight:500;
-    font-size:11.5px; color:var(--accent); cursor:pointer;
-    text-decoration: underline; text-decoration-thickness:1px; text-underline-offset:2px;
-    text-decoration-color: transparent;
-  }
-  .row .actions a:hover { text-decoration-color: var(--accent); }
-  .row.loading .caret::after { content:"·"; animation: pulse 0.9s infinite; }
+  .logo { font-weight: 600; font-size: 12px; letter-spacing: -0.01em; }
+  .spacer { flex: 1; }
+
+  /* Figma-style toggle switch (live bridge) */
+  .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2); cursor: pointer; user-select: none; }
+  .switch input { appearance: none; width: 22px; height: 12px; background: #d9d9d9; border-radius: 999px; position: relative; cursor: pointer; transition: background .15s; margin: 0; }
+  .switch input::after { content:""; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .switch input:checked { background: var(--accent); }
+  .switch input:checked::after { transform: translateX(10px); }
+
+  /* Status dot (no pill, just a dot + text) */
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+  .status::before { content:""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-disabled); }
+  .status.ok::before { background: var(--success); }
+  .status.err::before { background: var(--danger); }
+  .status.busy::before { background: var(--accent); animation: pulse 1.1s infinite; }
   @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
 
-  .tree-empty {
-    padding: 16px 20px; color: var(--dim); font-size:11.5px; font-style:italic;
-    font-family: var(--serif); border-left: 1px solid var(--line); margin: 0 16px;
+  main { flex: 1; display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
+
+  /* ── Sidebar layer tree ────────────────────────────────────── */
+  .sidebar { background: var(--bg); border-right: 1px solid var(--border); overflow: auto; min-width: 0; }
+  .sidebar-head {
+    height: 32px; display: flex; align-items: center; gap: 8px;
+    padding: 0 8px 0 12px; border-bottom: 1px solid var(--border-soft);
+    position: sticky; top: 0; background: var(--bg); z-index: 1;
+  }
+  .sidebar-head .h-title { font-size: 11px; font-weight: 600; color: var(--text); }
+  .sidebar-head .h-count { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+
+  .tree { padding: 4px 0; }
+  .row {
+    position: relative; display: flex; align-items: center;
+    height: 24px; padding: 0 8px 0 4px; cursor: default;
+    font-size: 11px; color: var(--text); white-space: nowrap;
+  }
+  .row:hover { background: var(--panel-hover); }
+  .row.current { background: var(--accent-sel); }
+  .row.current .name { color: var(--accent); font-weight: 500; }
+
+  .row .caret {
+    flex: 0 0 16px; width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-dim); cursor: pointer;
+  }
+  .row .caret svg { width: 8px; height: 8px; transition: transform .12s; }
+  .row .caret.expanded svg { transform: rotate(90deg); }
+  .row .caret.empty { visibility: hidden; }
+
+  .row .icon {
+    flex: 0 0 16px; width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-2); margin-right: 6px;
+  }
+  .row .icon svg { width: 14px; height: 14px; }
+  .row.current .icon { color: var(--accent); }
+
+  .row .name {
+    flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
+  }
+  .row .meta {
+    flex: 0 0 auto; color: var(--text-dim); font-size: 10px; margin-left: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .row:hover .meta { opacity: 0; }
+  .row .actions {
+    position: absolute; right: 6px; top: 0; bottom: 0;
+    display: flex; align-items: center; gap: 2px;
+    opacity: 0; pointer-events: none; transition: opacity .1s;
+  }
+  .row:hover .actions { opacity: 1; pointer-events: auto; }
+  .row .actions .icon-btn {
+    width: 20px; height: 20px; border-radius: var(--radius-sm);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-2); background: transparent; border: 0; cursor: pointer;
+  }
+  .row .actions .icon-btn:hover { background: rgba(0,0,0,0.06); color: var(--text); }
+  .row .actions .icon-btn svg { width: 12px; height: 12px; }
+
+  .tree-empty { padding: 24px 16px; color: var(--text-dim); font-size: 11px; text-align: center; }
+
+  /* ── Content ───────────────────────────────────────────────── */
+  .content { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+
+  .toolbar {
+    height: 40px; flex: 0 0 40px; padding: 0 12px;
+    display: flex; align-items: center; gap: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .btn {
+    height: 28px; padding: 0 10px; border-radius: var(--radius);
+    background: var(--bg); color: var(--text); border: 1px solid transparent;
+    font-size: 11px; font-weight: 500; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background .1s;
+  }
+  .btn:hover:not(:disabled) { background: var(--panel-hover); }
+  .btn:disabled { color: var(--text-disabled); cursor: not-allowed; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn.icon-only { width: 28px; padding: 0; justify-content: center; }
+  .btn svg { width: 12px; height: 12px; }
+  .kbd {
+    display: inline-flex; align-items: center; gap: 2px; padding: 1px 4px;
+    font-size: 10px; font-weight: 500; color: var(--text-dim);
+    background: var(--panel-hover); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); line-height: 1;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
   }
 
-  .content { display:flex; flex-direction:column; min-width:0; }
-  .toolbar { padding:8px 12px; border-bottom:1px solid var(--line);
-    display:flex; gap:6px; align-items:center; background:var(--panel); flex-wrap:wrap; }
-  button { font:inherit; color:var(--text); background:transparent;
-    border:1px solid var(--text); border-radius:999px; padding:6px 14px; cursor:pointer;
-    font-size:12px; font-weight:500; letter-spacing:0.01em; transition:background .15s, color .15s; }
-  button:hover:not(:disabled) { background:var(--text); color:var(--panel); }
-  button:disabled { opacity:0.4; cursor:not-allowed; }
-  button.primary { background:var(--text); color:var(--panel); }
-  button.primary:hover:not(:disabled) { background:var(--accent); border-color:var(--accent); }
+  /* Tabs — Figma output switcher */
+  .tabs {
+    height: 32px; flex: 0 0 32px; padding: 0 8px;
+    display: flex; gap: 2px; align-items: stretch;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    padding: 0 8px; display: inline-flex; align-items: center;
+    font-size: 11px; color: var(--text-dim); cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }
 
-  .tabs { display:flex; gap:2px; padding:0 12px; background:var(--panel);
-    border-bottom:1px solid var(--line); }
-  .tab { padding:8px 12px; cursor:pointer; font-size:12px; color:var(--dim);
-    border-bottom:2px solid transparent; }
-  .tab.active { color:var(--text); border-bottom-color:var(--accent); }
-  .panes { flex:1; overflow:auto; background:var(--bg); }
-  pre { margin:0; padding:14px 16px; font:12px/1.6 var(--mono);
-    background:var(--code-bg); color:var(--code-ink); white-space:pre-wrap; word-break:break-word; }
-  .empty { color:var(--dim); padding:40px; text-align:center; }
-  .err { color:var(--err); padding:12px 14px; border-top:1px solid rgba(255,93,108,0.2);
-    background:rgba(255,93,108,0.06); display:none; font-size:12px; }
-  .footer { padding:6px 12px; border-top:1px solid var(--line); background:var(--panel);
-    color:var(--dim); font-size:11px; display:flex; align-items:center; gap:10px; }
+  .panes { flex: 1; overflow: auto; background: var(--bg); min-height: 0; }
+  pre {
+    margin: 0; padding: 12px 14px; font-size: 11px; line-height: 1.55;
+    font-family: ui-monospace, "SF Mono", "Menlo", Consolas, monospace;
+    color: var(--text); white-space: pre-wrap; word-break: break-word;
+  }
+  .empty {
+    color: var(--text-dim); padding: 40px 24px; text-align: center; font-size: 12px;
+  }
+  .empty .hint {
+    display: inline-block; margin-top: 10px; font-size: 11px;
+  }
 
-  .frame-item.current { background:var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); }
-  .frame-item.current .dot { background:var(--accent); }
+  .err { color: var(--danger); padding: 8px 12px; border-top: 1px solid var(--border);
+    background: #fff4f2; display: none; font-size: 11px; }
+  .footer {
+    height: 24px; flex: 0 0 24px; padding: 0 12px;
+    display: flex; align-items: center; gap: 8px;
+    border-top: 1px solid var(--border); background: var(--bg);
+    color: var(--text-dim); font-size: 10px;
+  }
 
-  details.agent-opts, details.mcp-tools { background:var(--panel); border-bottom:1px solid var(--line);
-    padding: 4px 14px; font-size:12px; }
-  details.agent-opts summary, details.mcp-tools summary { cursor:pointer; padding:8px 0; color:var(--dim);
-    font-size:10px; text-transform:uppercase; letter-spacing:0.08em; list-style:none; }
-  details.agent-opts summary::before, details.mcp-tools summary::before { content:"›  "; color:var(--accent); font-weight:700; }
-  details[open] summary::before { content:"▾ "; }
-  .opts-grid { display:flex; flex-direction:column; gap:10px; padding:4px 0 14px; }
-  .opts-grid label { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--dim);
-    text-transform:uppercase; letter-spacing:0.06em; }
-  .opts-grid label.inline { flex-direction:row; align-items:center; gap:8px; text-transform:none; letter-spacing:0; }
-  .opts-grid select, .opts-grid textarea { font: inherit; font-family:var(--mono); font-size:12px;
-    background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:6px 8px; }
-  .opts-grid textarea { resize:vertical; min-height:60px; }
-  /* Commands section — typeset table of contents ------------------------ */
-  details.cmds { background: var(--panel); border-bottom: 1px solid var(--line); padding: 6px 16px 14px; }
-  details.cmds > summary {
-    cursor:pointer; padding: 10px 0 14px; list-style:none;
-    font-family: var(--serif); font-weight: 600; font-size: 14px; color: var(--text);
-    border-bottom: 1px solid var(--line);
+  /* ── Overflow menu (⋯) ─────────────────────────────────────── */
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+    min-width: 220px; padding: 4px 0; display: none;
   }
-  details.cmds > summary::before { content: "§  "; color: var(--accent); font-weight: 700; }
-  details.cmds > summary .cmds-hint { font-style: italic; font-weight: 400; color: var(--dim); font-size: 12px; }
-  .cmd-section { padding-top: 14px; }
-  .cmd-section-head {
-    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.2em; text-transform: uppercase;
-    color: var(--dim); padding: 4px 0 8px; display:flex; align-items:baseline; gap:10px;
+  .menu.open { display: block; }
+  .menu-item {
+    height: 28px; padding: 0 10px; display: flex; align-items: center; gap: 8px;
+    font-size: 11px; cursor: pointer; color: var(--text);
   }
-  .cmd-section-head::before { content:""; flex:0 0 22px; height:1px; background: var(--line-2, #bfb8a6); transform: translateY(-3px); }
-  .cmd {
-    display: grid; grid-template-columns: 22px 1fr auto; gap: 12px;
-    padding: 8px 4px; border-bottom: 1px dotted var(--line); align-items: baseline;
-    cursor: pointer; transition: background .1s;
-  }
-  .cmd:last-child { border-bottom: none; }
-  .cmd:hover { background: rgba(14,26,21,0.025); }
-  .cmd .num {
-    font-family: var(--mono); font-size: 10px; color: var(--dim);
-    font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
-  }
-  .cmd .title {
-    font-family: var(--serif); font-weight: 500; font-size: 14px; color: var(--text);
-    font-style: italic; letter-spacing: -0.005em;
-  }
-  .cmd .title em { font-style: normal; font-weight: 600; color: var(--accent); }
-  .cmd .desc {
-    font-family: var(--mono); font-size: 11px; color: var(--dim); line-height: 1.5;
-    margin-top: 2px;
-  }
-  .cmd .slug {
-    font-family: var(--mono); font-size: 10.5px; color: var(--dim);
-    align-self: start; margin-top: 3px;
-  }
-  .cmd .slug::before { content: "["; } .cmd .slug::after { content: "]"; }
-  .cmd.new .slug { color: var(--accent); font-weight: 600; }
-  .cmd.new .title em { text-decoration: underline; text-decoration-color: var(--accent-2); text-underline-offset: 3px; }
-  .cmd-form { display: none; padding: 10px 0 4px; }
-  .cmd.open .cmd-form { display: block; }
-  .cmd-form .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-  .cmd-form label {
-    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em;
-    text-transform: uppercase; color: var(--dim);
-  }
-  .cmd-form input, .cmd-form textarea, .cmd-form select {
-    font: inherit; font-family: var(--mono); font-size: 12px;
-    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
-    border-radius: 2px; padding: 6px 8px;
-  }
-  .cmd-form input:focus, .cmd-form textarea:focus, .cmd-form select:focus {
-    outline: none; border-color: var(--accent);
-  }
-  .cmd-form textarea { resize: vertical; min-height: 50px; font-size: 11px; }
-  .cmd-form .row-actions { display:flex; gap:8px; align-items:center; margin-top: 4px; }
-  .cmd-form .hint { color: var(--dim); font-size: 10.5px; font-family: var(--mono); font-style: italic; }
-  .cmd-form button { padding: 5px 14px; font-size: 11.5px; }
-  .cmd-result {
-    margin-top: 8px; padding: 8px 10px; font-family: var(--mono); font-size: 10.5px;
-    background: var(--code-bg); color: var(--code-ink); border-radius: 2px;
-    white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto;
-  }
-  .cmd-result.err { color: #e88; }
+  .menu-item:hover { background: var(--panel-hover); }
+  .menu-item .shortcut { margin-left: auto; color: var(--text-dim); font-size: 10px; }
+  .menu-sep { height: 1px; background: var(--border-soft); margin: 4px 0; }
 
-  /* First-run onboarding card */
-  .welcome-overlay {
-    position: fixed; inset: 0; background: rgba(4,6,9,0.86);
-    display: none; align-items: center; justify-content: center; z-index: 100;
-    padding: 24px;
+  /* ── Command palette (⌘K) ──────────────────────────────────── */
+  .palette-scrim {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.24);
+    display: none; align-items: flex-start; justify-content: center;
+    padding-top: 80px; z-index: 100;
   }
+  .palette-scrim.open { display: flex; }
+  .palette {
+    width: min(520px, calc(100% - 32px));
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.16), 0 4px 12px rgba(0,0,0,0.06);
+    overflow: hidden; display: flex; flex-direction: column; max-height: 480px;
+  }
+  .palette-input-wrap { display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 44px; border-bottom: 1px solid var(--border-soft); }
+  .palette-input-wrap svg { width: 14px; height: 14px; color: var(--text-dim); flex: 0 0 14px; }
+  .palette input {
+    flex: 1; border: 0; outline: 0; background: transparent;
+    font-size: 13px; color: var(--text);
+  }
+  .palette input::placeholder { color: var(--text-dim); }
+  .palette-list { overflow: auto; padding: 4px 0; }
+  .pal-section {
+    padding: 8px 12px 4px; font-size: 10px; font-weight: 600;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .pal-item {
+    padding: 6px 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text);
+  }
+  .pal-item .pal-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pal-item .pal-desc { color: var(--text-dim); font-size: 11px; margin-top: 1px; }
+  .pal-item .pal-slug {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px; color: var(--text-dim);
+    background: var(--panel-hover); padding: 1px 6px; border-radius: var(--radius-sm);
+  }
+  .pal-item.active { background: var(--accent-sel); }
+  .pal-item.active .pal-slug { background: #fff; }
+  .pal-item-body { flex: 1; min-width: 0; }
+  .pal-empty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 12px; }
+
+  /* Inline args form */
+  .pal-args {
+    padding: 12px; border-top: 1px solid var(--border-soft); background: var(--panel-sunk);
+    display: none;
+  }
+  .pal-args.open { display: block; }
+  .pal-args h5 { margin: 0 0 8px; font-size: 11px; font-weight: 600; color: var(--text); }
+  .pal-args .field { margin-bottom: 8px; }
+  .pal-args label { display: block; font-size: 10px; font-weight: 500; color: var(--text-2); margin-bottom: 4px; }
+  .pal-args input[type="text"], .pal-args input[type="number"], .pal-args select, .pal-args textarea {
+    width: 100%; height: 28px; padding: 0 8px; font-size: 11px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    outline: 0;
+  }
+  .pal-args textarea { height: auto; min-height: 60px; padding: 6px 8px; resize: vertical; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .pal-args input:focus, .pal-args select:focus, .pal-args textarea:focus { border-color: var(--accent); }
+  .pal-args .bool { display: flex; align-items: center; gap: 6px; height: 20px; }
+  .pal-args .bool input { accent-color: var(--accent); }
+  .pal-args .actions { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+  .pal-args .hint { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+  .pal-result {
+    margin-top: 8px; padding: 8px 10px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px; background: #1e1e1e; color: #e6e6e6; border-radius: var(--radius-sm);
+    white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow: auto;
+  }
+  .pal-result.err { color: #ff9b85; }
+
+  /* Welcome card (kept, restyled) */
+  .welcome-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.32);
+    display: none; align-items: center; justify-content: center; z-index: 200; padding: 24px; }
   .welcome-overlay.show { display: flex; }
-  .welcome {
-    max-width: 520px; background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 22px 22px 18px; color: var(--text);
-  }
-  .welcome h2 { margin: 0 0 4px; font-size: 16px; }
-  .welcome .sub { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
-  .welcome ol { margin: 0 0 10px; padding-left: 18px; font-size: 13px; line-height: 1.7; }
-  .welcome code { background: var(--panel-2); border: 1px solid var(--line);
-    padding: 1px 6px; border-radius: 4px; font-size: 12px; color: #ffb388; }
-  .welcome .hint { color: var(--dim); font-size: 11px; margin: 10px 0 14px;
-    padding: 10px 12px; background: var(--panel-2); border-radius: 6px;
-    border-left: 2px solid var(--accent); }
-  .welcome .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
-  .welcome .row a { color: var(--dim); font-size: 11px; text-decoration: none; margin-right: auto; }
-  .welcome .row a:hover { color: var(--text); }
+  .welcome { max-width: 440px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 20px; box-shadow: 0 16px 40px rgba(0,0,0,0.16); }
+  .welcome h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .welcome .sub { color: var(--text-dim); font-size: 11px; margin-bottom: 14px; }
+  .welcome ol { margin: 0 0 10px; padding-left: 18px; font-size: 12px; line-height: 1.7; color: var(--text-2); }
+  .welcome code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+    background: var(--panel-hover); padding: 1px 4px; border-radius: var(--radius-sm); }
+  .welcome .row2 { display: flex; gap: 6px; justify-content: flex-end; margin-top: 14px; }
+  .welcome .row2 a { color: var(--text-dim); font-size: 11px; text-decoration: none; margin-right: auto; align-self: center; }
+  .welcome .row2 a:hover { color: var(--text); }
 </style>
 </head>
 <body>
+
+<!-- Welcome card -->
 <div class="welcome-overlay" id="welcome">
   <div class="welcome">
     <h2>Welcome to Figbridge</h2>
     <div class="sub">Free, local MCP bridge — Claude &amp; any agent can read and edit this file.</div>
     <ol>
-      <li>In a terminal on your machine: <code>npx figbridge-mcp init</code></li>
-      <li>Restart Claude Desktop (or your MCP client).</li>
-      <li>Come back here and flip <b>Live bridge</b> — the dot turns green.</li>
+      <li>Run <code>npx figbridge-mcp init</code> in a terminal.</li>
+      <li>Restart Claude Desktop.</li>
+      <li>Flip <b>Live bridge</b> — status dot turns green.</li>
     </ol>
-    <div class="hint">
-      You can use Figbridge without the bridge too: click <b>Export selection</b> or <b>Export app spec</b> and copy the result.
-      Nothing is sent anywhere unless <b>Live bridge</b> is on, and the bridge runs only on your own machine at <code>http://localhost:7331</code>.
+    <div class="row2">
+      <a href="https://rudraptpsingh.github.io/figbridge/" target="_blank">Docs</a>
+      <button class="btn primary" id="welcomeDismiss">Got it</button>
     </div>
-    <div class="row">
-      <a href="https://github.com/rudra-rps/figbridge#readme" target="_blank" rel="noopener">Docs &amp; source</a>
-      <button id="welcomeDismiss" class="primary">Got it</button>
+  </div>
+</div>
+
+<!-- Command palette -->
+<div class="palette-scrim" id="paletteScrim">
+  <div class="palette">
+    <div class="palette-input-wrap">
+      <svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M11 11L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <input id="paletteInput" type="text" placeholder="Search commands…" autocomplete="off" />
+      <span class="kbd">esc</span>
     </div>
+    <div class="palette-list" id="paletteList"></div>
+    <div class="pal-args" id="palArgs"></div>
   </div>
 </div>
 
 <div class="app">
   <header>
-    <div class="logo">fig<em>bridge</em></div>
-    <div class="badge">Figma → Code + MCP</div>
+    <span class="logo">Figbridge</span>
     <div class="spacer"></div>
-    <label class="bridge">
+    <label class="switch">
       <input type="checkbox" id="bridgeToggle" />
       <span>Live bridge</span>
     </label>
-    <span class="pill" id="status">Ready</span>
+    <span class="status" id="status">Ready</span>
   </header>
 
   <main>
     <aside class="sidebar">
-      <div class="section-head">Layers <span class="count" id="treeCount"></span></div>
+      <div class="sidebar-head">
+        <span class="h-title">Layers</span>
+        <span class="h-count" id="treeCount"></span>
+      </div>
       <div class="tree" id="tree">
-        <div class="tree-empty">Loading the file…</div>
+        <div class="tree-empty">Loading…</div>
       </div>
     </aside>
 
     <section class="content">
       <div class="toolbar">
-        <button class="primary" id="exportSel">Export selection</button>
-        <button id="exportAll">Export all pages</button>
-        <button id="exportAgent" title="Build an LLM-ready handoff bundle (hierarchy, components, tokens, DESIGN.md, AGENTS.md, ISSUES.md)">Export for Agent</button>
-        <button id="exportSpec" title="Build a catalog of screens, components, tokens">Export app spec</button>
-        <div class="spacer" style="flex:1"></div>
-        <button id="copyBtn" disabled>Copy</button>
-        <button id="dlBtn" disabled>Download</button>
+        <button class="btn primary" id="exportSel" title="Export current selection">Export</button>
+        <button class="btn" id="exportAgent" title="Build the agent handoff bundle">Bundle</button>
+        <div class="spacer"></div>
+        <button class="btn" id="openPalette" title="Search commands (⌘K)">
+          <svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M11 11L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <span class="kbd">⌘K</span>
+        </button>
+        <div class="menu-wrap">
+          <button class="btn icon-only" id="overflowBtn" title="More">
+            <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>
+          </button>
+          <div class="menu" id="overflowMenu">
+            <div class="menu-item" data-act="export-all">Export all pages</div>
+            <div class="menu-item" data-act="export-app-spec">Export app spec</div>
+            <div class="menu-sep"></div>
+            <div class="menu-item" data-act="copy">Copy output<span class="shortcut">⌘C</span></div>
+            <div class="menu-item" data-act="download">Download output</div>
+          </div>
+        </div>
       </div>
-      <details class="cmds" open>
-        <summary>Commands <span class="cmds-hint">— eighteen operations, also exposed over MCP</span></summary>
-        <div id="cmdSections"></div>
-      </details>
+
       <div class="tabs">
         <div class="tab active" data-tab="html">HTML</div>
         <div class="tab" data-tab="css">CSS</div>
         <div class="tab" data-tab="tailwind">Tailwind</div>
         <div class="tab" data-tab="tokens">Tokens</div>
-        <div class="tab" data-tab="tailwindConfig">tailwind.config</div>
+        <div class="tab" data-tab="tailwindConfig">Config</div>
       </div>
       <div class="panes">
-        <pre id="out"><div class="empty">No export yet. Select a frame and click <b>Export selection</b>, or enable <b>Live bridge</b> to auto-push selections to the MCP.</div></pre>
+        <pre id="out"><div class="empty">Select a frame in the sidebar, then press <b>Export</b>.<div class="hint">Or press <span class="kbd">⌘K</span> to search all commands.</div></div></pre>
       </div>
       <div class="err" id="err"></div>
       <div class="footer">
         <span id="footState">Idle</span>
-        <span class="spacer" style="flex:1"></span>
-        <span>MCP bridge: <code>http://localhost:7331</code></span>
+        <span class="spacer"></span>
+        <span>:7331</span>
       </div>
     </section>
   </main>
 </div>
 
 <script>
-  // First-run onboarding — uses localStorage (sandboxed per plugin).
+  // ═══════════════════════════════════════════════════════════════════
+  //  Figbridge plugin panel — Figma-native fidelity
+  // ═══════════════════════════════════════════════════════════════════
+
   (function initWelcome(){
-    try {
-      var seen = localStorage.getItem("figbridge.welcomed");
-      if (!seen) document.getElementById("welcome").classList.add("show");
-    } catch (e) { /* private mode, just skip */ }
+    try { if (!localStorage.getItem("figbridge.welcomed")) document.getElementById("welcome").classList.add("show"); } catch (e) {}
     var btn = document.getElementById("welcomeDismiss");
-    if (btn) btn.addEventListener("click", function(){
-      try { localStorage.setItem("figbridge.welcomed", "1"); } catch(e){}
+    if (btn) btn.addEventListener("click", function () {
+      try { localStorage.setItem("figbridge.welcomed", "1"); } catch (e) {}
       document.getElementById("welcome").classList.remove("show");
     });
   })();
@@ -342,19 +413,46 @@
   var eventSource = null;
   var el = function (id) { return document.getElementById(id); };
   var state = { tab: "html", data: null, bridge: false };
-  var bridgeOk = null;
 
   function setStatus(kind, text) {
     var s = el("status"); s.textContent = text;
-    s.className = "pill" + (kind ? " " + kind : "");
+    s.className = "status" + (kind ? " " + kind : "");
   }
   function setFoot(t) { el("footState").textContent = t; }
 
+  // ── Type icons (tight Figma-style SVGs) ─────────────────────────
+  var ICONS = {
+    caret: '<svg viewBox="0 0 8 8" fill="none"><path d="M2.5 1L5.5 4L2.5 7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    page:      '<svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="1.5" width="9" height="11" rx="1" stroke="currentColor" stroke-width="1"/><path d="M5 5h4M5 7h4M5 9h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>',
+    frame:     '<svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="2.5" width="9" height="9" rx="0.5" stroke="currentColor" stroke-width="1"/><path d="M1 4.5h2M1 9.5h2M4.5 1v2M9.5 1v2M1 4.5h2M1 9.5h2M11 4.5h2M11 9.5h2M4.5 11v2M9.5 11v2" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>',
+    group:     '<svg viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5"/></svg>',
+    component: '<svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#7b61ff" stroke-width="1" fill="#f5f2ff"/></svg>',
+    compset:   '<svg viewBox="0 0 14 14" fill="none"><path d="M4 1.5L6.5 4L4 6.5L1.5 4L4 1.5Z" stroke="#7b61ff" stroke-width="1"/><path d="M10 1.5L12.5 4L10 6.5L7.5 4L10 1.5Z" stroke="#7b61ff" stroke-width="1"/><path d="M4 7.5L6.5 10L4 12.5L1.5 10L4 7.5Z" stroke="#7b61ff" stroke-width="1"/><path d="M10 7.5L12.5 10L10 12.5L7.5 10L10 7.5Z" stroke="#7b61ff" stroke-width="1"/></svg>',
+    instance:  '<svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#7b61ff" stroke-width="1"/></svg>',
+    text:      '<svg viewBox="0 0 14 14" fill="none"><path d="M3 3h8M7 3v9M5 12h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+    vector:    '<svg viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="3" height="3" stroke="currentColor" stroke-width="1"/><rect x="9" y="9" width="3" height="3" stroke="currentColor" stroke-width="1"/><path d="M4 5l6 5" stroke="currentColor" stroke-width="1"/></svg>',
+    shape:     '<svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="2.5" width="9" height="9" stroke="currentColor" stroke-width="1"/></svg>',
+    // Action icons
+    download:  '<svg viewBox="0 0 12 12" fill="none"><path d="M6 1v8M3 6l3 3 3-3M2 11h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    focus:     '<svg viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="2" stroke="currentColor" stroke-width="1.2"/><path d="M6 1v2M6 9v2M1 6h2M9 6h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
+  };
+  function iconFor(type) {
+    if (type === "PAGE") return ICONS.page;
+    if (type === "FRAME") return ICONS.frame;
+    if (type === "GROUP") return ICONS.group;
+    if (type === "COMPONENT") return ICONS.component;
+    if (type === "COMPONENT_SET") return ICONS.compset;
+    if (type === "INSTANCE") return ICONS.instance;
+    if (type === "TEXT") return ICONS.text;
+    if (type === "VECTOR" || type === "LINE" || type === "STAR" || type === "POLYGON") return ICONS.vector;
+    return ICONS.shape;
+  }
+
+  // ── Output render (tabs) ────────────────────────────────────────
   function render() {
     var out = el("out");
     if (!state.data) {
-      out.innerHTML = '<div class="empty">No export yet. Select a frame and click <b>Export selection</b>.</div>';
-      el("copyBtn").disabled = true; el("dlBtn").disabled = true;
+      out.innerHTML = '<div class="empty">Select a frame in the sidebar, then press <b>Export</b>.<div class="hint">Or press <span class="kbd">⌘K</span> to search all commands.</div></div>';
       return;
     }
     var map = {
@@ -364,332 +462,45 @@
       tokens: JSON.stringify(state.data.tokens || {}, null, 2) + "\n\n/* CSS variables */\n" + (state.data.cssVars || ""),
       tailwindConfig: state.data.tailwindConfig || ""
     };
-    var text = map[state.tab] || "";
-    out.textContent = text;
-    el("copyBtn").disabled = !text; el("dlBtn").disabled = !text;
+    out.textContent = map[state.tab] || "";
   }
-
   document.querySelectorAll(".tab").forEach(function (t) {
     t.addEventListener("click", function () {
       document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("active"); });
       t.classList.add("active");
-      state.tab = t.dataset.tab;
-      render();
+      state.tab = t.dataset.tab; render();
     });
   });
 
-  el("exportSel").addEventListener("click", function () {
-    setStatus("busy", "Exporting..."); setFoot("Exporting selection…");
-    parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*");
-  });
-  el("exportAll").addEventListener("click", function () {
-    setStatus("busy", "Exporting all"); setFoot("Exporting all pages…");
-    parent.postMessage({ pluginMessage: { type: "export-all" } }, "*");
-  });
-  el("exportAgent").addEventListener("click", function () {
-    setStatus("busy", "Bundling"); setFoot("Building agent bundle (medium, +screenshots)…");
-    parent.postMessage({ pluginMessage: { type: "export-agent", budget: "medium", screenshots: true, codePaths: [] } }, "*");
-    // For per-option control, expand the "Build the agent handoff bundle" command below.
-  });
-  el("exportSpec").addEventListener("click", function () {
-    setStatus("busy", "Building spec"); setFoot("Building app spec…");
-    var cmdId = "ui-" + Date.now();
-    parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: "export-app-spec", args: {} } }, "*");
-    window._pendingSpec = cmdId;
-  });
-
-  // ── Commands catalog ─────────────────────────────────────────────────
-  // Each command: human name, mono slug, description, grouped section.
-  // action === null marks UI-only commands that don't round-trip through
-  // handleCommand (they call exportSelection/exportAll/exportAgent inline).
-  var COMMAND_SECTIONS = [
-    { title: "Handoff", commands: [
-      { slug: "export-selection", action: null, title: "Export the <em>current selection</em>", desc: "HTML + CSS + Tailwind + tokens for whatever is selected on the canvas.", args: [], run: function () { parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*"); } },
-      { slug: "export-all", action: null, title: "Export <em>every page</em>", desc: "Walks the whole file and dumps each page as HTML/CSS. Slow on large files.", args: [], run: function () { parent.postMessage({ pluginMessage: { type: "export-all" } }, "*"); } },
-      { slug: "get_agent_bundle", action: null, title: "Build the <em>agent handoff bundle</em>", new: true, desc: "Hierarchy, tokens, components, DESIGN/AGENTS/ISSUES.md, snapshots, screenshots — a zip an LLM can ship from.", args: [
-        { name: "budget", label: "Token budget", kind: "select", choices: ["small","medium","large"], default: "medium" },
-        { name: "screenshots", label: "Include screenshots", kind: "bool", default: true },
-        { name: "codePaths", label: "Code paths (one per line) — fuzzy-mapped to Figma components", kind: "lines" }
-      ], run: function (args) {
-        parent.postMessage({ pluginMessage: { type: "export-agent", budget: args.budget || "medium", screenshots: !!args.screenshots, codePaths: args.codePaths || [] } }, "*");
-      } },
-      { slug: "export_app_spec", action: "export-app-spec", title: "Print the <em>app spec</em>", desc: "A single JSON catalog: every screen, every component, tokens, flows, categories.", args: [] },
-    ] },
-    { title: "Catalog", commands: [
-      { slug: "list_screens", action: "list-screens", title: "List every <em>screen</em>", desc: "Top-level frames across all pages, categorized (splash / onboarding / auth / home / detail / …).", args: [
-        { name: "pageId", label: "Restrict to page id (optional)", kind: "text" }
-      ] },
-      { slug: "list_components", action: "list-components", title: "List every <em>component</em>", desc: "All COMPONENT_SETs and top-level COMPONENTs. Variants are optional.", args: [
-        { name: "includeVariants", label: "Include variants", kind: "bool", default: false }
-      ] },
-      { slug: "describe_screen", action: "describe-screen", title: "Describe a <em>screen</em>", desc: "Background, text content, instances used, category. Paste a node id.", args: [
-        { name: "nodeId", label: "Node id", kind: "text", required: true }
-      ] },
-      { slug: "list_assets", action: "list-assets", title: "List <em>assets</em>", desc: "Exportable icons, images, or illustrations. Returns base64 SVG/PNG.", args: [
-        { name: "kind", label: "Kind", kind: "select", choices: ["icon","image","illustration"], default: "icon" },
-        { name: "limit", label: "Limit", kind: "number", default: 40 }
-      ] },
-    ] },
-    { title: "Selection", commands: [
-      { slug: "select_node", action: "select", title: "Select a <em>node</em>", desc: "Focuses the viewport on a node by id or a case-insensitive name substring.", args: [
-        { name: "nodeId", label: "Node id (preferred)", kind: "text" },
-        { name: "name", label: "…or name substring", kind: "text" }
-      ] },
-      { slug: "export_node", action: "export-node", title: "Export a <em>specific node</em>", desc: "Export by node id — pushes the payload through the bridge when live.", args: [
-        { name: "nodeId", label: "Node id", kind: "text", required: true }
-      ] },
-    ] },
-    { title: "Mutation", commands: [
-      { slug: "clone_screen", action: "clone-screen", title: "Clone a <em>screen</em>", desc: "Duplicates a frame, optionally renaming and replacing text across every TEXT child.", args: [
-        { name: "sourceNodeId", label: "Source node id", kind: "text", required: true },
-        { name: "name", label: "New name", kind: "text" },
-        { name: "textReplacements", label: "Text replacements (JSON)", kind: "json", placeholder: '{"Welcome": "Welcome back"}' }
-      ] },
-      { slug: "recolor", action: "recolor", title: "<em>Recolor</em> SOLID fills and strokes", desc: "Map old hex → new hex across a scope. Case-insensitive, 3- or 6-digit.", args: [
-        { name: "scope", label: "Scope", kind: "select", choices: ["selection","page","file"], default: "selection" },
-        { name: "nodeId", label: "…or specific node id", kind: "text" },
-        { name: "mapping", label: "Mapping (JSON)", kind: "json", required: true, placeholder: '{"#ff7a29": "#3ddc97"}' }
-      ] },
-      { slug: "apply_tokens", action: "apply-tokens", title: "<em>Bind loose colors</em> to variables", desc: "Finds SOLID fills matching a local color variable by exact hex, and binds them.", args: [
-        { name: "nodeId", label: "Node id (optional)", kind: "text" }
-      ] },
-      { slug: "lint_ds", action: "lint-ds", title: "<em>Lint</em> the design system", desc: "Unbound colors, non-grid spacing, orphan components, duplicate names. Findings grouped by rule.", args: [
-        { name: "pageId", label: "Page id (optional)", kind: "text" }
-      ] },
-    ] },
-    { title: "Bridge", commands: [
-      { slug: "bridge_status", action: null, title: "<em>Bridge</em> status", desc: "Is the MCP listener on :7331? Is anything pushed yet? (MCP-side — no plugin round-trip.)", args: [], run: function () { alert("bridge_status is read via MCP from Claude Desktop — not from this panel."); } },
-      { slug: "diff_since", action: null, title: "Recent <em>history diff</em>", desc: "Entries with capturedAt > timestamp. Also MCP-only.", args: [], run: function () { alert("diff_since is an MCP-only tool."); } },
-    ] },
-  ];
-
-  function renderCommands() {
-    var host = el("cmdSections"); if (!host) return;
-    host.innerHTML = "";
-    var idx = 0;
-    COMMAND_SECTIONS.forEach(function (section) {
-      var wrap = document.createElement("div"); wrap.className = "cmd-section";
-      var head = document.createElement("div"); head.className = "cmd-section-head"; head.textContent = section.title;
-      wrap.appendChild(head);
-      section.commands.forEach(function (cmd) {
-        idx++;
-        var row = document.createElement("div"); row.className = "cmd" + (cmd.new ? " new" : "");
-        var num = document.createElement("span"); num.className = "num"; num.textContent = String(idx).padStart(2, "0");
-        var body = document.createElement("div");
-        var title = document.createElement("div"); title.className = "title"; title.innerHTML = cmd.title;
-        var desc = document.createElement("div"); desc.className = "desc"; desc.textContent = cmd.desc;
-        body.appendChild(title); body.appendChild(desc);
-        var form = document.createElement("div"); form.className = "cmd-form";
-        cmd.args.forEach(function (arg) {
-          var field = document.createElement("div"); field.className = "field";
-          var lbl = document.createElement("label"); lbl.textContent = arg.label + (arg.required ? " *" : "");
-          field.appendChild(lbl);
-          var input;
-          if (arg.kind === "select") {
-            input = document.createElement("select");
-            arg.choices.forEach(function (c) {
-              var o = document.createElement("option"); o.value = c; o.textContent = c;
-              if (c === arg.default) o.selected = true;
-              input.appendChild(o);
-            });
-          } else if (arg.kind === "bool") {
-            var wrap2 = document.createElement("label"); wrap2.style.cssText = "flex-direction:row;align-items:center;gap:8px;text-transform:none;letter-spacing:0;color:var(--text);font-family:var(--mono);font-size:11px";
-            input = document.createElement("input"); input.type = "checkbox"; if (arg.default) input.checked = true;
-            wrap2.appendChild(input); wrap2.appendChild(document.createTextNode(" " + arg.label));
-            field.innerHTML = ""; field.appendChild(wrap2);
-          } else if (arg.kind === "number") {
-            input = document.createElement("input"); input.type = "number"; if (arg.default != null) input.value = arg.default;
-          } else if (arg.kind === "json" || arg.kind === "lines") {
-            input = document.createElement("textarea"); if (arg.placeholder) input.placeholder = arg.placeholder;
-          } else {
-            input = document.createElement("input"); input.type = "text"; if (arg.placeholder) input.placeholder = arg.placeholder;
-          }
-          input.dataset.argName = arg.name;
-          input.dataset.argKind = arg.kind;
-          if (arg.kind !== "bool") field.appendChild(input);
-          form.appendChild(field);
-        });
-        var actions = document.createElement("div"); actions.className = "row-actions";
-        var runBtn = document.createElement("button"); runBtn.className = "primary"; runBtn.textContent = "Run";
-        var hint = document.createElement("span"); hint.className = "hint"; hint.textContent = "";
-        var result = document.createElement("div"); result.className = "cmd-result"; result.style.display = "none";
-        actions.appendChild(runBtn); actions.appendChild(hint);
-        form.appendChild(actions); form.appendChild(result);
-        runBtn.addEventListener("click", function (ev) {
-          ev.stopPropagation();
-          var args = collectArgs(form);
-          if (cmd.args.some(function (a) { return a.required && !args[a.name]; })) {
-            hint.textContent = "Missing required argument."; return;
-          }
-          hint.textContent = "Running…"; result.style.display = "none";
-          if (cmd.run) { cmd.run(args); hint.textContent = "Sent."; return; }
-          runCommand(cmd.action, args, function (body) {
-            hint.textContent = "";
-            result.style.display = "block";
-            result.className = "cmd-result" + (body && body.ok === false ? " err" : "");
-            try { result.textContent = JSON.stringify(body, null, 2); } catch (e) { result.textContent = String(body); }
-          });
-        });
-        var slug = document.createElement("span"); slug.className = "slug"; slug.textContent = cmd.slug;
-        row.appendChild(num); row.appendChild(body); row.appendChild(slug);
-        body.appendChild(form); // form sits under title/desc so it spans naturally
-        row.addEventListener("click", function (ev) {
-          // Don't toggle when interacting with form controls.
-          if (ev.target.closest && ev.target.closest(".cmd-form")) return;
-          row.classList.toggle("open");
-        });
-        wrap.appendChild(row);
-      });
-      host.appendChild(wrap);
-    });
-  }
-
-  function collectArgs(form) {
-    var out = {};
-    form.querySelectorAll("[data-arg-name]").forEach(function (inp) {
-      var n = inp.dataset.argName, k = inp.dataset.argKind, v;
-      if (k === "bool") v = inp.checked;
-      else if (k === "number") v = inp.value === "" ? undefined : Number(inp.value);
-      else if (k === "json") {
-        if (!inp.value.trim()) return;
-        try { v = JSON.parse(inp.value); } catch (e) { v = inp.value; }
-      } else if (k === "lines") {
-        v = (inp.value || "").split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
-      } else {
-        v = inp.value === "" ? undefined : inp.value;
-      }
-      if (v !== undefined && v !== "") out[n] = v;
-    });
-    return out;
-  }
-
-  var _cmdHandlers = {};
-  function runCommand(action, args, handler) {
-    var cmdId = "ui-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
-    if (handler) _cmdHandlers[cmdId] = handler;
-    parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: action, args: args || {} } }, "*");
-  }
-
-  renderCommands();
-
-  el("bridgeToggle").addEventListener("change", function (e) {
-    parent.postMessage({ pluginMessage: { type: "set-bridge", enabled: e.target.checked } }, "*");
-  });
-
-  el("copyBtn").addEventListener("click", function () {
-    var text = el("out").textContent;
-    navigator.clipboard.writeText(text).then(function () {
-      setStatus("ok", "Copied"); setTimeout(function () { setStatus("ok", "Ready"); }, 1200);
-    });
-  });
-  el("dlBtn").addEventListener("click", function () {
-    var exts = { html: "html", css: "css", tailwind: "html", tokens: "json", tailwindConfig: "js" };
-    var names = { html: "figbridge.html", css: "figbridge.css", tailwind: "figbridge.tailwind.html",
-      tokens: "figbridge.tokens.json", tailwindConfig: "tailwind.config.js" };
-    var blob = new Blob([el("out").textContent], { type: "text/plain" });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = names[state.tab] || "figbridge.txt";
-    a.click();
-  });
-
-  function pushToBridge(payload) {
-    return fetch(BRIDGE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    }).then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      bridgeOk = true; setStatus("ok", "Bridge connected");
-      setFoot("Pushed to MCP bridge at " + new Date().toLocaleTimeString());
-      return true;
-    }).catch(function (e) {
-      bridgeOk = false; setStatus("err", "Bridge offline");
-      setFoot("Bridge push failed: " + e.message);
-      return false;
-    });
-  }
-
-  function openEventStream() {
-    if (eventSource) return;
-    try {
-      eventSource = new EventSource(EVENTS_URL);
-      eventSource.addEventListener("hello", function () {
-        setStatus("ok", "Bridge connected"); setFoot("Connected to MCP bridge (live)");
-      });
-      eventSource.addEventListener("command", function (e) {
-        try {
-          var cmd = JSON.parse(e.data);
-          parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmd.cmdId, action: cmd.action, args: cmd.args } }, "*");
-        } catch (err) { setFoot("Bad command: " + err.message); }
-      });
-      eventSource.onerror = function () {
-        setStatus("err", "Bridge offline"); setFoot("SSE disconnected — is figbridge-mcp running?");
-      };
-    } catch (e) { setFoot("EventSource error: " + e.message); }
-  }
-  function closeEventStream() {
-    if (eventSource) { try { eventSource.close(); } catch {}; eventSource = null; }
-  }
-  function postCmdResult(cmdId, body) {
-    return fetch(BRIDGE_BASE + "/command/" + cmdId + "/result", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    }).catch(function () {});
-  }
-
-  // ── Layer tree (Figma-like navigator) ────────────────────────────────
-  // Model: flat map of nodes keyed by id, each node tracks parentId,
-  // expanded, loaded, children[]. Rendered as a single flat virtual list
-  // indented by depth — no DOM nesting, so opening/closing is O(n).
+  // ── Layer tree ──────────────────────────────────────────────────
   var tree = { roots: [], nodes: {}, selectedId: null, currentPageId: null };
-
-  function typeTag(t) {
-    if (t === "PAGE") return "P";
-    if (t === "FRAME") return "F";
-    if (t === "COMPONENT") return "C";
-    if (t === "COMPONENT_SET") return "S";
-    if (t === "INSTANCE") return "I";
-    if (t === "TEXT") return "T";
-    if (t === "GROUP") return "G";
-    if (t === "RECTANGLE" || t === "ELLIPSE" || t === "POLYGON" || t === "STAR" || t === "LINE" || t === "VECTOR") return "V";
-    return (t || "?").slice(0, 1);
-  }
 
   function hydratePages(pages) {
     tree.roots = pages.map(function (p) { return p.id; });
     pages.forEach(function (p) {
-      tree.nodes[p.id] = {
-        id: p.id, name: p.name, type: "PAGE", parentId: null, depth: 0,
-        hasChildren: p.frameCount > 0, expanded: false, loaded: false,
-        children: [], meta: p.frameCount + " frames", current: !!p.isCurrent
-      };
+      tree.nodes[p.id] = { id: p.id, name: p.name, type: "PAGE", parentId: null, depth: 0,
+        hasChildren: p.frameCount > 0, expanded: false, loaded: false, children: [],
+        meta: "", current: !!p.isCurrent };
     });
     if (pages.length) {
       var cur = pages.find(function (p) { return p.isCurrent; }) || pages[0];
       tree.currentPageId = cur.id;
-      // Auto-expand current page so the user sees frames on first paint.
       tree.nodes[cur.id].expanded = true;
       parent.postMessage({ pluginMessage: { type: "get-frames", pageId: cur.id } }, "*");
     }
     renderTree();
   }
-
-  function hydrateChildren(parentId, pageName, children) {
-    var p = tree.nodes[parentId];
-    if (!p) return;
+  function hydrateChildren(parentId, _pageName, children) {
+    var p = tree.nodes[parentId]; if (!p) return;
     p.loaded = true;
     p.children = children.map(function (c) { return c.id; });
     children.forEach(function (c) {
-      tree.nodes[c.id] = {
-        id: c.id, name: c.name, type: c.type, parentId: parentId, depth: p.depth + 1,
-        hasChildren: !!c.hasChildren, expanded: false, loaded: false, children: [],
-        meta: (c.width != null && c.height != null) ? (c.width + "×" + c.height) : ""
-      };
+      tree.nodes[c.id] = { id: c.id, name: c.name, type: c.type, parentId: parentId,
+        depth: p.depth + 1, hasChildren: !!c.hasChildren, expanded: false, loaded: false,
+        children: [], meta: (c.width != null && c.height != null) ? (c.width + "×" + c.height) : "" };
     });
     renderTree();
   }
-
   function flatten() {
     var out = [];
     (function walk(ids) {
@@ -701,75 +512,55 @@
     })(tree.roots);
     return out;
   }
-
   function renderTree() {
-    var host = el("tree");
-    var rows = flatten();
-    el("treeCount").textContent = rows.length + " shown";
-    if (!rows.length) {
-      host.innerHTML = '<div class="tree-empty">No pages or frames.</div>';
-      return;
-    }
+    var host = el("tree"); var rows = flatten();
+    el("treeCount").textContent = rows.length;
+    if (!rows.length) { host.innerHTML = '<div class="tree-empty">No layers</div>'; return; }
     host.innerHTML = "";
     rows.forEach(function (n) {
       var row = document.createElement("div");
-      row.className = "row" + (tree.selectedId === n.id ? " current" : "") + (n.current ? " current" : "");
+      row.className = "row" + (tree.selectedId === n.id ? " current" : "");
       row.dataset.id = n.id;
-      // Indent
-      var indent = document.createElement("span"); indent.className = "indent";
-      indent.style.width = (n.depth * 14) + "px";
-      row.appendChild(indent);
-      // Caret (disclosure)
+      row.style.paddingLeft = (4 + n.depth * 12) + "px";
+
       var caret = document.createElement("span");
-      caret.className = "caret" + (n.hasChildren ? "" : " empty");
-      caret.textContent = n.hasChildren ? (n.expanded ? "▾" : "›") : "·";
+      caret.className = "caret" + (n.hasChildren ? (n.expanded ? " expanded" : "") : " empty");
+      caret.innerHTML = ICONS.caret;
+      caret.addEventListener("click", function (ev) { ev.stopPropagation(); toggleNode(n); });
       row.appendChild(caret);
-      // Type tag
-      var tag = document.createElement("span"); tag.className = "tag t-" + n.type;
-      tag.textContent = typeTag(n.type);
-      tag.title = n.type;
-      row.appendChild(tag);
-      // Name
+
+      var icon = document.createElement("span"); icon.className = "icon";
+      icon.innerHTML = iconFor(n.type); icon.title = n.type;
+      row.appendChild(icon);
+
       var name = document.createElement("span"); name.className = "name";
-      name.textContent = n.name;
-      name.title = n.name;
+      name.textContent = n.name; name.title = n.name;
       row.appendChild(name);
-      // Meta
+
       if (n.meta) {
         var m = document.createElement("span"); m.className = "meta"; m.textContent = n.meta;
         row.appendChild(m);
       }
-      // Hover actions
+
       var actions = document.createElement("span"); actions.className = "actions";
       if (n.type !== "PAGE") {
-        var exp = document.createElement("a"); exp.textContent = "export"; exp.title = "Export as HTML/CSS";
-        exp.addEventListener("click", function (ev) { ev.stopPropagation(); exportOne(n); });
-        actions.appendChild(exp);
-        var sel = document.createElement("a"); sel.textContent = "select"; sel.title = "Select in Figma canvas";
-        sel.addEventListener("click", function (ev) {
-          ev.stopPropagation();
-          runCommand("select_node", { nodeId: n.id });
-        });
-        actions.appendChild(sel);
-      } else {
-        var open = document.createElement("a"); open.textContent = n.expanded ? "collapse" : "open";
-        open.addEventListener("click", function (ev) { ev.stopPropagation(); toggleNode(n); });
-        actions.appendChild(open);
+        var ex = document.createElement("button"); ex.className = "icon-btn"; ex.title = "Export";
+        ex.innerHTML = ICONS.download;
+        ex.addEventListener("click", function (ev) { ev.stopPropagation(); exportOne(n); });
+        actions.appendChild(ex);
+        var fc = document.createElement("button"); fc.className = "icon-btn"; fc.title = "Select on canvas";
+        fc.innerHTML = ICONS.focus;
+        fc.addEventListener("click", function (ev) { ev.stopPropagation(); runCommand("select", { nodeId: n.id }); });
+        actions.appendChild(fc);
       }
       row.appendChild(actions);
 
-      // Row click: expand (for PAGE/expandable) or export (for leaf frames/components)
-      row.addEventListener("click", function (ev) {
-        if (n.hasChildren && (ev.target === caret || ev.target === row || ev.target === indent || ev.target === name || ev.target === tag)) {
-          toggleNode(n);
-        }
-        // Also select in tree UI
+      row.addEventListener("click", function () {
         tree.selectedId = n.id;
-        renderTree();
-        // If it's a frame-like leaf, export it on click
-        if (!n.hasChildren && n.type !== "PAGE") exportOne(n);
+        if (n.hasChildren) toggleNode(n);
+        else if (n.type !== "PAGE") exportOne(n);
+        else renderTree();
       });
-      // Double-click always exports
       row.addEventListener("dblclick", function (ev) {
         ev.stopPropagation();
         if (n.type !== "PAGE") exportOne(n);
@@ -777,32 +568,316 @@
       host.appendChild(row);
     });
   }
-
   function toggleNode(n) {
-    if (!n.hasChildren) return;
+    if (!n.hasChildren) { renderTree(); return; }
     n.expanded = !n.expanded;
     if (n.expanded && !n.loaded) {
-      if (n.type === "PAGE") {
-        parent.postMessage({ pluginMessage: { type: "get-frames", pageId: n.id } }, "*");
-      } else {
-        parent.postMessage({ pluginMessage: { type: "get-children", nodeId: n.id } }, "*");
-      }
+      if (n.type === "PAGE") parent.postMessage({ pluginMessage: { type: "get-frames", pageId: n.id } }, "*");
+      else parent.postMessage({ pluginMessage: { type: "get-children", nodeId: n.id } }, "*");
     }
     renderTree();
   }
-
   function exportOne(n) {
     var pageId = n.type === "PAGE" ? n.id : findPageId(n.id);
     setStatus("busy", "Exporting"); setFoot("Exporting " + n.name + "…");
     parent.postMessage({ pluginMessage: { type: "export-nodes", pageId: pageId, nodeIds: [n.id] } }, "*");
   }
-
   function findPageId(id) {
     var cur = tree.nodes[id];
     while (cur && cur.parentId) cur = tree.nodes[cur.parentId];
     return cur ? cur.id : tree.currentPageId;
   }
 
+  // ── Toolbar / overflow menu ────────────────────────────────────
+  el("exportSel").addEventListener("click", function () {
+    setStatus("busy", "Exporting"); setFoot("Exporting selection…");
+    parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*");
+  });
+  el("exportAgent").addEventListener("click", function () {
+    setStatus("busy", "Bundling"); setFoot("Building agent bundle…");
+    parent.postMessage({ pluginMessage: { type: "export-agent", budget: "medium", screenshots: true, codePaths: [] } }, "*");
+  });
+  el("overflowBtn").addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    el("overflowMenu").classList.toggle("open");
+  });
+  document.addEventListener("click", function () { el("overflowMenu").classList.remove("open"); });
+  el("overflowMenu").addEventListener("click", function (ev) {
+    var item = ev.target.closest(".menu-item"); if (!item) return;
+    var act = item.dataset.act;
+    el("overflowMenu").classList.remove("open");
+    if (act === "export-all") {
+      setStatus("busy", "Exporting"); setFoot("Exporting all pages…");
+      parent.postMessage({ pluginMessage: { type: "export-all" } }, "*");
+    } else if (act === "export-app-spec") {
+      setStatus("busy", "Working"); setFoot("Building app spec…");
+      var cmdId = "ui-" + Date.now();
+      parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: "export-app-spec", args: {} } }, "*");
+      window._pendingSpec = cmdId;
+    } else if (act === "copy") {
+      var txt = el("out").textContent;
+      navigator.clipboard && navigator.clipboard.writeText(txt);
+      setStatus("ok", "Copied"); setTimeout(function () { setStatus("", "Ready"); }, 1200);
+    } else if (act === "download") {
+      var names = { html: "figbridge.html", css: "figbridge.css", tailwind: "figbridge.tailwind.html",
+        tokens: "figbridge.tokens.json", tailwindConfig: "tailwind.config.js" };
+      var blob = new Blob([el("out").textContent], { type: "text/plain" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = names[state.tab] || "figbridge.txt";
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+  });
+
+  // ── Command palette (⌘K) ───────────────────────────────────────
+  var COMMANDS = [
+    // Handoff
+    { section: "Handoff", name: "Export current selection", slug: "export_selection", desc: "HTML + CSS + Tailwind + tokens", args: [], run: function () { parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*"); } },
+    { section: "Handoff", name: "Export all pages", slug: "export_all", desc: "Walk every page", args: [], run: function () { parent.postMessage({ pluginMessage: { type: "export-all" } }, "*"); } },
+    { section: "Handoff", name: "Build agent handoff bundle", slug: "get_agent_bundle", desc: "Zip with hierarchy, tokens, components, AGENTS.md", args: [
+      { name: "budget", label: "Token budget", kind: "select", choices: ["small","medium","large"], default: "medium" },
+      { name: "screenshots", label: "Include screenshots", kind: "bool", default: true },
+      { name: "codePaths", label: "Code paths (one per line)", kind: "lines", placeholder: "src/components/Button.tsx" }
+    ], run: function (args) { parent.postMessage({ pluginMessage: { type: "export-agent", budget: args.budget || "medium", screenshots: !!args.screenshots, codePaths: args.codePaths || [] } }, "*"); } },
+    { section: "Handoff", name: "Export app spec", slug: "export_app_spec", desc: "JSON catalog of screens, components, tokens, flows", args: [], action: "export-app-spec", renderToTab: true },
+    // Catalog
+    { section: "Catalog", name: "List screens", slug: "list_screens", desc: "Top-level frames categorized by name", args: [
+      { name: "pageId", label: "Restrict to page id", kind: "text" }
+    ], action: "list-screens" },
+    { section: "Catalog", name: "List components", slug: "list_components", desc: "All component sets and components", args: [
+      { name: "includeVariants", label: "Include variants", kind: "bool", default: false }
+    ], action: "list-components" },
+    { section: "Catalog", name: "Describe screen", slug: "describe_screen", desc: "Background, text, instances, category", args: [
+      { name: "nodeId", label: "Node id", kind: "text", required: true }
+    ], action: "describe-screen" },
+    { section: "Catalog", name: "List assets", slug: "list_assets", desc: "Icons / images / illustrations as base64", args: [
+      { name: "kind", label: "Kind", kind: "select", choices: ["icon","image","illustration"], default: "icon" },
+      { name: "limit", label: "Limit", kind: "number", default: 40 }
+    ], action: "list-assets" },
+    // Selection
+    { section: "Selection", name: "Select node on canvas", slug: "select_node", desc: "By id or name substring", args: [
+      { name: "nodeId", label: "Node id (preferred)", kind: "text" },
+      { name: "name", label: "…or name substring", kind: "text" }
+    ], action: "select" },
+    { section: "Selection", name: "Export specific node", slug: "export_node", desc: "Push by node id through the bridge", args: [
+      { name: "nodeId", label: "Node id", kind: "text", required: true }
+    ], action: "export-node" },
+    // Mutation
+    { section: "Mutation", name: "Clone screen", slug: "clone_screen", desc: "Duplicate a frame + text replacements", args: [
+      { name: "sourceNodeId", label: "Source node id", kind: "text", required: true },
+      { name: "name", label: "New name", kind: "text" },
+      { name: "textReplacements", label: "Text replacements (JSON)", kind: "json", placeholder: '{"Welcome": "Welcome back"}' }
+    ], action: "clone-screen" },
+    { section: "Mutation", name: "Recolor fills & strokes", slug: "recolor", desc: "Old hex → new hex across a scope", args: [
+      { name: "scope", label: "Scope", kind: "select", choices: ["selection","page","file"], default: "selection" },
+      { name: "nodeId", label: "…or specific node id", kind: "text" },
+      { name: "mapping", label: "Mapping (JSON)", kind: "json", required: true, placeholder: '{"#ff7a29": "#3ddc97"}' }
+    ], action: "recolor" },
+    { section: "Mutation", name: "Bind loose colors to variables", slug: "apply_tokens", desc: "Match SOLID fills to color variables by hex", args: [
+      { name: "nodeId", label: "Node id", kind: "text" }
+    ], action: "apply-tokens" },
+    { section: "Mutation", name: "Lint design system", slug: "lint_ds", desc: "Unbound colors, non-grid spacing, orphans, duplicates", args: [
+      { name: "pageId", label: "Page id", kind: "text" }
+    ], action: "lint-ds" }
+  ];
+
+  var paletteState = { query: "", filtered: COMMANDS, active: 0, expanded: null };
+
+  function openPalette() {
+    el("paletteScrim").classList.add("open");
+    el("paletteInput").value = ""; paletteState.query = ""; paletteState.active = 0; paletteState.expanded = null;
+    filterPalette();
+    setTimeout(function () { el("paletteInput").focus(); }, 0);
+  }
+  function closePalette() {
+    el("paletteScrim").classList.remove("open");
+    el("palArgs").classList.remove("open");
+    el("palArgs").innerHTML = "";
+  }
+  function filterPalette() {
+    var q = paletteState.query.toLowerCase().trim();
+    paletteState.filtered = !q ? COMMANDS : COMMANDS.filter(function (c) {
+      return (c.name + " " + c.slug + " " + c.desc + " " + c.section).toLowerCase().indexOf(q) >= 0;
+    });
+    if (paletteState.active >= paletteState.filtered.length) paletteState.active = 0;
+    renderPalette();
+  }
+  function renderPalette() {
+    var list = el("paletteList"); list.innerHTML = "";
+    if (!paletteState.filtered.length) { list.innerHTML = '<div class="pal-empty">No matching command.</div>'; return; }
+    var currentSection = null;
+    paletteState.filtered.forEach(function (cmd, i) {
+      if (cmd.section !== currentSection) {
+        currentSection = cmd.section;
+        var h = document.createElement("div"); h.className = "pal-section"; h.textContent = currentSection;
+        list.appendChild(h);
+      }
+      var item = document.createElement("div");
+      item.className = "pal-item" + (i === paletteState.active ? " active" : "");
+      item.innerHTML =
+        '<div class="pal-item-body">' +
+          '<div class="pal-name"></div>' +
+          '<div class="pal-desc"></div>' +
+        '</div>' +
+        '<span class="pal-slug"></span>';
+      item.querySelector(".pal-name").textContent = cmd.name;
+      item.querySelector(".pal-desc").textContent = cmd.desc;
+      item.querySelector(".pal-slug").textContent = cmd.slug;
+      item.addEventListener("mouseenter", function () { paletteState.active = i; renderPalette(); });
+      item.addEventListener("click", function () { invoke(cmd); });
+      list.appendChild(item);
+    });
+  }
+  function invoke(cmd) {
+    if (!cmd.args || !cmd.args.length) { runCmd(cmd, {}); return; }
+    showArgs(cmd);
+  }
+  function showArgs(cmd) {
+    var host = el("palArgs");
+    host.classList.add("open");
+    host.innerHTML = "";
+    var h = document.createElement("h5"); h.textContent = cmd.name; host.appendChild(h);
+    cmd.args.forEach(function (arg) {
+      var field = document.createElement("div"); field.className = "field";
+      if (arg.kind === "bool") {
+        var wrap = document.createElement("div"); wrap.className = "bool";
+        var inp = document.createElement("input"); inp.type = "checkbox"; if (arg.default) inp.checked = true;
+        inp.dataset.argName = arg.name; inp.dataset.argKind = arg.kind;
+        var lbl = document.createElement("label"); lbl.textContent = arg.label;
+        lbl.style.cssText = "margin:0;font-size:11px;font-weight:400;color:var(--text)";
+        wrap.appendChild(inp); wrap.appendChild(lbl);
+        field.appendChild(wrap);
+      } else {
+        var lbl2 = document.createElement("label"); lbl2.textContent = arg.label + (arg.required ? " *" : "");
+        field.appendChild(lbl2);
+        var input;
+        if (arg.kind === "select") {
+          input = document.createElement("select");
+          arg.choices.forEach(function (c) {
+            var o = document.createElement("option"); o.value = c; o.textContent = c;
+            if (c === arg.default) o.selected = true;
+            input.appendChild(o);
+          });
+        } else if (arg.kind === "number") {
+          input = document.createElement("input"); input.type = "number"; if (arg.default != null) input.value = arg.default;
+        } else if (arg.kind === "json" || arg.kind === "lines") {
+          input = document.createElement("textarea"); if (arg.placeholder) input.placeholder = arg.placeholder;
+        } else {
+          input = document.createElement("input"); input.type = "text"; if (arg.placeholder) input.placeholder = arg.placeholder;
+        }
+        input.dataset.argName = arg.name; input.dataset.argKind = arg.kind;
+        field.appendChild(input);
+      }
+      host.appendChild(field);
+    });
+    var actions = document.createElement("div"); actions.className = "actions";
+    var run = document.createElement("button"); run.className = "btn primary"; run.textContent = "Run";
+    var cancel = document.createElement("button"); cancel.className = "btn"; cancel.textContent = "Cancel";
+    var hint = document.createElement("span"); hint.className = "hint";
+    var result = document.createElement("div"); result.className = "pal-result"; result.style.display = "none";
+    actions.appendChild(run); actions.appendChild(cancel); actions.appendChild(hint);
+    host.appendChild(actions); host.appendChild(result);
+
+    run.addEventListener("click", function () {
+      var args = {};
+      host.querySelectorAll("[data-arg-name]").forEach(function (inp) {
+        var n = inp.dataset.argName, k = inp.dataset.argKind, v;
+        if (k === "bool") v = inp.checked;
+        else if (k === "number") v = inp.value === "" ? undefined : Number(inp.value);
+        else if (k === "json") { if (!inp.value.trim()) return; try { v = JSON.parse(inp.value); } catch (e) { v = inp.value; } }
+        else if (k === "lines") v = (inp.value || "").split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+        else v = inp.value === "" ? undefined : inp.value;
+        if (v !== undefined && v !== "") args[n] = v;
+      });
+      if (cmd.args.some(function (a) { return a.required && (args[a.name] == null || args[a.name] === ""); })) {
+        hint.textContent = "Missing required argument."; return;
+      }
+      hint.textContent = "Running…"; result.style.display = "none";
+      runCmd(cmd, args, function (body) {
+        hint.textContent = "Done";
+        result.style.display = "block";
+        result.className = "pal-result" + (body && body.ok === false ? " err" : "");
+        try { result.textContent = JSON.stringify(body, null, 2); } catch (e) { result.textContent = String(body); }
+      });
+    });
+    cancel.addEventListener("click", function () {
+      host.classList.remove("open"); host.innerHTML = "";
+    });
+  }
+
+  var _cmdHandlers = {};
+  function runCommand(action, args, handler) {
+    var cmdId = "ui-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+    if (handler) _cmdHandlers[cmdId] = handler;
+    parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: action, args: args || {} } }, "*");
+  }
+  function runCmd(cmd, args, handler) {
+    if (cmd.run) { cmd.run(args); closePalette(); return; }
+    if (cmd.renderToTab) {
+      var cmdId = "ui-" + Date.now();
+      window._pendingSpec = cmdId;
+      parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: cmd.action, args: args || {} } }, "*");
+      closePalette();
+      return;
+    }
+    runCommand(cmd.action, args, handler || function (body) {
+      // Surface to output pane as JSON when invoked without an inline result.
+      state.data = { html: JSON.stringify(body, null, 2), css: "", tailwindHtml: "", tokens: {}, cssVars: "", tailwindConfig: "" };
+      render();
+      setStatus(body && body.ok === false ? "err" : "ok", body && body.ok === false ? "Failed" : "Done");
+      closePalette();
+    });
+  }
+
+  el("openPalette").addEventListener("click", openPalette);
+  el("paletteScrim").addEventListener("click", function (e) { if (e.target === el("paletteScrim")) closePalette(); });
+  el("paletteInput").addEventListener("input", function (e) {
+    paletteState.query = e.target.value; paletteState.active = 0; filterPalette();
+  });
+  el("paletteInput").addEventListener("keydown", function (e) {
+    if (e.key === "ArrowDown") { paletteState.active = Math.min(paletteState.active + 1, paletteState.filtered.length - 1); renderPalette(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { paletteState.active = Math.max(paletteState.active - 1, 0); renderPalette(); e.preventDefault(); }
+    else if (e.key === "Enter") { var c = paletteState.filtered[paletteState.active]; if (c) invoke(c); e.preventDefault(); }
+    else if (e.key === "Escape") { closePalette(); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      el("paletteScrim").classList.contains("open") ? closePalette() : openPalette();
+    } else if (e.key === "Escape" && el("paletteScrim").classList.contains("open")) {
+      closePalette();
+    }
+  });
+
+  // ── Bridge ──────────────────────────────────────────────────────
+  el("bridgeToggle").addEventListener("change", function (e) {
+    parent.postMessage({ pluginMessage: { type: "set-bridge", enabled: e.target.checked } }, "*");
+  });
+  function pushToBridge(payload) {
+    return fetch(BRIDGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); setStatus("ok", "Bridge"); setFoot("Pushed @ " + new Date().toLocaleTimeString()); })
+      .catch(function (e) { setStatus("err", "Bridge offline"); setFoot("Bridge: " + e.message); });
+  }
+  function openEventStream() {
+    if (eventSource) return;
+    try {
+      eventSource = new EventSource(EVENTS_URL);
+      eventSource.addEventListener("hello", function () { setStatus("ok", "Bridge"); setFoot("Live"); });
+      eventSource.addEventListener("command", function (e) {
+        try {
+          var cmd = JSON.parse(e.data);
+          parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmd.cmdId, action: cmd.action, args: cmd.args } }, "*");
+        } catch (err) { setFoot("Bad command: " + err.message); }
+      });
+      eventSource.onerror = function () { setStatus("err", "Offline"); setFoot("SSE disconnected"); };
+    } catch (e) { setFoot("EventSource error: " + e.message); }
+  }
+  function closeEventStream() { if (eventSource) { try { eventSource.close(); } catch (e) {}; eventSource = null; } }
+  function postCmdResult(cmdId, body) {
+    return fetch(BRIDGE_BASE + "/command/" + cmdId + "/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(function () {});
+  }
+
+  // ── Router ──────────────────────────────────────────────────────
   window.onmessage = function (e) {
     var msg = e.data.pluginMessage; if (!msg) return;
     switch (msg.type) {
@@ -812,7 +887,7 @@
       case "bridge-state":
         state.bridge = msg.enabled;
         el("bridgeToggle").checked = msg.enabled;
-        setStatus(msg.enabled ? "busy" : "", msg.enabled ? "Bridge on" : "Ready");
+        setStatus(msg.enabled ? "busy" : "", msg.enabled ? "Bridge" : "Ready");
         if (msg.enabled) openEventStream(); else closeEventStream();
         break;
       case "cmd-result":
@@ -820,8 +895,10 @@
           window._pendingSpec = null;
           var text = JSON.stringify(msg.body && msg.body.spec ? msg.body.spec : msg.body, null, 2);
           state.data = { html: text, css: "", tailwindHtml: "", tokens: {}, cssVars: "", tailwindConfig: "" };
+          state.tab = "html";
+          document.querySelectorAll(".tab").forEach(function (x) { x.classList.toggle("active", x.dataset.tab === "html"); });
           render();
-          setStatus("ok", "Spec ready"); setFoot("App spec rendered in HTML tab");
+          setStatus("ok", "Done"); setFoot("App spec rendered");
         } else if (_cmdHandlers[msg.cmdId]) {
           try { _cmdHandlers[msg.cmdId](msg.body); } finally { delete _cmdHandlers[msg.cmdId]; }
         } else {
@@ -830,7 +907,7 @@
         break;
       case "result":
         state.data = msg; render();
-        setStatus("ok", "Exported"); setFoot("Exported " + (msg.nodeNames || []).join(", "));
+        setStatus("ok", "Done"); setFoot("Exported " + (msg.nodeNames || []).join(", "));
         if (state.bridge) pushToBridge(msg);
         break;
       case "auto-push":
@@ -842,7 +919,7 @@
         break;
       case "all-pages-result":
         state.data = msg.pages[0] || null; render();
-        setStatus("ok", "Exported"); setFoot("Exported " + msg.pages.length + " pages");
+        setStatus("ok", "Done"); setFoot("Exported " + msg.pages.length + " pages");
         break;
       case "agent-bundle-result": {
         var bytes = new Uint8Array(msg.zip);
@@ -851,10 +928,9 @@
         var a = document.createElement("a");
         a.href = url;
         a.download = (msg.pageName || "figbridge") + "-agent-bundle.zip";
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-        setStatus("ok", "Bundle ready");
-        setFoot("Agent bundle: " + msg.fileCount + " files downloaded");
+        setStatus("ok", "Bundle ready"); setFoot(msg.fileCount + " files");
         break;
       }
       case "error":
