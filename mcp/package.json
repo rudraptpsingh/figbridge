@@ -1,6 +1,6 @@
 {
   "name": "figbridge-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Free, local MCP bridge for Figbridge — exposes Figma → HTML/CSS/Tailwind/tokens to AI agents.",
   "license": "MIT",
   "author": "Rudra Pratap Singh",
