@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect width="128" height="128" rx="28" fill="#0e1a15"/>
+  <!-- subtle inner rule, editorial feel -->
+  <rect x="10" y="10" width="108" height="108" rx="22" fill="none" stroke="#2b3a33" stroke-width="1"/>
+  <!-- italic serif 'f' mark -->
+  <text x="64" y="92" text-anchor="middle"
+        font-family="'Fraunces', 'Iowan Old Style', Georgia, serif"
+        font-size="88" font-weight="500" font-style="italic" fill="#ad2b1f">f</text>
+  <!-- tiny port label -->
+  <text x="64" y="116" text-anchor="middle" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="8" letter-spacing="1.5" fill="#8a9790">:7331</text>
+</svg>

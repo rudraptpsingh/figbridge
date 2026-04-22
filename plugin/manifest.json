@@ -9,6 +9,6 @@
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": ["http://localhost:7331"],
-    "reasoning": "Pushes the current export to the local Figbridge MCP bridge so AI agents (Claude Desktop, Cursor, etc.) can read it."
+    "reasoning": "Figbridge talks only to a bridge the user runs on their own machine at http://localhost:7331. No external servers are contacted; no design data ever leaves the user's device. The bridge is an open-source Node process the user installs themselves via `npx figbridge-mcp init`. If it is not running, the plugin still works as a local export/spec tool — it simply shows an offline state."
   }
 }

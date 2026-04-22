@@ -63,9 +63,52 @@
     background:rgba(255,93,108,0.06); display:none; font-size:12px; }
   .footer { padding:6px 12px; border-top:1px solid var(--line); background:var(--panel);
     color:var(--dim); font-size:11px; display:flex; align-items:center; gap:10px; }
+
+  /* First-run onboarding card */
+  .welcome-overlay {
+    position: fixed; inset: 0; background: rgba(4,6,9,0.86);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+    padding: 24px;
+  }
+  .welcome-overlay.show { display: flex; }
+  .welcome {
+    max-width: 520px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 22px 22px 18px; color: var(--text);
+  }
+  .welcome h2 { margin: 0 0 4px; font-size: 16px; }
+  .welcome .sub { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+  .welcome ol { margin: 0 0 10px; padding-left: 18px; font-size: 13px; line-height: 1.7; }
+  .welcome code { background: var(--panel-2); border: 1px solid var(--line);
+    padding: 1px 6px; border-radius: 4px; font-size: 12px; color: #ffb388; }
+  .welcome .hint { color: var(--dim); font-size: 11px; margin: 10px 0 14px;
+    padding: 10px 12px; background: var(--panel-2); border-radius: 6px;
+    border-left: 2px solid var(--accent); }
+  .welcome .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+  .welcome .row a { color: var(--dim); font-size: 11px; text-decoration: none; margin-right: auto; }
+  .welcome .row a:hover { color: var(--text); }
 </style>
 </head>
 <body>
+<div class="welcome-overlay" id="welcome">
+  <div class="welcome">
+    <h2>Welcome to Figbridge</h2>
+    <div class="sub">Free, local MCP bridge — Claude &amp; any agent can read and edit this file.</div>
+    <ol>
+      <li>In a terminal on your machine: <code>npx figbridge-mcp init</code></li>
+      <li>Restart Claude Desktop (or your MCP client).</li>
+      <li>Come back here and flip <b>Live bridge</b> — the dot turns green.</li>
+    </ol>
+    <div class="hint">
+      You can use Figbridge without the bridge too: click <b>Export selection</b> or <b>Export app spec</b> and copy the result.
+      Nothing is sent anywhere unless <b>Live bridge</b> is on, and the bridge runs only on your own machine at <code>http://localhost:7331</code>.
+    </div>
+    <div class="row">
+      <a href="https://github.com/rudra-rps/figbridge#readme" target="_blank" rel="noopener">Docs &amp; source</a>
+      <button id="welcomeDismiss" class="primary">Got it</button>
+    </div>
+  </div>
+</div>
+
 <div class="app">
   <header>
     <div class="logo">Figbridge</div>
@@ -115,6 +158,19 @@
 </div>
 
 <script>
+  // First-run onboarding — uses localStorage (sandboxed per plugin).
+  (function initWelcome(){
+    try {
+      var seen = localStorage.getItem("figbridge.welcomed");
+      if (!seen) document.getElementById("welcome").classList.add("show");
+    } catch (e) { /* private mode, just skip */ }
+    var btn = document.getElementById("welcomeDismiss");
+    if (btn) btn.addEventListener("click", function(){
+      try { localStorage.setItem("figbridge.welcomed", "1"); } catch(e){}
+      document.getElementById("welcome").classList.remove("show");
+    });
+  })();
+
   var BRIDGE_BASE = "http://localhost:7331";
   var BRIDGE_URL = BRIDGE_BASE + "/push";
   var EVENTS_URL = BRIDGE_BASE + "/events";

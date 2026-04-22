@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { width: 128px; height: 128px; }
+  .tile {
+    width: 128px; height: 128px;
+    background: #0e1a15; border-radius: 28px;
+    position: relative; overflow: hidden;
+  }
+  .inner {
+    position: absolute; inset: 10px; border-radius: 20px;
+    border: 1px solid #2b3a33;
+  }
+  .f {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -54%);
+    font-family: "Fraunces", serif; font-style: italic; font-weight: 500;
+    font-size: 96px; color: #ad2b1f; line-height: 1;
+    font-variation-settings: "opsz" 144;
+  }
+  .port {
+    position: absolute; bottom: 14px; left: 0; right: 0;
+    text-align: center;
+    font-family: "JetBrains Mono", monospace; font-size: 9px; letter-spacing: 2px;
+    color: #8a9790;
+  }
+</style>
+</head>
+<body>
+  <div class="tile">
+    <div class="inner"></div>
+    <div class="f">f</div>
+    <div class="port">:7331</div>
+  </div>
+</body>
+</html>

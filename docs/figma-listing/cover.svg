@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 960" width="1920" height="960">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#d4cfc0" stroke-width="1"/>
+    </pattern>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0e1a15"/>
+    </marker>
+  </defs>
+
+  <!-- background -->
+  <rect width="1920" height="960" fill="#ece9dd"/>
+  <rect width="1920" height="960" fill="url(#grid)" opacity="0.5"/>
+
+  <!-- top-left numeric label -->
+  <g font-family="'JetBrains Mono', ui-monospace, monospace" fill="#6e7870">
+    <text x="88" y="94" font-size="16" letter-spacing="4">01 · FIGBRIDGE · MCP BRIDGE FOR FIGMA</text>
+    <line x1="86" y1="110" x2="1832" y2="110" stroke="#bfb8a6" stroke-width="1"/>
+  </g>
+
+  <!-- Title -->
+  <g font-family="'Fraunces', 'Iowan Old Style', Georgia, serif" fill="#0e1a15">
+    <text x="88" y="340" font-size="220" font-weight="400" letter-spacing="-9">Give Claude</text>
+    <text x="88" y="540" font-size="220" font-weight="300" font-style="italic" fill="#ad2b1f">hands</text>
+    <text x="508" y="540" font-size="220" font-weight="400" letter-spacing="-9" fill="#0e1a15">inside your</text>
+    <text x="88" y="740" font-size="220" font-weight="400" letter-spacing="-9">Figma file.</text>
+  </g>
+
+  <!-- Right column: mini architecture diagram -->
+  <g transform="translate(1180, 180)">
+    <!-- Figma -->
+    <rect x="0" y="0" width="180" height="140" fill="#f7f4ea" stroke="#0e1a15" stroke-width="1.5"/>
+    <line x1="0" y1="30" x2="180" y2="30" stroke="#0e1a15" stroke-width="1.5"/>
+    <text x="90" y="20" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="13" letter-spacing="2" fill="#0e1a15">FIGMA</text>
+    <rect x="20" y="54" width="140" height="30" fill="#ece9dd" stroke="#bfb8a6"/>
+    <text x="90" y="75" text-anchor="middle" font-family="'Fraunces', serif" font-style="italic" font-size="16" fill="#ad2b1f">plugin</text>
+    <rect x="20" y="94" width="140" height="28" fill="#ece9dd" stroke="#bfb8a6"/>
+    <text x="90" y="113" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="12" fill="#2f3d36">● Live bridge</text>
+
+    <!-- Arrow 1 -->
+    <line x1="180" y1="60" x2="240" y2="60" stroke="#0e1a15" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="210" y="50" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="11" fill="#ad2b1f">POST /push</text>
+    <line x1="240" y1="90" x2="180" y2="90" stroke="#0e1a15" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arr)"/>
+    <text x="210" y="108" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="11" fill="#6e7870">SSE /events</text>
+
+    <!-- Bridge (dark) -->
+    <rect x="240" y="0" width="220" height="140" fill="#0e1a15"/>
+    <text x="350" y="20" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="13" letter-spacing="2" fill="#8a9790">LOCAL BRIDGE</text>
+    <line x1="260" y1="30" x2="440" y2="30" stroke="#2b3a33"/>
+    <text x="350" y="70" text-anchor="middle" font-family="'Fraunces', serif" font-style="italic" font-size="26" fill="#e6dfcc">figbridge-mcp</text>
+    <text x="350" y="92" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="13" fill="#7dd3a0">:7331 · HTTP + SSE</text>
+    <text x="350" y="114" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="12" fill="#b9c2bc">17 tools · stdio MCP</text>
+
+    <!-- Arrow 2 -->
+    <line x1="460" y1="70" x2="520" y2="70" stroke="#0e1a15" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="490" y="60" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="11" fill="#0e1a15">stdio</text>
+
+    <!-- Agents -->
+    <rect x="520" y="0" width="200" height="140" fill="#f7f4ea" stroke="#0e1a15" stroke-width="1.5"/>
+    <line x1="520" y1="30" x2="720" y2="30" stroke="#0e1a15" stroke-width="1.5"/>
+    <text x="620" y="20" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="13" letter-spacing="2" fill="#0e1a15">ANY MCP CLIENT</text>
+    <rect x="540" y="44" width="160" height="26" fill="#ece9dd" stroke="#bfb8a6"/>
+    <text x="620" y="62" text-anchor="middle" font-family="'Fraunces', serif" font-style="italic" font-size="14" fill="#0e1a15">Claude Desktop</text>
+    <rect x="540" y="76" width="160" height="26" fill="#ece9dd" stroke="#bfb8a6"/>
+    <text x="620" y="94" text-anchor="middle" font-family="'Fraunces', serif" font-style="italic" font-size="14" fill="#0e1a15">Claude Code</text>
+    <rect x="540" y="108" width="160" height="26" fill="#ece9dd" stroke="#bfb8a6"/>
+    <text x="620" y="126" text-anchor="middle" font-family="'Fraunces', serif" font-style="italic" font-size="14" fill="#0e1a15">Cursor · Continue</text>
+  </g>
+
+  <!-- Bottom KPI strip -->
+  <g transform="translate(88, 820)" font-family="'JetBrains Mono', monospace">
+    <line x1="0" y1="0" x2="1744" y2="0" stroke="#bfb8a6" stroke-width="1"/>
+    <g transform="translate(0, 30)">
+      <text font-family="'Fraunces', serif" font-size="64" font-weight="300" fill="#0e1a15">17</text>
+      <text y="58" font-size="14" letter-spacing="3" fill="#6e7870">MCP TOOLS</text>
+    </g>
+    <g transform="translate(380, 30)">
+      <text font-family="'Fraunces', serif" font-size="64" font-weight="300" fill="#0e1a15">$<tspan font-style="italic" fill="#ad2b1f">0</tspan></text>
+      <text y="58" font-size="14" letter-spacing="3" fill="#6e7870">VS $25/SEAT DEV MODE</text>
+    </g>
+    <g transform="translate(820, 30)">
+      <text font-family="'Fraunces', serif" font-size="64" font-weight="300" fill="#0e1a15">100%</text>
+      <text y="58" font-size="14" letter-spacing="3" fill="#6e7870">LOCAL · NO ACCOUNT</text>
+    </g>
+    <g transform="translate(1220, 30)">
+      <text font-family="'Fraunces', serif" font-size="64" font-weight="300" fill="#0e1a15">60s</text>
+      <text y="58" font-size="14" letter-spacing="3" fill="#6e7870">TO INSTALL</text>
+    </g>
+  </g>
+</svg>

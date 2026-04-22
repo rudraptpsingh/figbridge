@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;1,9..144,300;1,9..144,400;1,9..144,500&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #ece9dd; }
+  body {
+    width: 1920px; height: 960px;
+    font-family: "Fraunces", "Iowan Old Style", Georgia, serif;
+    color: #0e1a15;
+    position: relative; overflow: hidden;
+    background-image:
+      linear-gradient(#d4cfc0 1px, transparent 1px),
+      linear-gradient(90deg, #d4cfc0 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-color: #ece9dd;
+    padding: 56px 88px;
+  }
+  .row {
+    display: flex; align-items: baseline; gap: 20px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px; letter-spacing: 0.24em; color: #6e7870;
+    padding-bottom: 16px; border-bottom: 1px solid #bfb8a6;
+  }
+  .row .pin { color: #ad2b1f; font-weight: 700; }
+  .row .sig { margin-left: auto; font-family: "Fraunces", serif; font-weight: 500; font-style: italic; font-size: 28px; color: #0e1a15; letter-spacing: -0.01em; line-height: 1; }
+  .row .sig .f { color: #ad2b1f; }
+
+  .title {
+    margin: 72px 0 0;
+    font-size: 132px; line-height: 0.98;
+    font-weight: 400; letter-spacing: -0.035em;
+    font-variation-settings: "opsz" 144;
+    max-width: 1100px;
+  }
+  .title em {
+    font-style: italic; font-weight: 300; color: #ad2b1f;
+    padding: 0 0.02em;
+  }
+
+  .lede {
+    margin-top: 36px; max-width: 1040px;
+    font-family: "JetBrains Mono", monospace; font-size: 18px; line-height: 1.6;
+    color: #2f3d36; letter-spacing: 0.005em;
+  }
+  .lede b { color: #0e1a15; font-weight: 700; }
+  .lede .r { color: #ad2b1f; font-weight: 700; }
+
+  .kpis {
+    position: absolute; left: 88px; right: 88px; bottom: 110px;
+    padding-top: 22px; border-top: 1px solid #bfb8a6;
+    display: flex; justify-content: space-between; align-items: center; gap: 40px;
+    height: 60px;
+  }
+  .kpi { display: flex; align-items: center; gap: 14px; }
+  .kpi .n {
+    font-size: 36px; line-height: 1; font-weight: 400; letter-spacing: -0.03em;
+    font-variation-settings: "opsz" 48;
+  }
+  .kpi .n em { font-style: italic; color: #ad2b1f; font-weight: 400; }
+  .kpi .l {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: #6e7870;
+    line-height: 1.3; white-space: nowrap;
+  }
+
+  /* Architecture strip on the right side */
+  .diagram {
+    position: absolute; top: 150px; right: 88px;
+    width: 720px;
+    background: #f7f4ea; border: 1px solid #bfb8a6;
+    padding: 22px;
+    display: flex; align-items: stretch; gap: 10px;
+  }
+  .dcard {
+    flex: 1; padding: 14px 16px; border: 1px solid #bfb8a6; background: #ece9dd;
+    display: flex; flex-direction: column; justify-content: space-between; min-height: 150px;
+  }
+  .dcard.dark { background: #0e1a15; border-color: #0e1a15; color: #e6dfcc; flex: 1.35; }
+  .dcard .head { font-family: "JetBrains Mono", monospace; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: #6e7870; }
+  .dcard.dark .head { color: #8a9790; }
+  .dcard .body { font-family: "Fraunces", serif; font-style: italic; font-size: 26px; font-weight: 400; color: #0e1a15; line-height: 1; margin: 14px 0 10px; }
+  .dcard.dark .body { color: #e6dfcc; font-size: 24px; }
+  .dcard .sub { font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: #2f3d36; line-height: 1.5; }
+  .dcard.dark .sub { color: #7dd3a0; }
+  .arrow {
+    flex: 0 0 54px; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; gap: 18px;
+    font-family: "JetBrains Mono", monospace; font-size: 10px; color: #6e7870; letter-spacing: 0.05em;
+  }
+  .arrow .lbl { text-align: center; line-height: 1.2; }
+  .arrow .lbl.red { color: #ad2b1f; }
+  .arrow .ar { font-size: 20px; color: #0e1a15; line-height: 0.8; }
+  .arrow .ar.dash { color: #bfb8a6; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <span class="pin">01</span>
+    <span>FIGBRIDGE</span>
+    <span>·</span>
+    <span>FREE LOCAL MCP BRIDGE FOR FIGMA</span>
+    <span style="color:#bfb8a6;">·</span>
+    <span>v0.1 · MIT · 2026</span>
+    <span class="sig"><span class="f">f</span>igbridge</span>
+  </div>
+
+  <h1 class="title">
+    Give Claude <em>hands</em><br>
+    inside your Figma file.
+  </h1>
+
+  <div class="lede">
+    Seventeen MCP tools. One local bridge. Zero Dev Mode seats.<br>
+    <b>Read screens</b> · <b>export specs</b> · <b>lint design-systems</b> · <span class="r">recolor</span> · <span class="r">clone</span> · <span class="r">translate</span> frames —<br>
+    directly from any MCP-speaking agent, running on your own machine.
+  </div>
+
+  <div class="diagram">
+    <div class="dcard">
+      <div class="head">① Figma</div>
+      <div class="body">plugin</div>
+      <div class="sub">● live bridge on</div>
+    </div>
+    <div class="arrow">
+      <div class="lbl red">POST<br>/push</div>
+      <div class="ar">→</div>
+      <div class="ar dash">←</div>
+      <div class="lbl">SSE<br>/events</div>
+    </div>
+    <div class="dcard dark">
+      <div class="head">② Local bridge</div>
+      <div class="body">figbridge-mcp</div>
+      <div class="sub">:7331 · 17 tools<br>stdio MCP</div>
+    </div>
+    <div class="arrow">
+      <div class="ar">→</div>
+      <div class="lbl">stdio</div>
+    </div>
+    <div class="dcard">
+      <div class="head">③ Any agent</div>
+      <div class="body">Claude<br>Cursor…</div>
+      <div class="sub">any MCP client</div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span class="n">17</span><span class="l">MCP tools</span></div>
+    <div class="kpi"><span class="n">$<em>0</em></span><span class="l">vs $25 Dev seat</span></div>
+    <div class="kpi"><span class="n">100%</span><span class="l">local, no account</span></div>
+    <div class="kpi"><span class="n">60s</span><span class="l">to install</span></div>
+  </div>
+</body>
+</html>

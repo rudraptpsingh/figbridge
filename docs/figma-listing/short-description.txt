@@ -1,0 +1,1 @@
+Figbridge is a free, 100% local MCP bridge that lets Claude Desktop, Claude Code, Cursor, Continue and any other MCP-speaking agent read your Figma file, export specs, lint your design system, recolor, clone and translate frames — without a Dev Mode seat. Seventeen tools. Zero cloud. Your data never leaves your machine.

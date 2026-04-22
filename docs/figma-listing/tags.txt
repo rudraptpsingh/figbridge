@@ -1,0 +1,12 @@
+mcp
+claude
+cursor
+ai
+agent
+design-system
+lint
+tokens
+export
+developer-tools
+automation
+localhost
