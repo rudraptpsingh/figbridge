@@ -557,13 +557,14 @@
 
       row.addEventListener("click", function () {
         tree.selectedId = n.id;
-        if (n.hasChildren) toggleNode(n);
-        else if (n.type !== "PAGE") exportOne(n);
-        else renderTree();
+        if (n.type === "PAGE") { toggleNode(n); return; }
+        // Always export a non-page layer on click (Figma-like: select + act).
+        renderTree();
+        exportOne(n);
       });
       row.addEventListener("dblclick", function (ev) {
         ev.stopPropagation();
-        if (n.type !== "PAGE") exportOne(n);
+        if (n.hasChildren) toggleNode(n);
       });
       host.appendChild(row);
     });
@@ -590,7 +591,10 @@
 
   // ── Toolbar / overflow menu ────────────────────────────────────
   el("exportSel").addEventListener("click", function () {
-    setStatus("busy", "Exporting"); setFoot("Exporting selection…");
+    // Prefer the layer selected in the sidebar; fall back to the canvas selection.
+    var sel = tree.selectedId && tree.nodes[tree.selectedId];
+    if (sel && sel.type !== "PAGE") { exportOne(sel); return; }
+    setStatus("busy", "Exporting"); setFoot("Exporting canvas selection…");
     parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*");
   });
   el("exportAgent").addEventListener("click", function () {
@@ -917,10 +921,38 @@
       case "page-progress":
         setFoot("Page " + msg.done + "/" + msg.total + ": " + msg.pageName);
         break;
-      case "all-pages-result":
-        state.data = msg.pages[0] || null; render();
-        setStatus("ok", "Done"); setFoot("Exported " + msg.pages.length + " pages");
+      case "all-pages-result": {
+        var pages = msg.pages || [];
+        if (!pages.length) { setStatus("err", "Empty"); setFoot("No exportable pages"); break; }
+        var sep = function (label) { return "\n\n/* ──────────── " + label + " ──────────── */\n\n"; };
+        var htmlSep = function (label) { return "\n\n<!-- ──────────── " + label + " ──────────── -->\n\n"; };
+        var merged = {
+          fileName: pages[0].fileName,
+          pageName: "All pages (" + pages.length + ")",
+          nodeNames: [],
+          nodeIds: [],
+          html: "", css: "", rawHtml: "", tailwindHtml: "", tailwindBody: "",
+          tokens: {}, cssVars: "", tailwindConfig: pages[0].tailwindConfig || "",
+          capturedAt: Date.now(),
+          _pages: pages
+        };
+        pages.forEach(function (p) {
+          merged.html += htmlSep(p.pageName) + (p.html || "");
+          merged.css  += sep(p.pageName) + (p.css || "");
+          merged.tailwindHtml += htmlSep(p.pageName) + (p.tailwindHtml || "");
+          merged.cssVars += sep(p.pageName) + (p.cssVars || "");
+          (p.nodeNames || []).forEach(function (n) { merged.nodeNames.push(p.pageName + "/" + n); });
+          (p.nodeIds || []).forEach(function (id) { merged.nodeIds.push(id); });
+          Object.keys(p.tokens || {}).forEach(function (k) {
+            if (!merged.tokens[k]) merged.tokens[k] = {};
+            Object.assign(merged.tokens[k], p.tokens[k]);
+          });
+        });
+        state.data = merged; render();
+        setStatus("ok", "Done"); setFoot("Exported " + pages.length + " pages, " + merged.nodeNames.length + " frames");
+        if (state.bridge) pushToBridge(merged);
         break;
+      }
       case "agent-bundle-result": {
         var bytes = new Uint8Array(msg.zip);
         var blob = new Blob([bytes], { type: "application/zip" });
