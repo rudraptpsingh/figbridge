@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Figbridge — Figma ↔ Claude &amp; any MCP agent, free &amp; local</title>
-<meta name="description" content="17 MCP tools that let Claude, Cursor, and any MCP agent read and edit Figma Desktop files. Free, local, no Dev Mode seat.">
+<meta name="description" content="21 MCP tools + offline agent handoff bundle that let Claude, Cursor, and any MCP agent read and edit Figma Desktop files. Free, local, no Dev Mode seat.">
 <meta property="og:title" content="Figbridge — Figma ↔ AI agents, free and local">
-<meta property="og:description" content="17 MCP tools. No $25/seat Dev Mode. No account. No cloud.">
+<meta property="og:description" content="21 MCP tools. Offline agent bundle. No $25/seat Dev Mode. No account. No cloud.">
 <meta property="og:url" content="https://rudraptpsingh.github.io/figbridge/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='32' fill='%230e1a15'/%3E%3Ctext x='50%25' y='62%25' text-anchor='middle' font-family='Georgia,serif' font-style='italic' font-weight='600' font-size='42' fill='%23e6dfcc'%3Ef%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -318,6 +318,7 @@
       <a href="#flows">Flows</a>
       <a href="#arch">How it works</a>
       <a href="#tools">Tools</a>
+      <a href="#bundle">Agent bundle</a>
       <a href="#compare">vs Dev Mode</a>
       <a href="#install">Install</a>
       <a class="gh" href="https://github.com/rudraptpsingh/figbridge">GitHub ↗</a>
@@ -334,8 +335,8 @@
       <em>hands</em> inside your Figma file.
     </h1>
     <p class="lede">
-      Seventeen MCP tools. One local bridge. Zero Dev Mode seats.
-      Read screens, export specs, lint design-systems, recolor, clone, and translate frames — <em>directly from any MCP-speaking agent, running on your own machine.</em>
+      Twenty-one MCP tools. One local bridge. Zero Dev Mode seats.
+      Read screens, ship an <em>offline agent handoff bundle</em>, lint design-systems, recolor, clone, and translate frames — <em>directly from any MCP-speaking agent, running on your own machine.</em>
     </p>
     <div class="cta-row">
       <a class="btn primary" href="#install">Install in 60 seconds <span class="arr">→</span></a>
@@ -375,7 +376,7 @@
             <line x1="240" y1="104" x2="380" y2="104" stroke="#2b3a33"/>
             <text x="310" y="132" text-anchor="middle" font-family="Fraunces, serif" font-style="italic" font-size="18" fill="#e6dfcc">figbridge-mcp</text>
             <text x="310" y="152" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#7dd3a0">:7331 · HTTP + SSE</text>
-            <text x="310" y="170" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#8a9790">17 tools · stdio MCP</text>
+            <text x="310" y="170" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#8a9790">21 tools · stdio MCP</text>
             <text x="310" y="190" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#6e7870">~/.figbridge persisted</text>
           </g>
 
@@ -415,7 +416,7 @@
     </div>
 
     <div class="kpis">
-      <div class="kpi"><div class="n">17</div><div class="l">MCP tools</div></div>
+      <div class="kpi"><div class="n">21</div><div class="l">MCP tools</div></div>
       <div class="kpi"><div class="n">$<em>0</em></div><div class="l">vs $25/seat Dev Mode</div></div>
       <div class="kpi"><div class="n">100<span style="font-size:30px;">%</span></div><div class="l">local · no account</div></div>
       <div class="kpi"><div class="n">60s</div><div class="l">to install</div></div>
@@ -606,14 +607,14 @@
 
   <!-- TOOLS ──────────────────────────────────────────── -->
   <section id="tools">
-    <div class="sectlabel"><span class="num">04</span><span>The surface</span><span class="r"></span><span>17 tools</span></div>
-    <h2>Seventeen tools, <em>three jobs</em>.</h2>
+    <div class="sectlabel"><span class="num">04</span><span>The surface</span><span class="r"></span><span>21 tools</span></div>
+    <h2>Twenty-one tools, <em>three jobs</em>.</h2>
     <p class="sub">Every tool runs through the plugin — no REST, no PAT, no Figma account required.</p>
 
     <div class="tools-groups">
       <div class="tg">
         <h4>Read</h4>
-        <div class="count">· Six tools</div>
+        <div class="count">· Eight tools</div>
         <ul>
           <li><span class="name">get_current_selection</span><span class="d">HTML / CSS / Tailwind / tokens for the current selection.</span></li>
           <li><span class="name">get_last_export</span><span class="d">Alias. Last pushed payload.</span></li>
@@ -621,25 +622,29 @@
           <li><span class="name">get_tokens</span><span class="d">Tokens + CSS vars + Tailwind config.</span></li>
           <li><span class="name">bridge_status</span><span class="d">Health + plugin-connected status.</span></li>
           <li><span class="name">diff_since</span><span class="d">History after a timestamp, with SHA-1 fingerprints.</span></li>
+          <li><span class="name">list_pages</span><span class="d"><em>New.</em> Every page in the file, with frame counts.</span></li>
+          <li><span class="name">list_frames</span><span class="d"><em>New.</em> Top-level frames on a page, by id.</span></li>
         </ul>
       </div>
       <div class="tg">
         <h4>Catalog</h4>
-        <div class="count">· Seven tools</div>
+        <div class="count">· Eight tools</div>
         <ul>
           <li><span class="name">list_screens</span><span class="d">All top-level frames, categorized.</span></li>
           <li><span class="name">list_components</span><span class="d">Components + sets with variants.</span></li>
           <li><span class="name">describe_screen</span><span class="d">Semantic summary: size, bg, text, components used.</span></li>
           <li><span class="name">export_app_spec</span><span class="d">One-shot JSON spec of the whole file + flows.</span></li>
+          <li><span class="name">export_all_pages</span><span class="d"><em>New.</em> Walk every page; merged HTML / CSS / tokens.</span></li>
           <li><span class="name">list_assets</span><span class="d">Base64 SVG / PNG dump of icons, images, illustrations.</span></li>
           <li><span class="name">select_node</span><span class="d">Select &amp; scroll to a node by id or name.</span></li>
           <li><span class="name">export_node</span><span class="d">Export a specific node without a user click.</span></li>
         </ul>
       </div>
       <div class="tg">
-        <h4>Write <em>&amp;</em> Lint</h4>
-        <div class="count">· Four tools</div>
+        <h4>Act <em>&amp;</em> Handoff</h4>
+        <div class="count">· Five tools</div>
         <ul>
+          <li><span class="name">get_agent_bundle</span><span class="d"><em>New.</em> Zip: hierarchy.md · components.json · tokens.* · AGENTS.md · CHANGES.md · flow.mmd · ISSUES.md.</span></li>
           <li><span class="name">clone_screen</span><span class="d">Duplicate a frame; optional per-TEXT replacements.</span></li>
           <li><span class="name">recolor</span><span class="d">Swap hex colors across selection / page / file.</span></li>
           <li><span class="name">apply_tokens</span><span class="d">Bind loose fills to matching local color variables.</span></li>
@@ -649,9 +654,60 @@
     </div>
   </section>
 
+  <!-- AGENT BUNDLE ────────────────────────────────────── -->
+  <section id="bundle">
+    <div class="sectlabel"><span class="num">05</span><span>New · Agent handoff</span><span class="r"></span><span>offline · diff-aware</span></div>
+    <h2>One zip. <em>Everything an agent needs.</em></h2>
+    <p class="sub">The official Figma MCP needs a live server and poisons the agent's context with its own React+Tailwind conventions. <em>Figbridge's bundle is static, offline, token-budgeted, and deterministic</em> — the exact shape agent loops ask for.</p>
+
+    <div style="background: var(--paper); border: 1px solid var(--line-2); border-radius: 4px; padding: 36px 36px 28px; margin-top: 20px;">
+      <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 44px; align-items: start;">
+        <div>
+          <div style="font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin-bottom: 12px;">get_agent_bundle(budget: "medium")</div>
+          <pre style="margin: 0; background: var(--code-bg); color: var(--code-ink); padding: 22px 24px; border-radius: 4px; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; overflow: auto;">figbridge-bundle.zip
+├── <span style="color:#d8c9a3;">DESIGN.md</span>         <span style="color:#8a9790;"># palette · rhythm · do/don't</span>
+├── <span style="color:#d8c9a3;">hierarchy.md</span>      <span style="color:#8a9790;"># indented tree · stable slugs</span>
+├── <span style="color:#d8c9a3;">components.json</span>   <span style="color:#8a9790;"># variants + props schema</span>
+├── <span style="color:#d8c9a3;">tokens.json</span>       <span style="color:#8a9790;"># DTCG-shaped</span>
+├── <span style="color:#d8c9a3;">tokens.css</span>        <span style="color:#8a9790;"># :root + modes</span>
+├── <span style="color:#d8c9a3;">flow.mmd</span>          <span style="color:#8a9790;"># prototype → Mermaid</span>
+├── <span style="color:#d8c9a3;">responsive.md</span>     <span style="color:#8a9790;"># mobile/tablet/desktop merge</span>
+├── <span style="color:#d8c9a3;">ISSUES.md</span>         <span style="color:#8a9790;"># a11y audit the agent won't repeat</span>
+├── <span style="color:#d8c9a3;">CHANGES.md</span>        <span style="color:#8a9790;"># surgical diff since last bundle</span>
+├── <span style="color:#d8c9a3;">AGENTS.md</span>         <span style="color:#8a9790;"># "use <slug> → <import>"</span>
+├── <span style="color:#d8c9a3;">manifest.json</span>     <span style="color:#8a9790;"># sha-256 · token counts · stable order</span>
+└── screenshots/       <span style="color:#8a9790;"># 1:1 with hierarchy slugs</span></pre>
+        </div>
+
+        <div style="display: grid; gap: 22px; padding-top: 8px;">
+          <div>
+            <h5 style="font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin: 0 0 6px; font-weight: 700;">Deterministic slugs</h5>
+            <p style="font-family: var(--serif); font-size: 15.5px; line-height: 1.5; margin: 0; color: var(--ink-2);">Every node gets a stable path like <code style="font-family: var(--mono); font-size: 13px; background: transparent; border-bottom: 1px dotted var(--line-2); color: var(--ink);">home/hero/title</code> that survives renames, so the next bundle diffs cleanly.</p>
+          </div>
+          <div>
+            <h5 style="font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin: 0 0 6px; font-weight: 700;">Three budgets</h5>
+            <p style="font-family: var(--serif); font-size: 15.5px; line-height: 1.5; margin: 0; color: var(--ink-2);"><code style="font-family: var(--mono); font-size: 13px; background: transparent; border-bottom: 1px dotted var(--line-2); color: var(--ink);">small</code> (8k) · <code style="font-family: var(--mono); font-size: 13px; background: transparent; border-bottom: 1px dotted var(--line-2); color: var(--ink);">medium</code> (32k) · <code style="font-family: var(--mono); font-size: 13px; background: transparent; border-bottom: 1px dotted var(--line-2); color: var(--ink);">large</code> (128k). Files emit in stable-first order so repeated calls hit Anthropic's prompt cache.</p>
+          </div>
+          <div>
+            <h5 style="font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin: 0 0 6px; font-weight: 700;">Surgical diffs</h5>
+            <p style="font-family: var(--serif); font-size: 15.5px; line-height: 1.5; margin: 0; color: var(--ink-2);"><code style="font-family: var(--mono); font-size: 13px; background: transparent; border-bottom: 1px dotted var(--line-2); color: var(--ink);">CHANGES.md</code> tells the agent <em>exactly</em> what to edit — "home/hero/title: 'Welcome' → 'Welcome back'" — instead of re-translating the whole file.</p>
+          </div>
+          <div>
+            <h5 style="font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin: 0 0 6px; font-weight: 700;">Fuzzy component mapping</h5>
+            <p style="font-family: var(--serif); font-size: 15.5px; line-height: 1.5; margin: 0; color: var(--ink-2);">Paste <code style="font-family: var(--mono); font-size: 13px; background: transparent; border-bottom: 1px dotted var(--line-2); color: var(--ink);">src/components/**/*.tsx</code>. Each Figma component is matched to its real file so <code style="font-family: var(--mono); font-size: 13px; background: transparent; border-bottom: 1px dotted var(--line-2); color: var(--ink);">AGENTS.md</code> can say "use <code style="font-family: var(--mono); font-size: 13px; background: transparent; border-bottom: 1px dotted var(--line-2); color: var(--ink);">import Button from '@/components/Button'</code>".</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; color: var(--ink-2); line-height: 1.7;">
+        <span style="color: var(--accent); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; font-size: 10px;">Verified</span> &nbsp;on a real <code style="font-family: var(--mono); background: transparent; color: var(--ink); border-bottom: 1px dotted var(--line-2);">.fig</code> file (Draftr iOS App Design): 17 color tokens, nested S1_Home tree, deterministic <code style="font-family: var(--mono); background: transparent; color: var(--ink); border-bottom: 1px dotted var(--line-2);">s1-home / quick-capture / section-label</code> slugs — <strong>43/43</strong> checks pass end-to-end.
+      </div>
+    </div>
+  </section>
+
   <!-- COMPARE ────────────────────────────────────────── -->
   <section id="compare">
-    <div class="sectlabel"><span class="num">05</span><span>vs Dev Mode / Code Connect</span><span class="r"></span></div>
+    <div class="sectlabel"><span class="num">06</span><span>vs Dev Mode / Code Connect</span><span class="r"></span></div>
     <h2>Everything they charge for — <em>plus everything they won't ship</em>.</h2>
     <p class="sub">Both let agents read Figma. Only one is free, local, and actually writes back.</p>
 
@@ -666,6 +722,10 @@
       <div class="compare-row"><div><em>Whole-file spec export</em></div><div class="no">Selection-scoped</div><div class="no">No</div><div class="yes">export_app_spec</div></div>
       <div class="compare-row"><div><em>Design-system lint</em></div><div class="no">No</div><div class="no">No</div><div class="yes">lint_ds</div></div>
       <div class="compare-row"><div><em>Bulk asset dump</em></div><div class="no">One at a time</div><div class="no">No</div><div class="yes">list_assets</div></div>
+      <div class="compare-row"><div><em>Offline agent handoff bundle</em></div><div class="no">Live server only</div><div class="no">No</div><div class="yes">get_agent_bundle (zip)</div></div>
+      <div class="compare-row"><div><em>Surgical diff since last export</em></div><div class="no">No</div><div class="no">No</div><div class="yes">CHANGES.md</div></div>
+      <div class="compare-row"><div><em>Token-budget tiers</em></div><div class="no">No</div><div class="no">No</div><div class="yes">small · medium · large</div></div>
+      <div class="compare-row"><div><em>Deterministic slugs</em></div><div class="no">No</div><div class="no">No</div><div class="yes">stable across renames</div></div>
       <div class="compare-row"><div>Live pair-design</div><div class="no">No</div><div class="no">No</div><div class="yes">Live bridge (SSE)</div></div>
       <div class="compare-row"><div>Works offline</div><div class="no">No</div><div class="no">No</div><div class="yes">Yes</div></div>
       <div class="compare-row"><div>Open source</div><div class="no">No</div><div class="no">No</div><div class="yes">MIT</div></div>
@@ -674,7 +734,7 @@
 
   <!-- INSTALL ────────────────────────────────────────── -->
   <section id="install">
-    <div class="sectlabel"><span class="num">06</span><span>Setup</span><span class="r"></span><span>four steps · 60s</span></div>
+    <div class="sectlabel"><span class="num">07</span><span>Setup</span><span class="r"></span><span>four steps · 60s</span></div>
     <h2>Four steps. <em>Under a minute.</em></h2>
     <p class="sub">One command patches Claude Desktop. One menu click loads the plugin. You own the whole stack.</p>
 
