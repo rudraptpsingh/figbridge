@@ -114,26 +114,53 @@ jobs:
           done
           echo "::warning::figbridge-mcp@$VERSION not yet visible via npm view; it may still propagate."
 
-      # Create a GitHub Release with auto-generated notes. Uses
-      # `.github/release.yml` for categorization and the `--generate-notes`
-      # flag, which diffs the git history since the previous tag. Idempotent:
-      # if a release for this tag already exists (e.g. re-run), we just edit.
+      # Create a GitHub Release with grouped, commit-based notes. We bucket
+      # commits by conventional-commit prefix (feat/fix/docs/ci/chore) since
+      # this repo pushes straight to main — GitHub's own generator only
+      # categorizes merged PRs, which would leave us with empty notes.
+      # Idempotent on re-run: edit the release if it already exists.
       - name: Create GitHub Release
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           TAG="${GITHUB_REF#refs/tags/}"
           VERSION="${TAG#v}"
           TITLE="figbridge-mcp $TAG"
           NPM_URL="https://www.npmjs.com/package/figbridge-mcp/v/$VERSION"
-          FOOTER=$'\n\n---\n\n**Install / update**\n```bash\nnpx figbridge-mcp@'"$VERSION"$' init\n# already installed on an older version?\nnpx figbridge-mcp@latest update\n```\n\n**npm:** '"$NPM_URL"
+
+          # Find previous tag on the same line of ancestry — fall back to the
+          # root commit on first release.
+          git fetch --tags --force >/dev/null 2>&1 || true
+          PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
+          echo "notes range: $PREV..$TAG"
+
+          # Bucket commits by prefix. Release commits are noise — skip.
+          FEAT=$(git log --no-merges --pretty='format:- %s (%h)' "$PREV..$TAG" | grep -E '^- feat(\(|:|!)' || true)
+          FIX=$(git  log --no-merges --pretty='format:- %s (%h)' "$PREV..$TAG" | grep -E '^- fix(\(|:|!)'  || true)
+          DOCS=$(git log --no-merges --pretty='format:- %s (%h)' "$PREV..$TAG" | grep -E '^- docs(\(|:|!)' || true)
+          CHORE=$(git log --no-merges --pretty='format:- %s (%h)' "$PREV..$TAG" | grep -E '^- (ci|build|chore)(\(|:|!)' | grep -v 'chore(release)' || true)
+          OTHER=$(git log --no-merges --pretty='format:- %s (%h)' "$PREV..$TAG" \
+                  | grep -vE '^- (feat|fix|docs|ci|build|chore)(\(|:|!)' || true)
+
+          {
+            [ -n "$FEAT"  ] && printf '### 🚀 Features\n%s\n\n' "$FEAT"
+            [ -n "$FIX"   ] && printf '### 🐛 Fixes\n%s\n\n' "$FIX"
+            [ -n "$DOCS"  ] && printf '### 📝 Docs\n%s\n\n' "$DOCS"
+            [ -n "$CHORE" ] && printf '### 🔧 Chores & CI\n%s\n\n' "$CHORE"
+            [ -n "$OTHER" ] && printf '### Other changes\n%s\n\n' "$OTHER"
+            printf '**Full Changelog**: https://github.com/%s/compare/%s...%s\n\n' "$GITHUB_REPOSITORY" "$PREV" "$TAG"
+            printf -- '---\n\n**Install / update**\n```bash\nnpx figbridge-mcp@%s init\n# already installed on an older version?\nnpx figbridge-mcp@latest update\n```\n\n**npm:** %s\n' "$VERSION" "$NPM_URL"
+          } > /tmp/release-notes.md
+
+          echo "─── notes ───"
+          cat /tmp/release-notes.md
+          echo "─────────────"
+
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG already exists — editing"
-            gh release edit "$TAG" --title "$TITLE" --notes "$(gh api "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$TAG" --jq .body)$FOOTER"
+            echo "release $TAG exists — editing"
+            gh release edit "$TAG" --title "$TITLE" --notes-file /tmp/release-notes.md
           else
-            gh release create "$TAG" \
-              --title "$TITLE" \
-              --generate-notes \
-              --notes "$(gh api "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$TAG" --jq .body)$FOOTER"
+            gh release create "$TAG" --title "$TITLE" --notes-file /tmp/release-notes.md
           fi
