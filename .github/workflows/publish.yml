@@ -43,6 +43,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # full history so `git describe` can find prior tags
+          fetch-tags: true   # needed to resolve v0.1.(n-1) for release notes
 
       - name: Set up Node 20
         uses: actions/setup-node@v4
