@@ -1339,7 +1339,12 @@ async function loadTextStyles(roots) {
 
 var TEXT_STYLE_KEYS = ["font-family", "font-weight", "font-style", "font-size", "line-height", "letter-spacing", "text-decoration"];
 function kebab(s) {
-  var k = String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+  // Insert dash at camelCase boundaries (SectionLabel → Section-Label) BEFORE
+  // lowercasing so real word breaks survive in the slug. Preserve letter+digit
+  // clusters (S1_Home → s1-home, ink2 → ink2) — screen prefixes and numbered
+  // tokens read best glued together.
+  var str = String(s || "").replace(/([a-z])([A-Z])/g, "$1-$2");
+  var k = str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
   return k || "el";
 }
 function setVariableMap(map) { _varMap = map || {}; }
