@@ -713,7 +713,7 @@
       <div class="footer">
         <span id="footState">Idle</span>
         <span class="spacer"></span>
-        <span class="port">127.0.0.1:7331</span>
+        <span class="port">localhost:7331</span>
       </div>
     </section>
   </main>
@@ -739,7 +739,10 @@
   var PORT_BASE = 7331;
   var PORT_RANGE = 10;
   var BRIDGE_PORT = PORT_BASE;
-  function bridgeBase(){ return "http://127.0.0.1:" + BRIDGE_PORT; }
+  // Use `localhost` (not 127.0.0.1) because Figma's manifest validator
+  // rejects bare-IP entries in allowedDomains — we can only whitelist
+  // hostname-based URLs there, so the fetch origin must match.
+  function bridgeBase(){ return "http://localhost:" + BRIDGE_PORT; }
   function bridgePush(){ return bridgeBase() + "/push"; }
   function bridgeEvents(){ return bridgeBase() + "/events"; }
   // Probe all ports in parallel and pick the lowest that responds as
@@ -761,7 +764,7 @@
       var p = PORT_BASE + idx;
       var ctl = (typeof AbortController !== "undefined") ? new AbortController() : null;
       var to = setTimeout(function(){ try{ ctl && ctl.abort(); }catch(e){} }, 800);
-      fetch("http://127.0.0.1:" + p + "/health", { cache: "no-store", signal: ctl ? ctl.signal : undefined })
+      fetch("http://localhost:" + p + "/health", { cache: "no-store", signal: ctl ? ctl.signal : undefined })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           clearTimeout(to);
@@ -1454,7 +1457,7 @@
   }
   function updatePortLabel(){
     var el = document.querySelector(".footer .port");
-    if (el) el.textContent = "127.0.0.1:" + BRIDGE_PORT;
+    if (el) el.textContent = "localhost:" + BRIDGE_PORT;
   }
   function openEventStream() {
     if (eventSource) return;
