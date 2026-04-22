@@ -1,0 +1,112 @@
+name: Publish figbridge-mcp to npm
+
+# Publishes mcp/ to npm when a version tag is pushed (e.g. `v0.1.1`).
+# The tag MUST match the `version` field in mcp/package.json — the job
+# verifies this before publishing and fails loudly if they disagree.
+#
+# One-time setup in GitHub:
+#   Settings → Secrets and variables → Actions → New repository secret
+#     Name:   NPM_TOKEN
+#     Value:  a granular npm access token with
+#               · "Read and write" on figbridge-mcp
+#               · "Bypass 2FA for publishing" ticked
+#             (https://www.npmjs.com/settings/~/tokens)
+#
+# Release flow:
+#   1. bump mcp/package.json "version"
+#   2. commit and push to main
+#   3. git tag v0.1.1 && git push origin v0.1.1
+#   → this workflow runs, builds, verifies, and publishes with provenance.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (npm publish --dry-run)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write    # required for npm provenance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify tag matches mcp/package.json version
+        if: github.event_name == 'push'
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG=$(node -p "require('./mcp/package.json').version")
+          echo "tag=$TAG  package.json=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag v$TAG does not match mcp/package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Sanity-check the binary boots
+        working-directory: mcp
+        run: |
+          node bin/figbridge-mcp.js --help
+          # Boot the stdio server and kill it — guards against import-time crashes.
+          node bin/figbridge-mcp.js </dev/null >/dev/null 2>&1 &
+          PID=$!
+          sleep 2
+          kill $PID 2>/dev/null || true
+
+      - name: Run smoke test
+        working-directory: mcp
+        run: npm test
+
+      - name: Run full plugin pipeline unit tests
+        run: node test-agent/run.js
+
+      - name: Run MCP tool-surface test
+        run: node test/tools-all.mjs
+
+      - name: Publish (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        working-directory: mcp
+        run: npm publish --access public --provenance --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+        working-directory: mcp
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify the package resolves
+        if: github.event_name == 'push'
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          # Registry CDN can lag a few seconds after publish.
+          for i in 1 2 3 4 5 6; do
+            PUB=$(npm view figbridge-mcp@$VERSION version 2>/dev/null || true)
+            if [ "$PUB" = "$VERSION" ]; then
+              echo "✓ figbridge-mcp@$VERSION live on npm"
+              exit 0
+            fi
+            echo "waiting for registry... (attempt $i)"
+            sleep 5
+          done
+          echo "::warning::figbridge-mcp@$VERSION not yet visible via npm view; it may still propagate."
