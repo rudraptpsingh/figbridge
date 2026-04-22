@@ -260,6 +260,24 @@ export async function main() {
     }
   );
 
+  // ── Agent bundle ───────────────────────────────────────────
+  server.tool(
+    "get_agent_bundle",
+    "Build an LLM-ready handoff bundle from the currently selected frames (or current page if nothing selected). Returns a list of files: hierarchy.md, components.json, tokens.json, tokens.css, DESIGN.md, AGENTS.md, ISSUES.md, issues.json, snapshot.json, manifest.json, optional CHANGES.md (if prior snapshot exists), optional responsive.md/json, optional flow.mmd, per-variant .tsx + .stories.tsx, optional screenshots (base64 PNG), and tailwind.config.js. Text files are returned verbatim; binary files (screenshots) are base64. Requires the Figbridge plugin open with Live bridge on.",
+    {
+      nodeId: z.string().optional().describe("Specific frame to bundle. Omit to use current selection or page-level frames."),
+      budget: z.enum(["small", "medium", "large"]).optional().describe("Token budget tier. small=hierarchy+tokens only, medium=+components+screenshots, large=everything. Default medium."),
+      screenshots: z.boolean().optional().describe("Include per-root-frame PNG screenshots. Default false."),
+      codePaths: z.array(z.string()).optional().describe("Optional list of code file paths (e.g. from `find src/components -name '*.tsx'`) to fuzzy-match against Figma components. Mapping is emitted in components.json + AGENTS.md.")
+    },
+    async ({ nodeId, budget, screenshots, codePaths }) => {
+      try {
+        const r = await sendCommand("agent-bundle", { nodeId, budget, screenshots, codePaths }, 60000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   // ── Diff ───────────────────────────────────────────────────
   server.tool(
     "diff_since",

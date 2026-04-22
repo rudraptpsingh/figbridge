@@ -3,20 +3,36 @@
 <head>
 <meta charset="UTF-8" />
 <title>Figbridge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0b0d10; --panel: #14171c; --panel-2: #1b1f26; --line: #262b33;
-    --text: #e7eaf0; --dim: #8892a0; --accent: #ff7a29; --ok: #3ddc97; --err: #ff5d6c;
+    --bg: #ece9dd;          /* warm stone */
+    --panel: #f7f4ea;       /* cream paper */
+    --panel-2: #e4e0d0;     /* sunken cream */
+    --line: #d4cfc0;
+    --text: #0e1a15;        /* ink-green */
+    --dim: #6e7870;
+    --accent: #ad2b1f;      /* deep rust */
+    --accent-2: #d8c9a3;    /* muted gold */
+    --ok: #2f6b4a;
+    --err: #ad2b1f;
+    --code-bg: #0e1a15;
+    --code-ink: #e6dfcc;
+    --serif: "Fraunces", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
-    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text", system-ui, sans-serif; }
+    font: 13px/1.55 var(--mono); font-feature-settings: "ss01", "ss02"; }
   .app { display:flex; flex-direction:column; height:100vh; }
   header { padding:10px 14px; border-bottom:1px solid var(--line); background:var(--panel);
     display:flex; align-items:center; gap:10px; }
-  .logo { font-weight:700; letter-spacing:0.2px; }
-  .badge { font-size:10px; padding:2px 6px; border-radius:4px; background:var(--panel-2);
-    color:var(--dim); border:1px solid var(--line); }
+  .logo { font-family: var(--serif); font-weight:600; font-size:17px; letter-spacing:-0.01em; }
+  .logo em { font-style: italic; font-weight: 400; color: var(--accent); }
+  .badge { font-size:10px; padding:2px 7px; border-radius:999px; background:var(--panel-2);
+    color:var(--dim); border:1px solid var(--line); letter-spacing:0.06em; text-transform:uppercase; }
   .spacer { flex:1; }
   .bridge { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--dim); }
   .bridge input { accent-color: var(--accent); }
@@ -43,12 +59,13 @@
   .content { display:flex; flex-direction:column; min-width:0; }
   .toolbar { padding:8px 12px; border-bottom:1px solid var(--line);
     display:flex; gap:6px; align-items:center; background:var(--panel); flex-wrap:wrap; }
-  button { font:inherit; color:var(--text); background:var(--panel-2);
-    border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; }
-  button:hover:not(:disabled) { background:#20252e; }
-  button:disabled { opacity:0.5; cursor:not-allowed; }
-  button.primary { background:var(--accent); color:#1a0b02; border-color:var(--accent); font-weight:600; }
-  button.primary:hover:not(:disabled) { filter:brightness(1.05); }
+  button { font:inherit; color:var(--text); background:transparent;
+    border:1px solid var(--text); border-radius:999px; padding:6px 14px; cursor:pointer;
+    font-size:12px; font-weight:500; letter-spacing:0.01em; transition:background .15s, color .15s; }
+  button:hover:not(:disabled) { background:var(--text); color:var(--panel); }
+  button:disabled { opacity:0.4; cursor:not-allowed; }
+  button.primary { background:var(--text); color:var(--panel); }
+  button.primary:hover:not(:disabled) { background:var(--accent); border-color:var(--accent); }
 
   .tabs { display:flex; gap:2px; padding:0 12px; background:var(--panel);
     border-bottom:1px solid var(--line); }
@@ -56,8 +73,8 @@
     border-bottom:2px solid transparent; }
   .tab.active { color:var(--text); border-bottom-color:var(--accent); }
   .panes { flex:1; overflow:auto; background:var(--bg); }
-  pre { margin:0; padding:12px; font:12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-    color:#c7cdd6; white-space:pre-wrap; word-break:break-word; }
+  pre { margin:0; padding:14px 16px; font:12px/1.6 var(--mono);
+    background:var(--code-bg); color:var(--code-ink); white-space:pre-wrap; word-break:break-word; }
   .empty { color:var(--dim); padding:40px; text-align:center; }
   .err { color:var(--err); padding:12px 14px; border-top:1px solid rgba(255,93,108,0.2);
     background:rgba(255,93,108,0.06); display:none; font-size:12px; }
@@ -111,7 +128,7 @@
 
 <div class="app">
   <header>
-    <div class="logo">Figbridge</div>
+    <div class="logo">fig<em>bridge</em></div>
     <div class="badge">Figma → Code + MCP</div>
     <div class="spacer"></div>
     <label class="bridge">
@@ -133,6 +150,7 @@
       <div class="toolbar">
         <button class="primary" id="exportSel">Export selection</button>
         <button id="exportAll">Export all pages</button>
+        <button id="exportAgent" title="Build an LLM-ready handoff bundle (hierarchy, components, tokens, DESIGN.md, AGENTS.md, ISSUES.md)">Export for Agent</button>
         <div class="spacer" style="flex:1"></div>
         <button id="copyBtn" disabled>Copy</button>
         <button id="dlBtn" disabled>Download</button>
@@ -220,6 +238,10 @@
   el("exportAll").addEventListener("click", function () {
     setStatus("busy", "Exporting all"); setFoot("Exporting all pages…");
     parent.postMessage({ pluginMessage: { type: "export-all" } }, "*");
+  });
+  el("exportAgent").addEventListener("click", function () {
+    setStatus("busy", "Bundling"); setFoot("Building agent bundle…");
+    parent.postMessage({ pluginMessage: { type: "export-agent", budget: "medium", screenshots: true } }, "*");
   });
 
   el("bridgeToggle").addEventListener("change", function (e) {
@@ -344,6 +366,19 @@
         state.data = msg.pages[0] || null; render();
         setStatus("ok", "Exported"); setFoot("Exported " + msg.pages.length + " pages");
         break;
+      case "agent-bundle-result": {
+        var bytes = new Uint8Array(msg.zip);
+        var blob = new Blob([bytes], { type: "application/zip" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = (msg.pageName || "figbridge") + "-agent-bundle.zip";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        setStatus("ok", "Bundle ready");
+        setFoot("Agent bundle: " + msg.fileCount + " files downloaded");
+        break;
+      }
       case "error":
         el("err").style.display = "block"; el("err").textContent = msg.message;
         setStatus("err", "Error"); setFoot(msg.message);
