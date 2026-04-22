@@ -38,7 +38,7 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write    # required to create a GitHub Release on tag push
       id-token: write    # required for npm provenance
     steps:
       - name: Checkout
@@ -113,3 +113,27 @@ jobs:
             sleep 5
           done
           echo "::warning::figbridge-mcp@$VERSION not yet visible via npm view; it may still propagate."
+
+      # Create a GitHub Release with auto-generated notes. Uses
+      # `.github/release.yml` for categorization and the `--generate-notes`
+      # flag, which diffs the git history since the previous tag. Idempotent:
+      # if a release for this tag already exists (e.g. re-run), we just edit.
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          TITLE="figbridge-mcp $TAG"
+          NPM_URL="https://www.npmjs.com/package/figbridge-mcp/v/$VERSION"
+          FOOTER=$'\n\n---\n\n**Install / update**\n```bash\nnpx figbridge-mcp@'"$VERSION"$' init\n# already installed on an older version?\nnpx figbridge-mcp@latest update\n```\n\n**npm:** '"$NPM_URL"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists — editing"
+            gh release edit "$TAG" --title "$TITLE" --notes "$(gh api "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$TAG" --jq .body)$FOOTER"
+          else
+            gh release create "$TAG" \
+              --title "$TITLE" \
+              --generate-notes \
+              --notes "$(gh api "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$TAG" --jq .body)$FOOTER"
+          fi
