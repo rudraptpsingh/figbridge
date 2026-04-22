@@ -1016,6 +1016,37 @@ async function handleCommand(cmdId, action, args) {
     if (action === "apply-tokens") return await applyTokens(args || {});
     if (action === "list-assets") return await listAssets(args || {});
     if (action === "lint-ds") return await lintDesignSystem(args || {});
+    if (action === "list-pages") {
+      var pages = figma.root.children.map(function (pp) {
+        return {
+          id: pp.id, name: pp.name,
+          frameCount: pp.children.filter(function (n) { return n.type === "FRAME" || n.type === "COMPONENT" || n.type === "GROUP"; }).length,
+          isCurrent: pp.id === figma.currentPage.id
+        };
+      });
+      return { ok: true, pages: pages, count: pages.length };
+    }
+    if (action === "list-frames") {
+      var pageId = args && args.pageId;
+      var page = pageId ? figma.root.children.find(function (pp) { return pp.id === pageId; }) : figma.currentPage;
+      if (!page) return { ok: false, error: "page not found: " + pageId };
+      await figma.setCurrentPageAsync(page);
+      var frames = page.children.map(_summarizeNode);
+      return { ok: true, pageId: page.id, pageName: page.name, frames: frames, count: frames.length };
+    }
+    if (action === "export-all") {
+      var pageResults = [];
+      var all = figma.root.children;
+      for (var ai = 0; ai < all.length; ai++) {
+        var pg = all[ai];
+        await figma.setCurrentPageAsync(pg);
+        var fr = pg.children.filter(function (n) { return n.type === "FRAME" || n.type === "COMPONENT" || n.type === "GROUP"; });
+        if (!fr.length) continue;
+        var payload = await exportPayload(fr, pg.name);
+        pageResults.push({ pageId: pg.id, pageName: pg.name, frameCount: fr.length, nodeNames: payload.nodeNames, html: payload.html, css: payload.css, tailwindHtml: payload.tailwindHtml, tokens: payload.tokens, cssVars: payload.cssVars });
+      }
+      return { ok: true, pageCount: pageResults.length, pages: pageResults };
+    }
     if (action === "agent-bundle") {
       if (typeof FrameshiftAgent === "undefined") return { ok: false, error: "agent bundle module not loaded" };
       var roots;

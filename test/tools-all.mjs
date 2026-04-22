@@ -104,10 +104,11 @@ async function main() {
     "get_current_selection", "get_last_export", "list_history", "get_tokens", "bridge_status",
     "select_node", "export_node", "list_screens", "list_components", "describe_screen",
     "export_app_spec", "clone_screen", "recolor", "apply_tokens", "list_assets",
-    "lint_ds", "get_agent_bundle", "diff_since"
+    "lint_ds", "get_agent_bundle", "diff_since",
+    "list_pages", "list_frames", "export_all_pages"
   ];
   for (const n of expected) if (!names.includes(n)) fail(`missing tool: ${n}`);
-  ok(`all 18 expected tools registered`);
+  ok(`all ${expected.length} expected tools registered`);
 
   // Read-side tools that should succeed against the pushed payload.
   const r1 = await call("get_current_selection", { format: "html" });
@@ -149,7 +150,10 @@ async function main() {
     ["apply_tokens", {}],
     ["list_assets", { kind: "icon" }],
     ["lint_ds", {}],
-    ["get_agent_bundle", { budget: "small" }]
+    ["get_agent_bundle", { budget: "small" }],
+    ["list_pages", {}],
+    ["list_frames", {}],
+    ["export_all_pages", {}]
   ];
   for (const [name, args] of pluginTools) {
     // These call sendCommand which times out against the bridge's own sendCommand

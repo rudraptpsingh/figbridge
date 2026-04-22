@@ -34,7 +34,10 @@ function fakePlugin() {
     "apply-tokens":    () => ({ ok: true, applied: 3 }),
     "list-assets":     () => ({ ok: true, assets: [{ id: "a:1", name: "icon", kind: "icon" }] }),
     "lint-ds":         () => ({ ok: true, issues: [] }),
-    "agent-bundle":    () => ({ ok: true, pageName: "P", fileCount: 3, files: [{ path: "DESIGN.md", bytes: 10 }] })
+    "agent-bundle":    () => ({ ok: true, pageName: "P", fileCount: 3, files: [{ path: "DESIGN.md", bytes: 10 }] }),
+    "list-pages":      () => ({ ok: true, count: 2, pages: [{ id: "0:1", name: "Screens", frameCount: 5, isCurrent: true }, { id: "0:2", name: "Components", frameCount: 3, isCurrent: false }] }),
+    "list-frames":     () => ({ ok: true, pageId: "0:1", pageName: "Screens", count: 2, frames: [{ id: "1:2", name: "Home", type: "FRAME", width: 390, height: 844, hasChildren: true }, { id: "1:3", name: "Settings", type: "FRAME", width: 390, height: 844, hasChildren: true }] }),
+    "export-all":      () => ({ ok: true, pageCount: 1, pages: [{ pageId: "0:1", pageName: "Screens", frameCount: 1, nodeNames: ["Home"], html: "<section>home</section>", css: ".home{}", tailwindHtml: "", tokens: {}, cssVars: "" }] })
   };
 
   const es = new EventSource(`${BASE}/events`);
@@ -169,7 +172,10 @@ async function main() {
     ["apply_tokens",     {},                                   /applied|3/ ],
     ["list_assets",      { kind: "icon" },                     /icon/ ],
     ["lint_ds",          {},                                   /issues/ ],
-    ["get_agent_bundle", { budget: "small" },                  /DESIGN|files|fileCount/ ]
+    ["get_agent_bundle", { budget: "small" },                  /DESIGN|files|fileCount/ ],
+    ["list_pages",       {},                                   /Screens|Components/ ],
+    ["list_frames",      {},                                   /Home|Settings/ ],
+    ["export_all_pages", {},                                   /<section>home<\/section>|Screens/ ]
   ];
 
   for (const [name, args, re] of cases) {
@@ -192,7 +198,7 @@ async function main() {
     ok(`${name} → read-side response matched ${re}`);
   }
 
-  log("ALL 18 MCP TOOLS VALIDATED END-TO-END");
+  log("ALL 21 MCP TOOLS VALIDATED END-TO-END");
   es.close();
   child.kill();
   process.exit(0);

@@ -278,6 +278,43 @@ export async function main() {
     }
   );
 
+  // ── Structural navigation ──────────────────────────────────
+  server.tool(
+    "list_pages",
+    "List every page in the currently open Figma file: { id, name, frameCount, isCurrent }. Cheap — use this before list_screens / list_frames to orient.",
+    {},
+    async () => {
+      try {
+        const r = await sendCommand("list-pages", {}, 5000);
+        return asText({ count: r.count, pages: r.pages });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "list_frames",
+    "List the top-level layers on a specific page (or the current page). Returns [{ id, name, type, width, height, hasChildren }]. Use this to walk the file without exporting.",
+    { pageId: z.string().optional().describe("Page id. Omit to use the current page.") },
+    async ({ pageId }) => {
+      try {
+        const r = await sendCommand("list-frames", { pageId }, 5000);
+        return asText({ pageId: r.pageId, pageName: r.pageName, count: r.count, frames: r.frames });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "export_all_pages",
+    "Export every page's top-level frames in one call. Returns { pageCount, pages: [{ pageId, pageName, frameCount, html, css, tailwindHtml, tokens, cssVars }] }. Use for whole-file handoff; prefer get_agent_bundle for agent-ready output.",
+    {},
+    async () => {
+      try {
+        const r = await sendCommand("export-all", {}, 60000);
+        return asText({ pageCount: r.pageCount, pages: r.pages });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   // ── Diff ───────────────────────────────────────────────────
   server.tool(
     "diff_since",
