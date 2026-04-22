@@ -50,6 +50,10 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Install mcp deps
+        working-directory: mcp
+        run: npm ci || npm install
+
       - name: Verify tag matches mcp/package.json version
         if: github.event_name == 'push'
         run: |
