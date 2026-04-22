@@ -38,12 +38,14 @@
   }
   * { box-sizing: border-box; }
   html, body {
-    margin: 0; padding: 0; height: 100%;
+    margin: 0; padding: 0; height: 100%; width: 100%;
     background: var(--bg); color: var(--ink);
     font-family: var(--mono); font-size: 12px; line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "ss01", "ss02";
+    overflow: hidden;
   }
+  .app { overflow: hidden; }
   ::selection { background: var(--sel); color: var(--sel-ink); }
   button, input, select, textarea { font: inherit; color: inherit; }
 
@@ -98,7 +100,7 @@
   .status.busy::before { background: var(--accent); animation: pulse 1.1s infinite; }
   @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
 
-  main { flex: 1; display: grid; grid-template-columns: 260px 1fr; min-height: 0; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; }
 
   /* ── Sidebar layer tree ────────────────────────────────────── */
   .sidebar {
@@ -178,7 +180,7 @@
   }
 
   /* ── Content ───────────────────────────────────────────────── */
-  .content { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+  .content { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); overflow: hidden; }
 
   .toolbar {
     height: 48px; flex: 0 0 48px; padding: 0 14px;
@@ -228,22 +230,35 @@
 
   /* Output format tabs */
   .tabs {
-    height: 34px; flex: 0 0 34px; padding: 0 14px;
-    display: flex; gap: 4px; align-items: stretch;
+    height: 34px; flex: 0 0 34px; padding: 0 10px;
+    display: flex; gap: 0; align-items: stretch;
     border-bottom: 1px solid var(--line); background: var(--bg);
+    overflow: hidden; min-width: 0;
   }
   .tab {
-    padding: 0 12px; display: inline-flex; align-items: center;
-    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
-    letter-spacing: 0.1em; text-transform: uppercase;
-    color: var(--dim); cursor: pointer;
+    padding: 0 8px; display: inline-flex; align-items: center;
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--dim); cursor: pointer; flex: 0 0 auto;
     border-bottom: 2px solid transparent; margin-bottom: -1px;
     transition: color .15s;
   }
   .tab:hover { color: var(--ink); }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-spacer { flex: 1; min-width: 4px; }
+  .tab-dl {
+    align-self: center; flex: 0 0 auto;
+    width: 24px; height: 24px; padding: 0; margin-left: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; color: var(--ink-2);
+    border: 1px solid var(--line-2); border-radius: 999px;
+    cursor: pointer; transition: background .14s, color .14s, border-color .14s;
+  }
+  .tab-dl:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .tab-dl svg { width: 11px; height: 11px; }
+  .tab-dl .label { display: none; }
 
-  .panes { flex: 1; overflow: auto; background: var(--paper); min-height: 0; }
+  .panes { flex: 1; overflow-y: auto; overflow-x: hidden; background: var(--paper); min-height: 0; min-width: 0; }
   pre {
     margin: 0; padding: 16px 18px; font-size: 11.5px; line-height: 1.7;
     font-family: var(--mono); color: var(--ink);
@@ -263,6 +278,45 @@
     letter-spacing: 0.04em;
   }
   .empty .hint b { color: var(--ink); font-weight: 600; }
+
+  /* Indeterminate loading bar inside the empty/loading pane */
+  .loader-bar {
+    position: relative; height: 2px; width: 180px; margin: 14px auto 6px;
+    background: var(--line); overflow: hidden; border-radius: 2px;
+  }
+  .loader-bar span {
+    position: absolute; inset: 0; width: 40%; background: var(--accent);
+    animation: loader-sweep 1.1s cubic-bezier(.5,0,.2,1) infinite;
+  }
+  @keyframes loader-sweep {
+    0%   { transform: translateX(-110%); }
+    100% { transform: translateX(260%); }
+  }
+
+  /* Big outputs can be megabytes; clip with a fade + "show all" affordance. */
+  .truncated {
+    position: relative;
+  }
+  .truncated::after {
+    content: ""; position: sticky; bottom: 0; left: 0; right: 0;
+    display: block; height: 60px; margin-top: -60px; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(247,244,234,0), var(--paper));
+  }
+  .show-more {
+    position: sticky; bottom: 10px; left: 50%; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; margin: 10px auto 18px;
+    background: var(--ink); color: var(--paper); border: 0; border-radius: 999px;
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(14,26,21,0.18);
+  }
+  .show-more:hover { background: var(--accent); }
+  .code-meta {
+    padding: 6px 18px; font-size: 10px; color: var(--dim);
+    letter-spacing: 0.1em; text-transform: uppercase; font-weight: 500;
+    border-bottom: 1px dashed var(--line); background: var(--paper);
+  }
 
   .err {
     color: var(--paper); padding: 10px 14px; border-top: 1px solid var(--accent);
@@ -604,7 +658,6 @@
           <svg viewBox="0 0 12 12" fill="none"><path d="M6 1v8M3 6l3 3 3-3M2 11h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Bundle
         </button>
-        <button class="btn primary" id="exportSel" title="Export current selection">Export</button>
         <button class="btn ghost icon-only" id="openPalette" title="Search commands (⌘K)">
           <svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M11 11L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         </button>
@@ -615,21 +668,26 @@
           <div class="menu" id="overflowMenu">
             <div class="menu-item" data-act="export-all">Export all pages</div>
             <div class="menu-item" data-act="export-app-spec">Export app spec</div>
-            <div class="menu-sep"></div>
-            <div class="menu-item" data-act="copy">Copy output<span class="shortcut">⌘C</span></div>
-            <div class="menu-item" data-act="download">Download output</div>
           </div>
         </div>
       </div>
 
       <!-- Output view -->
-      <div id="outputView">
+      <div id="outputView" style="flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden;">
         <div class="tabs">
           <div class="tab active" data-tab="html">HTML</div>
           <div class="tab" data-tab="css">CSS</div>
           <div class="tab" data-tab="tailwind">Tailwind</div>
+          <div class="tab" data-tab="swift">SwiftUI</div>
           <div class="tab" data-tab="tokens">Tokens</div>
           <div class="tab" data-tab="tailwindConfig">Config</div>
+          <span class="tab-spacer"></span>
+          <button class="tab-dl" id="tabCopy" title="Copy tab contents">
+            <svg viewBox="0 0 12 12" fill="none"><rect x="3.5" y="3.5" width="6" height="7" rx="0.8" stroke="currentColor" stroke-width="1.1"/><path d="M5.5 2h3.5a1 1 0 0 1 1 1v4.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          </button>
+          <button class="tab-dl" id="tabDownload" title="Download tab contents">
+            <svg viewBox="0 0 12 12" fill="none"><path d="M6 1v8M3 6l3 3 3-3M2 11h8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         <div class="panes">
           <pre id="out"><div class="empty"><div class="big">Pick a layer.</div>Click a frame in the sidebar, or press <span class="kbd">⌘K</span> to search commands.<div class="hint">Pages · frames · components · any node — click to export.</div></div></pre>
@@ -694,7 +752,7 @@
     document.querySelectorAll("#viewSeg button").forEach(function (b) {
       b.classList.toggle("active", b.dataset.view === v);
     });
-    el("outputView").style.display = v === "output" ? "" : "none";
+    el("outputView").style.display = v === "output" ? "flex" : "none";
     el("commandsView").style.display = v === "commands" ? "flex" : "none";
   }
   document.querySelectorAll("#viewSeg button").forEach(function (b) {
@@ -729,8 +787,13 @@
   }
 
   // ── Output render (tabs) ────────────────────────────────────────
+  // Big files (500KB+) freeze the panel when dumped at once. We show the
+  // first ~120KB instantly and reveal the rest on demand.
+  var INITIAL_RENDER_BYTES = 120000;
+  var _fullText = "";
   function render() {
     var out = el("out");
+    out.classList.remove("truncated");
     if (!state.data) {
       out.innerHTML = '<div class="empty"><div class="big">Pick a layer.</div>Click a frame in the sidebar, or press <span class="kbd">⌘K</span> to search commands.<div class="hint">Pages · frames · components · any node — click to export.</div></div>';
       return;
@@ -738,19 +801,78 @@
     var map = {
       html: state.data.html || "",
       css: state.data.css || "",
-      tailwind: state.data.tailwindHtml || "",
+      tailwind: state.data.tailwindHtml == null ? "" : state.data.tailwindHtml,
+      swift: state.data.swift == null ? "" : state.data.swift,
       tokens: JSON.stringify(state.data.tokens || {}, null, 2) + "\n\n/* CSS variables */\n" + (state.data.cssVars || ""),
       tailwindConfig: state.data.tailwindConfig || ""
     };
-    out.textContent = map[state.tab] || "";
+    _fullText = map[state.tab] || "";
+    var bytes = _fullText.length;
+    if (bytes <= INITIAL_RENDER_BYTES) {
+      out.textContent = _fullText;
+      return;
+    }
+    // Defer the heavy paint to the next frame so the loading chrome flips
+    // away before the browser blocks on innerText.
+    out.innerHTML =
+      '<div class="code-meta">Showing first ' + Math.round(INITIAL_RENDER_BYTES/1024) + ' KB of ' + Math.round(bytes/1024) + ' KB — <b>click below to load all</b></div>' +
+      '<pre id="outChunk" style="margin:0;padding:16px 18px;white-space:pre-wrap;word-break:break-word;"></pre>' +
+      '<button class="show-more" id="showMore">Show full ' + Math.round(bytes/1024) + ' KB</button>';
+    out.classList.add("truncated");
+    // yield to let the truncated chrome paint, then drop in the initial slice
+    requestAnimationFrame(function () {
+      var chunkEl = el("outChunk");
+      if (chunkEl) chunkEl.textContent = _fullText.slice(0, INITIAL_RENDER_BYTES) + "\n\n… (truncated)";
+    });
+    el("showMore").addEventListener("click", function () {
+      setStatus("busy", "Loading…");
+      requestAnimationFrame(function () {
+        var chunkEl = el("outChunk");
+        if (chunkEl) chunkEl.textContent = _fullText;
+        out.classList.remove("truncated");
+        var btn = el("showMore"); if (btn) btn.remove();
+        var meta = out.querySelector(".code-meta"); if (meta) meta.remove();
+        setStatus("ok", "Done");
+      });
+    });
   }
   document.querySelectorAll(".tab").forEach(function (t) {
     t.addEventListener("click", function () {
       document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("active"); });
       t.classList.add("active");
-      state.tab = t.dataset.tab; render();
+      state.tab = t.dataset.tab;
+      // If an export is in flight, keep showing the loading view on tab switch.
+      if (state.pending && !state.data) { renderLoading(state.pending.label); return; }
+      // Lazy-fetch Tailwind / Swift from the plugin on first access.
+      if (state.data) {
+        if (state.tab === "tailwind" && state.data.tailwindHtml == null) { requestFormat("tailwind"); return; }
+        if (state.tab === "swift"    && state.data.swift        == null) { requestFormat("swift"); return; }
+      }
+      render();
     });
   });
+
+  var _fmtReq = 0;
+  function requestFormat(format) {
+    if (!state.data || !state.data.nodeIds || !state.data.nodeIds.length) { render(); return; }
+    var reqId = ++_fmtReq;
+    state.pendingFormat = { reqId: reqId, format: format };
+    el("out").innerHTML =
+      '<div class="empty"><div class="big">Building ' + (format === "swift" ? "SwiftUI" : "Tailwind") + '…</div>' +
+      '<div class="loader-bar"><span></span></div>' +
+      '<div class="hint">First-time walk of the node tree for this format.</div></div>';
+    // pageId: use first node's page — findPageId needs a node we have in tree,
+    // but state.data.nodeIds may belong to any page. Fall back to currentPageId.
+    var pageId = null;
+    if (state.data.nodeIds[0] && tree.nodes[state.data.nodeIds[0]]) {
+      pageId = findPageId(state.data.nodeIds[0]);
+    }
+    pageId = pageId || tree.currentPageId;
+    parent.postMessage({ pluginMessage: {
+      type: "build-format", pageId: pageId, nodeIds: state.data.nodeIds,
+      format: format, reqId: reqId
+    } }, "*");
+  }
 
   // ── Layer tree ──────────────────────────────────────────────────
   var tree = { roots: [], nodes: {}, selectedId: null, currentPageId: null };
@@ -859,10 +981,29 @@
     }
     renderTree();
   }
+  // Every user-initiated export bumps this; late responses with a stale
+  // seq get dropped so rapid clicks never paint the wrong code.
+  var _exportSeq = 0;
+  function beginExport(label) {
+    var seq = ++_exportSeq;
+    state.pending = { seq: seq, label: label };
+    state.data = null;
+    renderLoading(label);
+    setStatus("busy", "Exporting"); setFoot("Exporting " + label + "…");
+    return seq;
+  }
+  function renderLoading(label) {
+    var safe = String(label || "selection").replace(/</g, "&lt;");
+    el("out").innerHTML =
+      '<div class="empty"><div class="big">Exporting ' + safe + '…</div>' +
+      '<div class="loader-bar"><span></span></div>' +
+      '<div class="hint">Figma is walking the tree — cancel by clicking another layer.</div></div>';
+  }
   function exportOne(n) {
     var pageId = n.type === "PAGE" ? n.id : findPageId(n.id);
-    setStatus("busy", "Exporting"); setFoot("Exporting " + n.name + "…");
-    parent.postMessage({ pluginMessage: { type: "export-nodes", pageId: pageId, nodeIds: [n.id] } }, "*");
+    var seq = beginExport(n.name);
+    state.pending.nodeIds = [n.id];
+    parent.postMessage({ pluginMessage: { type: "export-nodes", pageId: pageId, nodeIds: [n.id], _seq: seq } }, "*");
   }
   function findPageId(id) {
     var cur = tree.nodes[id];
@@ -871,12 +1012,46 @@
   }
 
   // ── Toolbar / overflow menu ────────────────────────────────────
-  el("exportSel").addEventListener("click", function () {
-    setView("output");
-    var sel = tree.selectedId && tree.nodes[tree.selectedId];
-    if (sel && sel.type !== "PAGE") { exportOne(sel); return; }
-    setStatus("busy", "Exporting"); setFoot("Exporting canvas selection…");
-    parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*");
+  // Export is implicit: the live bridge auto-exports the canvas selection.
+  // Users trigger an explicit export by clicking a layer in the sidebar.
+
+  // Per-tab copy + download
+  function currentTabText() {
+    if (!state.data) return "";
+    var map = {
+      html: state.data.html || "",
+      css: state.data.css || "",
+      tailwind: state.data.tailwindHtml || "",
+      swift: state.data.swift || "",
+      tokens: JSON.stringify(state.data.tokens || {}, null, 2) + "\n\n/* CSS variables */\n" + (state.data.cssVars || ""),
+      tailwindConfig: state.data.tailwindConfig || ""
+    };
+    return map[state.tab] || "";
+  }
+  function currentTabFileName() {
+    var base = "figbridge";
+    if (state.data && state.data.nodeNames && state.data.nodeNames.length) {
+      base = String(state.data.nodeNames[0]).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "figbridge";
+    }
+    var ext = { html: "html", css: "css", tailwind: "tailwind.html", swift: "swift",
+                tokens: "tokens.json", tailwindConfig: "tailwind.config.js" }[state.tab] || "txt";
+    return base + "." + ext;
+  }
+  el("tabCopy").addEventListener("click", function () {
+    var txt = currentTabText();
+    if (!txt) return;
+    if (navigator.clipboard) navigator.clipboard.writeText(txt);
+    setStatus("ok", "Copied"); setTimeout(function () { setStatus("", "Ready"); }, 1100);
+  });
+  el("tabDownload").addEventListener("click", function () {
+    var txt = currentTabText(); if (!txt) return;
+    var blob = new Blob([txt], { type: "text/plain" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = currentTabFileName();
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 800);
+    setStatus("ok", "Downloaded"); setTimeout(function () { setStatus("", "Ready"); }, 1100);
   });
   el("exportAgent").addEventListener("click", function () {
     setStatus("busy", "Bundling"); setFoot("Building agent bundle…");
@@ -1280,14 +1455,50 @@
           postCmdResult(msg.cmdId, msg.body);
         }
         break;
-      case "result":
+      case "result": {
+        // Drop if a newer export has started since this one was requested.
+        if (state.pending && state.pending.nodeIds) {
+          var wantIds = state.pending.nodeIds.slice().sort().join("|");
+          var gotIds  = (msg.nodeIds || []).slice().sort().join("|");
+          if (wantIds !== gotIds) break; // superseded; ignore silently
+        }
+        state.pending = null;
         state.data = msg; render();
         setStatus("ok", "Done"); setFoot("Exported " + (msg.nodeNames || []).join(", "));
         if (state.bridge) pushToBridge(msg);
         break;
-      case "auto-push":
+      }
+      case "auto-push": {
+        // If the user explicitly asked for a specific export, don't let an
+        // async auto-push from a stale selection overwrite the loading view.
+        if (state.pending && state.pending.nodeIds) break;
         state.data = msg; render();
+        setStatus("ok", "Live"); setFoot("Pushed " + (msg.nodeNames || []).join(", "));
         if (state.bridge) pushToBridge(msg);
+        break;
+      }
+      case "selection-pending": {
+        // Clear stale output immediately so the user never sees the prior
+        // page's code during navigation. A fresh export is already queued.
+        if (state.pending && state.pending.nodeIds) break; // explicit click wins
+        state.data = null;
+        var out = el("out");
+        var names = (msg.nodeNames && msg.nodeNames.length) ? msg.nodeNames.join(", ") : "the canvas selection";
+        out.innerHTML = '<div class="empty"><div class="big">Reading ' + (msg.pageName ? ('"' + msg.pageName + '"').replace(/</g,"&lt;") : "canvas") + '…</div><div class="loader-bar"><span></span></div>Exporting ' + String(names).replace(/</g,"&lt;") + '<div class="hint">Live bridge is on — this updates as you click around Figma.</div></div>';
+        setStatus("busy", "Reading"); setFoot("Reading selection…");
+        break;
+      }
+      case "selection-empty": {
+        state.data = null;
+        el("out").innerHTML = '<div class="empty"><div class="big">Nothing selected.</div>Click a frame on the canvas or in the sidebar.<div class="hint">Live bridge is on — selection drives the output.</div></div>';
+        setStatus("", "Ready"); setFoot("Idle");
+        break;
+      }
+      case "page-changed":
+        // Drop stale data from the previous page while the selection handler
+        // queues a fresh export (if anything is selected on the new page).
+        state.data = null;
+        setFoot("Page: " + (msg.pageName || ""));
         break;
       case "page-progress":
         setFoot("Page " + msg.done + "/" + msg.total + ": " + msg.pageName);
@@ -1336,7 +1547,38 @@
         setStatus("ok", "Bundle ready"); setFoot(msg.fileCount + " files");
         break;
       }
+      case "format-result": {
+        if (!state.pendingFormat || state.pendingFormat.reqId !== msg.reqId) break;
+        state.pendingFormat = null;
+        if (msg.error) {
+          el("out").innerHTML = '<div class="empty"><div class="big">Build failed</div>' + String(msg.error).replace(/</g,"&lt;") + '</div>';
+          setStatus("err", "Error");
+          break;
+        }
+        if (!state.data) break;
+        if (msg.format === "tailwind") {
+          state.data.tailwindHtml = msg.tailwindHtml || "";
+          state.data.tailwindBody = msg.tailwindBody || "";
+        } else if (msg.format === "swift") {
+          state.data.swift = msg.swift || "";
+        }
+        render();
+        setStatus("ok", "Ready");
+        break;
+      }
+      case "timing": {
+        // Surface phase breakdown in the footer so slow exports are debuggable
+        // without a devtools detour. "resolve 12 · prefetch 1840 · build 14 (total 1870ms)"
+        var parts = [];
+        if (msg.page)     parts.push("page " + msg.page);
+        if (msg.resolve)  parts.push("resolve " + msg.resolve);
+        if (msg.prefetch) parts.push("prefetch " + msg.prefetch);
+        if (msg.build)    parts.push("build " + msg.build);
+        setFoot((msg.label ? msg.label + " · " : "") + parts.join(" · ") + " (total " + msg.total + "ms)");
+        break;
+      }
       case "error":
+        state.pending = null;
         el("err").style.display = "block"; el("err").textContent = msg.message;
         setStatus("err", "Error"); setFoot(msg.message);
         break;

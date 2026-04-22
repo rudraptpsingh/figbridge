@@ -31,36 +31,11 @@ function paintToTokenRef(paint) {
 }
 
 // ── Page map ──────────────────────────────────────────────────
-function sendPageMap() {
-  var pages = figma.root.children.map(function (page) {
-    return {
-      id: page.id,
-      name: page.name,
-      frameCount: page.children.filter(function (n) {
-        return n.type === "FRAME" || n.type === "COMPONENT" || n.type === "GROUP";
-      }).length,
-      isCurrent: page.id === figma.currentPage.id
-    };
-  });
-  figma.ui.postMessage({ type: "pages", pages: pages });
-}
-
 function _summarizeNode(n) {
   var hasChildren = ("children" in n) && n.children && n.children.length > 0;
   var w = (typeof n.width === "number") ? Math.round(n.width) : null;
   var h = (typeof n.height === "number") ? Math.round(n.height) : null;
   return { id: n.id, name: n.name || "(unnamed)", type: n.type, width: w, height: h, hasChildren: hasChildren };
-}
-
-async function sendFramesForPage(pageId) {
-  var page = figma.root.children.find(function (p) { return p.id === pageId; });
-  if (!page) {
-    figma.ui.postMessage({ type: "error", message: "Page " + pageId + " not found." });
-    return;
-  }
-  await figma.setCurrentPageAsync(page);
-  var frames = page.children.map(_summarizeNode);
-  figma.ui.postMessage({ type: "frames", pageId: pageId, pageName: page.name, frames: frames });
 }
 
 async function sendChildrenFor(nodeId) {
@@ -78,290 +53,10 @@ async function sendChildrenFor(nodeId) {
 }
 
 // ── Color / CSS helpers ───────────────────────────────────────
-function rgbaToCSS(c) {
-  var r = c.r, g = c.g, b = c.b, a = c.a == null ? 1 : c.a;
-  var t = function (v) { return Math.round(v * 255); };
-  if (a < 1) return "rgba(" + t(r) + "," + t(g) + "," + t(b) + "," + parseFloat(a.toFixed(3)) + ")";
-  return "#" + [r, g, b].map(function (v) { return t(v).toString(16).padStart(2, "0"); }).join("");
-}
-
-function paintToCSS(paints) {
-  if (!paints || !paints.length) return null;
-  var visibles = paints.filter(function (x) { return x.visible !== false; });
-  if (!visibles.length) return null;
-  var p = visibles[visibles.length - 1];
-  if (p.type === "SOLID") {
-    var tok = paintToTokenRef(p);
-    if (tok) return "var(" + tok.cssName + ")";
-    var sc = { r: p.color.r, g: p.color.g, b: p.color.b, a: p.opacity == null ? 1 : p.opacity };
-    return rgbaToCSS(sc);
-  }
-  if (p.type === "GRADIENT_LINEAR" || p.type === "GRADIENT_RADIAL") {
-    var stops = p.gradientStops.map(function (s) {
-      return rgbaToCSS(s.color) + " " + Math.round(s.position * 100) + "%";
-    }).join(",");
-    return p.type === "GRADIENT_LINEAR"
-      ? "linear-gradient(90deg," + stops + ")"
-      : "radial-gradient(circle," + stops + ")";
-  }
-  return null;
-}
-
-function shadowToCSS(effects) {
-  if (!effects) return null;
-  var list = effects
-    .filter(function (e) { return (e.type === "DROP_SHADOW" || e.type === "INNER_SHADOW") && e.visible !== false; })
-    .map(function (e) {
-      var prefix = e.type === "INNER_SHADOW" ? "inset " : "";
-      var spread = e.spread == null ? 0 : e.spread;
-      return prefix + e.offset.x + "px " + e.offset.y + "px " + e.radius + "px " + spread + "px " + rgbaToCSS(e.color);
-    });
-  return list.length ? list.join(",") : null;
-}
-
-function blurToCSS(effects) {
-  var b = (effects || []).find(function (e) { return e.type === "LAYER_BLUR" && e.visible !== false; });
-  return b ? "blur(" + b.radius + "px)" : null;
-}
-
-function radiusToCSS(node) {
-  if (node.cornerRadius !== undefined && node.cornerRadius !== figma.mixed) return node.cornerRadius + "px";
-  if (node.topLeftRadius !== undefined) {
-    return node.topLeftRadius + "px " + node.topRightRadius + "px " + node.bottomRightRadius + "px " + node.bottomLeftRadius + "px";
-  }
-  return null;
-}
-
-function strokeToCSS(node) {
-  if (!node.strokes || !node.strokes.length) return null;
-  var s = node.strokes.find(function (x) { return x.visible !== false; });
-  if (!s) return null;
-  var sw = node.strokeWeight == null ? 1 : node.strokeWeight;
-  var dashed = node.dashPattern && node.dashPattern.length ? "dashed" : "solid";
-  var sop = s.opacity == null ? 1 : s.opacity;
-  var sc = { r: s.color.r, g: s.color.g, b: s.color.b, a: sop };
-  return sw + "px " + dashed + " " + rgbaToCSS(sc);
-}
-
-function fontWeight(style) {
-  var s = (style || "").toLowerCase();
-  if (s.indexOf("thin") >= 0) return 100;
-  if (s.indexOf("extralight") >= 0 || s.indexOf("ultra light") >= 0) return 200;
-  if (s.indexOf("light") >= 0) return 300;
-  if (s.indexOf("medium") >= 0) return 500;
-  if (s.indexOf("semibold") >= 0 || s.indexOf("demi") >= 0) return 600;
-  if (s.indexOf("extrabold") >= 0 || s.indexOf("ultra") >= 0 || s.indexOf("black") >= 0 || s.indexOf("heavy") >= 0) return 800;
-  if (s.indexOf("bold") >= 0) return 700;
-  return 400;
-}
-
 // ── CSS accumulator ───────────────────────────────────────────
 var _counter = 0;
 var _classMap = new Map();
 var _rules = [];
-
-function resetCSS() { _counter = 0; _classMap.clear(); _rules.length = 0; }
-
-function cls(id) {
-  if (!_classMap.has(id)) _classMap.set(id, "el-" + (++_counter));
-  return _classMap.get(id);
-}
-
-function emitRule(selector, decls) {
-  var body = Object.keys(decls)
-    .filter(function (k) { return decls[k] != null; })
-    .map(function (k) { return "  " + k + ": " + decls[k] + ";"; })
-    .join("\n");
-  if (body) _rules.push("." + selector + " {\n" + body + "\n}");
-}
-
-// ── HTML/CSS tree ─────────────────────────────────────────────
-function nodeToHTML(node, depth) {
-  depth = depth || 0;
-  var c = cls(node.id);
-  var ind = "  ".repeat(depth);
-  var d = {};
-
-  d["position"] = depth === 0 ? "relative" : "absolute";
-  if (depth > 0) { d["left"] = Math.round(node.x) + "px"; d["top"] = Math.round(node.y) + "px"; }
-  d["width"] = Math.round(node.width) + "px";
-  d["height"] = Math.round(node.height) + "px";
-  d["box-sizing"] = "border-box";
-
-  if (node.opacity !== undefined && node.opacity < 1) d["opacity"] = parseFloat(node.opacity.toFixed(3));
-  if (node.visible === false) d["display"] = "none";
-  if (node.clipsContent) d["overflow"] = "hidden";
-
-  if (node.fills) {
-    var f = paintToCSS(node.fills);
-    if (f) {
-      if (f.indexOf("linear") === 0 || f.indexOf("radial") === 0) d["background"] = f;
-      else d["background-color"] = f;
-    }
-  }
-
-  var bdr = strokeToCSS(node); if (bdr) d["border"] = bdr;
-  var rad = radiusToCSS(node); if (rad) d["border-radius"] = rad;
-  var shd = shadowToCSS(node.effects); if (shd) d["box-shadow"] = shd;
-  var blr = blurToCSS(node.effects); if (blr) d["filter"] = blr;
-
-  if (node.type === "TEXT") {
-    var ff = node.fontName !== figma.mixed ? node.fontName : null;
-    var fs = node.fontSize !== figma.mixed ? node.fontSize : null;
-    var lh = node.lineHeight !== figma.mixed ? node.lineHeight : null;
-    var ls = node.letterSpacing !== figma.mixed ? node.letterSpacing : null;
-    if (ff) {
-      d["font-family"] = "'" + ff.family + "',sans-serif";
-      d["font-weight"] = fontWeight(ff.style);
-      if (ff.style.toLowerCase().indexOf("italic") >= 0) d["font-style"] = "italic";
-    }
-    if (fs) d["font-size"] = fs + "px";
-    if (lh && lh.unit !== "AUTO") d["line-height"] = lh.unit === "PERCENT" ? (lh.value + "%") : (lh.value + "px");
-    if (ls && ls.unit !== "PERCENT") d["letter-spacing"] = ls.value + "px";
-    if (node.textAlignHorizontal) {
-      var tam = { LEFT: "left", CENTER: "center", RIGHT: "right", JUSTIFIED: "justify" };
-      d["text-align"] = tam[node.textAlignHorizontal] || "left";
-    }
-    if (node.fills) {
-      var tc = paintToCSS(node.fills);
-      if (tc && tc.indexOf("linear") !== 0 && tc.indexOf("radial") !== 0) d["color"] = tc;
-    }
-    if (node.textDecoration === "UNDERLINE") d["text-decoration"] = "underline";
-    if (node.textDecoration === "STRIKETHROUGH") d["text-decoration"] = "line-through";
-    delete d["background-color"]; delete d["background"];
-  }
-
-  if (node.layoutMode && node.layoutMode !== "NONE") {
-    d["display"] = "flex";
-    d["flex-direction"] = node.layoutMode === "VERTICAL" ? "column" : "row";
-    var am = { MIN: "flex-start", CENTER: "center", MAX: "flex-end", SPACE_BETWEEN: "space-between" };
-    if (node.primaryAxisAlignItems) d["justify-content"] = am[node.primaryAxisAlignItems] || "flex-start";
-    if (node.counterAxisAlignItems) d["align-items"] = am[node.counterAxisAlignItems] || "flex-start";
-    if (node.itemSpacing) d["gap"] = node.itemSpacing + "px";
-    var pt = node.paddingTop == null ? 0 : node.paddingTop;
-    var pr = node.paddingRight == null ? 0 : node.paddingRight;
-    var pb = node.paddingBottom == null ? 0 : node.paddingBottom;
-    var pl = node.paddingLeft == null ? 0 : node.paddingLeft;
-    if (pt || pr || pb || pl) d["padding"] = pt + "px " + pr + "px " + pb + "px " + pl + "px";
-  }
-
-  emitRule(c, d);
-
-  var children = "";
-  if ("children" in node && node.children.length > 0) {
-    for (var i = 0; i < node.children.length; i++) {
-      children += "\n" + nodeToHTML(node.children[i], depth + 1);
-    }
-    children += "\n" + ind;
-  }
-
-  var tag = "div";
-  var content = children;
-  if (node.type === "TEXT") {
-    tag = "p";
-    var raw = typeof node.characters === "string" ? node.characters : "";
-    content = raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
-  }
-
-  var safeName = String(node.name).replace(/"/g, "");
-  return ind + "<" + tag + ' class="' + c + '" data-figma="' + safeName + '" data-type="' + node.type + '">' + content + "</" + tag + ">";
-}
-
-function buildHTML(nodes, pageTitle) {
-  resetCSS();
-  var bodies = nodes.map(function (n) { return { name: n.name, html: nodeToHTML(n, 0) }; });
-  var css = "/* Figbridge — " + pageTitle + " */\n\n* { margin:0; padding:0; box-sizing:border-box; }\n\n" + _rules.join("\n\n");
-  var htmlBody = bodies.map(function (b) { return b.html; }).join("\n\n");
-  return {
-    html: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <meta name="viewport" content="width=device-width,initial-scale=1.0" />\n  <title>' + pageTitle + "</title>\n  <style>\n" + css + "\n  </style>\n</head>\n<body>\n" + htmlBody + "\n</body>\n</html>",
-    css: css,
-    rawHtml: htmlBody,
-    nodeNames: nodes.map(function (n) { return n.name; })
-  };
-}
-
-// ── Tailwind tree (deterministic arbitrary values) ────────────
-function twPx(n) { return Math.round(n) + "px"; }
-
-function nodeToTailwind(node, depth) {
-  depth = depth || 0;
-  var ind = "  ".repeat(depth);
-  var cls = [];
-
-  cls.push(depth === 0 ? "relative" : "absolute");
-  if (depth > 0) { cls.push("left-[" + twPx(node.x) + "]"); cls.push("top-[" + twPx(node.y) + "]"); }
-  cls.push("w-[" + twPx(node.width) + "]");
-  cls.push("h-[" + twPx(node.height) + "]");
-  cls.push("box-border");
-
-  if (node.opacity !== undefined && node.opacity < 1) cls.push("opacity-[" + parseFloat(node.opacity.toFixed(3)) + "]");
-  if (node.visible === false) cls.push("hidden");
-  if (node.clipsContent) cls.push("overflow-hidden");
-
-  if (node.fills) {
-    var f = paintToCSS(node.fills);
-    if (f && f.indexOf("linear") !== 0 && f.indexOf("radial") !== 0 && node.type !== "TEXT") {
-      cls.push("bg-[" + f + "]");
-    }
-  }
-
-  var rad = radiusToCSS(node);
-  if (rad && rad.indexOf(" ") < 0) cls.push("rounded-[" + rad + "]");
-
-  if (node.type === "TEXT") {
-    var ff = node.fontName !== figma.mixed ? node.fontName : null;
-    var fs = node.fontSize !== figma.mixed ? node.fontSize : null;
-    if (fs) cls.push("text-[" + fs + "px]");
-    if (ff) cls.push("font-[" + fontWeight(ff.style) + "]");
-    if (node.fills) {
-      var tc = paintToCSS(node.fills);
-      if (tc && tc.indexOf("linear") !== 0 && tc.indexOf("radial") !== 0) cls.push("text-[" + tc + "]");
-    }
-    if (node.textAlignHorizontal) {
-      var tam = { LEFT: "text-left", CENTER: "text-center", RIGHT: "text-right", JUSTIFIED: "text-justify" };
-      var v = tam[node.textAlignHorizontal]; if (v) cls.push(v);
-    }
-  }
-
-  if (node.layoutMode && node.layoutMode !== "NONE") {
-    cls.push("flex");
-    cls.push(node.layoutMode === "VERTICAL" ? "flex-col" : "flex-row");
-    var am = { MIN: "start", CENTER: "center", MAX: "end", SPACE_BETWEEN: "between" };
-    if (node.primaryAxisAlignItems) cls.push("justify-" + (am[node.primaryAxisAlignItems] || "start"));
-    if (node.counterAxisAlignItems) cls.push("items-" + (am[node.counterAxisAlignItems] || "start"));
-    if (node.itemSpacing) cls.push("gap-[" + node.itemSpacing + "px]");
-    var pt = node.paddingTop == null ? 0 : node.paddingTop;
-    var pr = node.paddingRight == null ? 0 : node.paddingRight;
-    var pb = node.paddingBottom == null ? 0 : node.paddingBottom;
-    var pl = node.paddingLeft == null ? 0 : node.paddingLeft;
-    if (pt === pr && pr === pb && pb === pl) { if (pt) cls.push("p-[" + pt + "px]"); }
-    else {
-      if (pt) cls.push("pt-[" + pt + "px]");
-      if (pr) cls.push("pr-[" + pr + "px]");
-      if (pb) cls.push("pb-[" + pb + "px]");
-      if (pl) cls.push("pl-[" + pl + "px]");
-    }
-  }
-
-  var children = "";
-  if ("children" in node && node.children.length > 0) {
-    for (var i = 0; i < node.children.length; i++) {
-      children += "\n" + nodeToTailwind(node.children[i], depth + 1);
-    }
-    children += "\n" + ind;
-  }
-
-  var tag = "div";
-  var content = children;
-  if (node.type === "TEXT") {
-    tag = "p";
-    var raw = typeof node.characters === "string" ? node.characters : "";
-    content = raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
-  }
-
-  var safeName = String(node.name).replace(/"/g, "");
-  return ind + "<" + tag + ' class="' + cls.join(" ") + '" data-figma="' + safeName + '">' + content + "</" + tag + ">";
-}
 
 function buildTailwind(nodes, pageTitle) {
   var htmlBody = nodes.map(function (n) { return nodeToTailwind(n, 0); }).join("\n\n");
@@ -376,26 +71,118 @@ function slug(name) {
   return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+// Token extraction is the slow part of an export on large files — every
+// variable is fetched via an async round-trip. Cache the result across
+// rapid-fire exports (tokens don't change when the user just clicks between
+// screens). Invalidation happens via `invalidateTokenCache()` when documents
+// change or on explicit refresh.
+var _tokenCache = null;
+var _tokenCacheInflight = null;
+var _varMapCache = null;
+var _varMapInflight = null;
+function invalidateTokenCache() {
+  _tokenCache = null; _tokenCacheInflight = null;
+  _varMapCache = null; _varMapInflight = null;
+}
+// Inlined copy of loadVariables() — Figma's plugin sandbox doesn't always
+// hoist function declarations at file scope reliably, so referencing the
+// late-declared loadVariables() from here during auto-push throws
+// "'loadVariables' is not defined". Self-contained version avoids that.
+async function _loadVariablesInline() {
+  if (typeof figma === "undefined" || !figma.variables || !figma.variables.getLocalVariablesAsync) return {};
+  try {
+    var vars = await figma.variables.getLocalVariablesAsync();
+    var cols = await figma.variables.getLocalVariableCollectionsAsync();
+    var colMap = {};
+    cols.forEach(function (c) { colMap[c.id] = c; });
+    var sanitize = function (s) {
+      return "--" + String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    };
+    var toCSS = function (v, val) {
+      if (v.resolvedType === "COLOR") {
+        var t = function (x) { return Math.round((x == null ? 0 : x) * 255); };
+        var a = val.a == null ? 1 : val.a;
+        var hex = "#" + [val.r, val.g, val.b].map(function (x) { return t(x).toString(16).padStart(2, "0"); }).join("");
+        return { css: a < 1 ? "rgba(" + t(val.r) + "," + t(val.g) + "," + t(val.b) + "," + a + ")" : hex, type: "color" };
+      }
+      if (v.resolvedType === "FLOAT")   return { css: val + "px", type: "dimension" };
+      if (v.resolvedType === "BOOLEAN") return { css: String(val), type: "boolean" };
+      return { css: String(val), type: "string" };
+    };
+    var map = {};
+    vars.forEach(function (v) {
+      var col = colMap[v.variableCollectionId]; if (!col) return;
+      var val = v.valuesByMode[col.defaultModeId]; if (val == null) return;
+      var c = toCSS(v, val);
+      map[v.id] = { cssName: sanitize(v.name), value: c.css, name: v.name, type: c.type,
+                    rawValue: c.type === "color" ? c.css : c.css, valuesByMode: {} };
+    });
+    return map;
+  } catch (e) { return {}; }
+}
+function loadVariablesCached() {
+  if (_varMapCache) return Promise.resolve(_varMapCache);
+  if (_varMapInflight) return _varMapInflight;
+  _varMapInflight = _loadVariablesInline().then(function (m) {
+    _varMapCache = m || {}; _varMapInflight = null; return _varMapCache;
+  });
+  return _varMapInflight;
+}
+// Inline equivalent of setVariableMap() — Figma's QuickJS sandbox does
+// not hoist later `function` declarations backward, so code in this
+// upper half of the file cannot call the canonical setVariableMap()
+// declared near line 1538. Keep this in sync with it.
+function _setVariableMapInline(map) {
+  _varMap = map || {};
+  _varByHex = {};
+  var ids = Object.keys(_varMap);
+  for (var i = 0; i < ids.length; i++) {
+    var e = _varMap[ids[i]];
+    if (!e) continue;
+    var isColor = e.type === "color" || e.type === "COLOR" ||
+      (typeof e.value === "string" && String(e.value).charAt(0) === "#");
+    if (!isColor) continue;
+    var v = String(e.value || "").toLowerCase();
+    var m = /^#([0-9a-f]{6})$/.exec(v);
+    if (!m) continue;
+    _varByHex["#" + m[1]] = {
+      cssName: e.cssName,
+      swiftName: sanitizeSwiftIdent(e.name || e.cssName),
+      name: e.name || e.cssName
+    };
+  }
+}
+
 async function extractTokens() {
+  if (_tokenCache) return _tokenCache;
+  if (_tokenCacheInflight) return _tokenCacheInflight;
+  _tokenCacheInflight = (async function () {
   var tokens = { colors: {}, numbers: {}, strings: {}, booleans: {} };
   try {
     var cols = await figma.variables.getLocalVariableCollectionsAsync();
+    // Resolve every variable in parallel — serial awaits were dominant cost
+    // on files with 50+ tokens (50 sequential plugin-sandbox round-trips).
+    var all = [];
     for (var i = 0; i < cols.length; i++) {
       var col = cols[i];
-      var modeId = col.defaultModeId;
-      var modeName = col.modes.find(function (m) { return m.modeId === modeId; });
-      modeName = modeName ? modeName.name : "default";
       for (var j = 0; j < col.variableIds.length; j++) {
-        var v = await figma.variables.getVariableByIdAsync(col.variableIds[j]);
-        if (!v) continue;
-        var val = v.valuesByMode[modeId];
-        if (val && val.type === "VARIABLE_ALIAS") continue;
-        var key = slug(col.name) + "/" + slug(v.name);
-        if (v.resolvedType === "COLOR" && val) tokens.colors[key] = rgbaToCSS(val);
-        else if (v.resolvedType === "FLOAT") tokens.numbers[key] = val;
-        else if (v.resolvedType === "STRING") tokens.strings[key] = val;
-        else if (v.resolvedType === "BOOLEAN") tokens.booleans[key] = val;
+        all.push({ col: col, varId: col.variableIds[j] });
       }
+    }
+    var vars = await Promise.all(all.map(function (x) {
+      return figma.variables.getVariableByIdAsync(x.varId).catch(function () { return null; });
+    }));
+    for (var k = 0; k < all.length; k++) {
+      var col2 = all[k].col, v = vars[k];
+      if (!v) continue;
+      var modeId = col2.defaultModeId;
+      var val = v.valuesByMode[modeId];
+      if (val && val.type === "VARIABLE_ALIAS") continue;
+      var key = slug(col2.name) + "/" + slug(v.name);
+      if (v.resolvedType === "COLOR" && val) tokens.colors[key] = rgbaToCSS(val);
+      else if (v.resolvedType === "FLOAT") tokens.numbers[key] = val;
+      else if (v.resolvedType === "STRING") tokens.strings[key] = val;
+      else if (v.resolvedType === "BOOLEAN") tokens.booleans[key] = val;
     }
   } catch (e) { /* variables API may be unavailable */ }
 
@@ -424,14 +211,36 @@ async function extractTokens() {
   });
   var twConfig = "module.exports = {\n  theme: {\n    extend: {\n      colors: " + JSON.stringify(twColors, null, 8).replace(/\n/g, "\n      ") + "\n    }\n  }\n};\n";
 
-  return { tokens: tokens, cssVars: cssVarsFile, tailwindConfig: twConfig };
+    var out = { tokens: tokens, cssVars: cssVarsFile, tailwindConfig: twConfig };
+    _tokenCache = out;
+    _tokenCacheInflight = null;
+    return out;
+  })();
+  return _tokenCacheInflight;
 }
 
 // ── Export drivers ────────────────────────────────────────────
 async function exportPayload(nodes, pageName) {
-  var html = buildHTML(nodes, pageName);
-  var tw = buildTailwind(nodes, pageName);
-  var tok = await extractTokens();
+  // Prefer the selected node's name as the document title when the user is
+  // exporting a single frame — otherwise the page label ("04 · Screens")
+  // leaks into <title> even when only one screen was picked.
+  var label = (nodes && nodes.length === 1 && nodes[0] && nodes[0].name)
+    ? (pageName ? pageName + " · " + nodes[0].name : nodes[0].name)
+    : pageName;
+  // Populate the hex→variable index so CSS/Tailwind/Swift can emit token
+  // references. Cached across exports for cheap re-runs.
+  var vmapPromise = loadVariablesCached().then(_setVariableMapInline);
+  // Kick off the (potentially slow, async) token extraction before the
+  // synchronous tree walks so it runs in parallel with them.
+  var tokPromise = extractTokens();
+  await vmapPromise; // needed before tree walk so color emitters see tokens
+  // HTML+CSS is the default tab — always build it. Tailwind and SwiftUI
+  // each walk the full node tree independently and every property read is
+  // a sandbox round-trip; on a 200-node screen that alone dominates. Build
+  // them lazily when the user actually clicks those tabs (see `build-format`
+  // message handler).
+  var html = buildHTML(nodes, label);
+  var tok = await tokPromise;
   var fileKey = figma.fileKey || null;
   return {
     fileKey: fileKey,
@@ -442,8 +251,8 @@ async function exportPayload(nodes, pageName) {
     html: html.html,
     css: html.css,
     rawHtml: html.rawHtml,
-    tailwindHtml: tw.tailwindHtml,
-    tailwindBody: tw.tailwindBody,
+    tailwindHtml: null, // lazy — UI requests on tab switch
+    swift: null,        // lazy — UI requests on tab switch
     tokens: tok.tokens,
     cssVars: tok.cssVars,
     tailwindConfig: tok.tailwindConfig,
@@ -451,66 +260,76 @@ async function exportPayload(nodes, pageName) {
   };
 }
 
-async function exportSelection() {
-  var sel = figma.currentPage.selection;
-  if (!sel.length) {
-    figma.ui.postMessage({ type: "error", message: "No selection. Select at least one frame." });
-    return;
+// Monotonic export token — any new exportNodes/exportSelection call bumps
+// this. If a slow export finishes after a newer one has started, its result
+// is silently dropped instead of stomping fresh output in the UI.
+var _exportTok = 0;
+// Build a single format (tailwind | swift) on demand when the user opens
+// that tab. Keeps export-nodes fast by skipping redundant tree walks.
+async function buildFormatOnDemand(pageId, nodeIds, format, reqId) {
+  try {
+    var page = figma.root.children.find(function (p) { return p.id === pageId; });
+    if (page && page.id !== figma.currentPage.id) await figma.setCurrentPageAsync(page);
+    var resolved = await Promise.all((nodeIds || []).map(function (id) {
+      return figma.getNodeByIdAsync(id).catch(function () { return null; });
+    }));
+    var nodes = []; for (var k = 0; k < resolved.length; k++) if (resolved[k]) nodes.push(resolved[k]);
+    if (!nodes.length) {
+      figma.ui.postMessage({ type: "format-result", reqId: reqId, format: format, error: "node not found" });
+      return;
+    }
+    await loadVariablesCached().then(_setVariableMapInline);
+    var label = (nodes.length === 1 && nodes[0].name) ? nodes[0].name : figma.currentPage.name;
+    var payload = {};
+    if (format === "tailwind") {
+      var tw = buildTailwind(nodes, label);
+      payload.tailwindHtml = tw.tailwindHtml;
+      payload.tailwindBody = tw.tailwindBody;
+    } else if (format === "swift") {
+      try { payload.swift = buildSwiftUI(nodes, label).code || ""; }
+      catch (e) { payload.swift = "// SwiftUI emit failed: " + (e && e.message ? e.message : e); }
+    }
+    figma.ui.postMessage(Object.assign({ type: "format-result", reqId: reqId, format: format }, payload));
+  } catch (e) {
+    figma.ui.postMessage({ type: "format-result", reqId: reqId, format: format, error: String(e && e.message || e) });
   }
-  var payload = await exportPayload(sel.slice(), figma.currentPage.name);
-  figma.ui.postMessage(Object.assign({ type: "result" }, payload));
-}
-
-async function exportNodes(pageId, nodeIds) {
-  var page = figma.root.children.find(function (p) { return p.id === pageId; });
-  if (page) await figma.setCurrentPageAsync(page);
-  var nodes = [];
-  for (var k = 0; k < nodeIds.length; k++) {
-    var n = await figma.getNodeByIdAsync(nodeIds[k]);
-    if (n) nodes.push(n);
-  }
-  if (!nodes.length) {
-    figma.ui.postMessage({ type: "error", message: "No valid frames found on this page." });
-    return;
-  }
-  var payload = await exportPayload(nodes, figma.currentPage.name);
-  figma.ui.postMessage(Object.assign({ type: "result" }, payload));
-}
-
-async function exportAllPages() {
-  var pageResults = [];
-  var all = figma.root.children;
-  for (var i = 0; i < all.length; i++) {
-    var page = all[i];
-    await figma.setCurrentPageAsync(page);
-    var frames = page.children.filter(function (n) {
-      return n.type === "FRAME" || n.type === "COMPONENT" || n.type === "GROUP";
-    });
-    if (!frames.length) continue;
-    var payload = await exportPayload(frames, page.name);
-    pageResults.push(Object.assign({ pageId: page.id, frameCount: frames.length }, payload));
-    figma.ui.postMessage({ type: "page-progress", pageName: page.name, done: pageResults.length, total: all.length });
-  }
-  figma.ui.postMessage({ type: "all-pages-result", pages: pageResults });
 }
 
 // ── Selection auto-push (for live bridge) ─────────────────────
 var _liveBridge = false;
 var _debounce = null;
+var _selSeq = 0;
 
 function onSelectionChange() {
   if (!_liveBridge) return;
+  var mySeq = ++_selSeq;
+  // Immediately notify UI that a new selection is being computed so it can
+  // clear stale output — without this the previous page/frame's code stays
+  // visible for ~400ms+ while we debounce + export.
+  var sel = figma.currentPage.selection;
+  var selNames = sel.map(function (n) { return n.name; });
+  figma.ui.postMessage({ type: "selection-pending", pageName: figma.currentPage.name, nodeNames: selNames });
   if (_debounce) clearTimeout(_debounce);
   _debounce = setTimeout(async function () {
-    var sel = figma.currentPage.selection;
-    if (!sel.length) return;
+    if (mySeq !== _selSeq) return; // superseded before compute
+    var sel2 = figma.currentPage.selection;
+    if (!sel2.length) { figma.ui.postMessage({ type: "selection-empty" }); return; }
+    var tok = ++_exportTok;
     try {
-      var payload = await exportPayload(sel.slice(), figma.currentPage.name);
+      var payload = await exportPayload(sel2.slice(), figma.currentPage.name);
+      if (mySeq !== _selSeq || tok !== _exportTok) return; // superseded
       figma.ui.postMessage(Object.assign({ type: "auto-push" }, payload));
     } catch (e) {
       figma.ui.postMessage({ type: "error", message: "auto-push failed: " + (e && e.message ? e.message : e) });
     }
   }, 400);
+}
+
+function onPageChange() {
+  // Bump seq so any in-flight auto-push from the previous page is dropped.
+  _selSeq++;
+  sendPageMap();
+  figma.ui.postMessage({ type: "page-changed", pageName: figma.currentPage.name });
 }
 
 // ── Init ──────────────────────────────────────────────────────
@@ -519,12 +338,16 @@ function onSelectionChange() {
   catch (e) { figma.ui.postMessage({ type: "error", message: "loadAllPagesAsync failed: " + (e && e.message ? e.message : e) }); }
   try {
     var stored = await figma.clientStorage.getAsync("liveBridge");
-    _liveBridge = !!stored;
-  } catch (e2) { _liveBridge = false; }
+    // Default-on: only off if the user has explicitly turned it off.
+    _liveBridge = stored == null ? true : !!stored;
+  } catch (e2) { _liveBridge = true; }
   sendPageMap();
   figma.ui.postMessage({ type: "bridge-state", enabled: _liveBridge });
-  figma.on("currentpagechange", sendPageMap);
+  figma.on("currentpagechange", onPageChange);
   figma.on("selectionchange", onSelectionChange);
+  // Invalidate token cache when anything changes in the document — cheap
+  // signal; exportPayload will lazy-refill on next export.
+  try { figma.on("documentchange", function () { invalidateTokenCache(); }); } catch (e3) {}
 })();
 
 // ── Catalog helpers ───────────────────────────────────────────
@@ -870,19 +693,6 @@ function isIconCandidate(node) {
   return false;
 }
 
-function hasImageFill(node) {
-  if (!node.fills || !Array.isArray(node.fills)) return false;
-  return node.fills.some(function (p) { return p.type === "IMAGE" && p.visible !== false; });
-}
-
-function bytesToBase64(u8) {
-  var chunk = 0x8000, parts = [];
-  for (var i = 0; i < u8.length; i += chunk) {
-    parts.push(String.fromCharCode.apply(null, u8.subarray(i, i + chunk)));
-  }
-  return figma.base64Encode ? figma.base64Encode(u8) : btoa(parts.join(""));
-}
-
 async function listAssets(args) {
   var kind = (args && args.kind) || "icon";
   var limit = args && typeof args.limit === "number" ? args.limit : 40;
@@ -1116,6 +926,7 @@ figma.ui.onmessage = async function (msg) {
     case "get-children":     await sendChildrenFor(msg.nodeId); break;
     case "export-selection": await exportSelection(); break;
     case "export-nodes":     await exportNodes(msg.pageId, msg.nodeIds); break;
+    case "build-format":     await buildFormatOnDemand(msg.pageId, msg.nodeIds, msg.format, msg.reqId); break;
     case "cmd": {
       var body = await handleCommand(msg.cmdId, msg.action, msg.args);
       figma.ui.postMessage({ type: "cmd-result", cmdId: msg.cmdId, body: body });
@@ -1141,8 +952,10 @@ figma.ui.onmessage = async function (msg) {
 // Self-contained IIFE — no name collisions with Figbridge code above.
 // Exposes: FrameshiftAgent.exportAgentBundle(msg)
 // ============================================================
-var FrameshiftAgent = (function () {
 // ── Page map ──────────────────────────────────────────────────
+// (Formerly wrapped in a `FrameshiftAgent` IIFE — unwrapped so that
+// top-of-file event handlers can actually see these helpers. The IIFE
+// scope was the real root cause of every "X is not defined" error.)
 function sendPageMap() {
   var pages = figma.root.children.map(function (page) {
     return {
@@ -1182,7 +995,7 @@ function rgbaToCSS(c) {
 }
 
 function paintToCSS(paints) {
-  if (!paints || !paints.length) return null;
+  if (!paints || paints === figma.mixed || !paints.length) return null;
   var visibles = paints.filter(function (x) { return x.visible !== false; });
   if (!visibles.length) return null;
   var p = visibles[visibles.length - 1];
@@ -1204,7 +1017,6 @@ function paintToCSS(paints) {
   }
   return null;
 }
-
 function gradientAngle(t) {
   if (!t || !t[0] || !t[1]) return 90;
   var a = t[0][0], c = t[1][0];
@@ -1242,17 +1054,22 @@ function radiusToCSS(node) {
 }
 
 function strokeToCSS(node) {
-  if (!node.strokes || !node.strokes.length) return null;
+  // Guard figma.mixed (Symbol) on any stroke-related property.
+  if (!node.strokes || node.strokes === figma.mixed || !node.strokes.length) return null;
   var s = node.strokes.find(function (x) { return x.visible !== false; });
-  if (!s) return null;
-  var dashed = node.dashPattern && node.dashPattern.length ? "dashed" : "solid";
+  if (!s || !s.color) return null;
+  var dashPattern = node.dashPattern;
+  var dashed = (dashPattern && dashPattern !== figma.mixed && dashPattern.length) ? "dashed" : "solid";
   var sop = s.opacity == null ? 1 : s.opacity;
   var sc = { r: s.color.r, g: s.color.g, b: s.color.b, a: sop };
   var stok = paintToTokenRef(s);
   var color = stok ? "var(" + stok.cssName + ")" : rgbaToCSS(sc);
   // Mixed per-side weights → per-side declarations
   var ind = node.individualStrokeWeights;
-  if (ind && (ind.top !== ind.right || ind.right !== ind.bottom || ind.bottom !== ind.left)) {
+  if (ind && ind !== figma.mixed &&
+      typeof ind.top === "number" && typeof ind.right === "number" &&
+      typeof ind.bottom === "number" && typeof ind.left === "number" &&
+      (ind.top !== ind.right || ind.right !== ind.bottom || ind.bottom !== ind.left)) {
     return {
       "border-top":    ind.top    + "px " + dashed + " " + color,
       "border-right":  ind.right  + "px " + dashed + " " + color,
@@ -1260,7 +1077,8 @@ function strokeToCSS(node) {
       "border-left":   ind.left   + "px " + dashed + " " + color,
     };
   }
-  var sw = node.strokeWeight == null ? 1 : node.strokeWeight;
+  var sw = node.strokeWeight;
+  if (sw == null || sw === figma.mixed || typeof sw !== "number") sw = 1;
   return sw + "px " + dashed + " " + color;
 }
 
@@ -3268,45 +3086,124 @@ function buildOutput(nodes, pageTitle) {
   return buildHTML(nodes, pageTitle);
 }
 
+// ── Shared prefetch: cache var map (file-wide), parallel-fan out the
+// per-tree walks (assets / text styles / main components). Each phase
+// is timed so the UI can surface a breakdown when an export feels slow.
+var _varMapPromise = null;
+function loadVariablesOnce() {
+  if (_varMapCache) return Promise.resolve(_varMapCache);
+  if (_varMapPromise) return _varMapPromise;
+  _varMapPromise = loadVariables().then(function (m) {
+    _varMapCache = m || {}; _varMapPromise = null; return _varMapCache;
+  }, function (e) { _varMapPromise = null; throw e; });
+  return _varMapPromise;
+}
+// Hook invalidation (loadVariablesOnce shares _varMapCache with the
+// earlier cache; documentchange already clears it via invalidateTokenCache).
+var _now = (typeof performance !== "undefined" && performance.now)
+  ? function () { return performance.now(); } : function () { return Date.now(); };
+var _exportTokLive = 0;
+async function prefetchForNodes(nodes, mode, timings) {
+  resetCSS(mode);
+  resetMainCompCache();
+  var t0 = _now();
+  // All four prefetches are independent reads — fan out in parallel.
+  var results = await Promise.all([
+    loadVariablesOnce(),
+    prefetchAssets(nodes),
+    loadTextStyles(nodes),
+    prefetchMainComponents(nodes)
+  ]);
+  timings.prefetch = _now() - t0;
+  setVariableMap(results[0]);
+  setAssetCache(results[1]);
+  setTextStyleMap(results[2]);
+}
+
+async function _timedResolve(pageId, nodeIds, timings) {
+  var t0 = _now();
+  var page = (pageId != null)
+    ? figma.root.children.find(function (p) { return p.id === pageId; })
+    : figma.currentPage;
+  if (page && page.id !== figma.currentPage.id) {
+    await figma.setCurrentPageAsync(page);
+  }
+  timings.page = _now() - t0;
+  t0 = _now();
+  var resolved = nodeIds && nodeIds.length
+    ? await Promise.all(nodeIds.map(function (id) {
+        return figma.getNodeByIdAsync(id).catch(function () { return null; });
+      }))
+    : [];
+  timings.resolve = _now() - t0;
+  var nodes = [];
+  for (var k = 0; k < resolved.length; k++) if (resolved[k]) nodes.push(resolved[k]);
+  return nodes;
+}
+
+function _postTiming(kind, label, timings) {
+  try {
+    figma.ui.postMessage({
+      type: "timing", kind: kind, label: label,
+      page: Math.round(timings.page || 0),
+      resolve: Math.round(timings.resolve || 0),
+      prefetch: Math.round(timings.prefetch || 0),
+      build: Math.round(timings.build || 0),
+      total: Math.round(timings.total || 0)
+    });
+  } catch (e) {}
+}
+
 // ── Export selected nodes on current page ─────────────────────
 async function exportSelection(mode) {
+  var tok = ++_exportTokLive;
+  var timings = {}; var tStart = _now();
   var sel = figma.currentPage.selection;
   if (!sel.length) {
     figma.ui.postMessage({ type: "error", message: "No selection. Select at least one frame." });
     return;
   }
-  resetCSS(mode);
-  setVariableMap(await loadVariables());
-  setAssetCache(await prefetchAssets(sel.slice()));
-  resetMainCompCache();
-  setTextStyleMap(await loadTextStyles(sel.slice()));
-  await prefetchMainComponents(sel.slice());
+  await prefetchForNodes(sel.slice(), mode, timings);
+  if (tok !== _exportTokLive) return;
+  var tb = _now();
   var result = buildOutput(sel.slice(), figma.currentPage.name);
-  figma.ui.postMessage(Object.assign({ type: "result", pageName: figma.currentPage.name, mode: mode || "css" }, result));
+  timings.build = _now() - tb;
+  timings.total = _now() - tStart;
+  if (tok !== _exportTokLive) return;
+  figma.ui.postMessage(Object.assign({
+    type: "result",
+    pageName: figma.currentPage.name,
+    mode: mode || "css",
+    nodeIds: sel.map(function (n) { return n.id; })
+  }, result));
+  _postTiming("selection", figma.currentPage.name, timings);
 }
 
 // ── Export specific node IDs (from picker) ────────────────────
 async function exportNodes(pageId, nodeIds, mode) {
-  var page = figma.root.children.find(function (p) { return p.id === pageId; });
-  if (page) await figma.setCurrentPageAsync(page);
-
-  var nodes = [];
-  for (var k = 0; k < nodeIds.length; k++) {
-    var n = await figma.getNodeByIdAsync(nodeIds[k]);
-    if (n) nodes.push(n);
-  }
+  var tok = ++_exportTokLive;
+  var timings = {}; var tStart = _now();
+  var nodes = await _timedResolve(pageId, nodeIds, timings);
+  if (tok !== _exportTokLive) return; // user clicked something newer
   if (!nodes.length) {
     figma.ui.postMessage({ type: "error", message: "No valid frames found on this page." });
     return;
   }
-  resetCSS(mode);
-  setVariableMap(await loadVariables());
-  setAssetCache(await prefetchAssets(nodes));
-  resetMainCompCache();
-  setTextStyleMap(await loadTextStyles(nodes));
-  await prefetchMainComponents(nodes);
-  var result = buildOutput(nodes, figma.currentPage.name);
-  figma.ui.postMessage(Object.assign({ type: "result", pageName: figma.currentPage.name, mode: mode || "css" }, result));
+  await prefetchForNodes(nodes, mode, timings);
+  if (tok !== _exportTokLive) return;
+  var label = nodes.length === 1 ? nodes[0].name : figma.currentPage.name;
+  var tb = _now();
+  var result = buildOutput(nodes, label);
+  timings.build = _now() - tb;
+  timings.total = _now() - tStart;
+  if (tok !== _exportTokLive) return;
+  figma.ui.postMessage(Object.assign({
+    type: "result",
+    pageName: figma.currentPage.name,
+    mode: mode || "css",
+    nodeIds: nodes.map(function (n) { return n.id; })
+  }, result));
+  _postTiming("nodes", label, timings);
 }
 
 // ── Export all frames across ALL pages ────────────────────────
@@ -3315,15 +3212,11 @@ async function exportAllPages(mode) {
   var all = figma.root.children;
   for (var i = 0; i < all.length; i++) {
     var page = all[i];
-    await figma.setCurrentPageAsync(page);
+    if (page.id !== figma.currentPage.id) await figma.setCurrentPageAsync(page);
     var frames = page.children.filter(function (n) { return n.type === "FRAME" || n.type === "COMPONENT" || n.type === "GROUP"; });
     if (!frames.length) continue;
-    resetCSS(mode);
-    setVariableMap(await loadVariables());
-    setAssetCache(await prefetchAssets(frames));
-    resetMainCompCache();
-    setTextStyleMap(await loadTextStyles(frames));
-    await prefetchMainComponents(frames);
+    var timings = {};
+    await prefetchForNodes(frames, mode, timings);
     var result = buildOutput(frames, page.name);
     pageResults.push(Object.assign({ pageName: page.name, pageId: page.id, frameCount: frames.length }, result));
     figma.ui.postMessage({ type: "page-progress", pageName: page.name, done: pageResults.length, total: all.length });
@@ -3436,9 +3329,3 @@ async function exportAgentBundle(msg) {
     }
     return files;
   }
-  return {
-    exportAgentBundle: exportAgentBundle,
-    buildAgentBundle: buildAgentBundle,
-    computeAgentBundle: computeAgentBundle,
-  };
-})();
