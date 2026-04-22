@@ -99,7 +99,7 @@ export async function runInit() {
   console.log(`  ${BOLD}1.${RESET} Quit and reopen Claude Desktop (it only reads config on launch).`);
   console.log(`  ${BOLD}2.${RESET} Open Figma, run the Figbridge plugin, toggle ${CYAN}Live bridge${RESET} on.`);
   console.log(`  ${BOLD}3.${RESET} In Claude, ask: ${CYAN}"What tools does figbridge expose?"${RESET}`);
-  console.log(`     You should see 17 tools (get_current_selection, export_app_spec, clone_screen, …).`);
+  console.log(`     You should see 21 tools (get_current_selection, export_app_spec, clone_screen, get_agent_bundle, …).`);
 
   console.log(`\n${GREEN}Done.${RESET} Docs: https://rudraptpsingh.github.io/figbridge\n`);
 }
