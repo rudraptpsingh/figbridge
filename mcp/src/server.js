@@ -54,9 +54,16 @@ export async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     log(`shutting down: ${reason}`);
-    try { bridgeServer.close(); } catch {}
-    // Give the close a beat, then hard-exit. MCP stdio transport does
-    // not itself hold the loop open once stdin is gone.
+    try {
+      // SSE keepalive sockets hold the server open. close() alone waits
+      // for them to drain — which never happens. closeAllConnections()
+      // (Node 18.2+) severs idle + active sockets so close() resolves.
+      if (typeof bridgeServer.closeAllConnections === "function") {
+        bridgeServer.closeAllConnections();
+      }
+      bridgeServer.close();
+    } catch {}
+    // Hard-exit fallback in case something still holds the loop open.
     setTimeout(() => process.exit(0), 200).unref();
   }
   process.stdin.on("end", () => shutdown("stdin end"));

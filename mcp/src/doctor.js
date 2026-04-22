@@ -14,6 +14,7 @@ import http from "node:http";
 const execFile = promisify(_execFile);
 
 const SELF_PID = process.pid;
+const PARENT_PID = process.ppid;
 
 async function listFigbridgeProcesses() {
   // `ps -axo pid=,ppid=,command=` works on macOS + Linux. We pick out
@@ -29,6 +30,11 @@ async function listFigbridgeProcesses() {
     if (/\bgrep\b|\bps\b/.test(cmd)) continue;
     const pid = Number(pidStr);
     if (pid === SELF_PID) continue;
+    // Don't reap our own launcher chain (npx / npm exec / the node binary
+    // that started us). Walking up via ppid would be more thorough but
+    // ppid alone catches the immediate parent, which is the one that'd
+    // cascade-kill us.
+    if (pid === PARENT_PID) continue;
     procs.push({ pid, ppid: Number(ppidStr), cmd: cmd.trim() });
   }
   return procs;

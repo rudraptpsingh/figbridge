@@ -742,23 +742,34 @@
   function bridgeBase(){ return "http://127.0.0.1:" + BRIDGE_PORT; }
   function bridgePush(){ return bridgeBase() + "/push"; }
   function bridgeEvents(){ return bridgeBase() + "/events"; }
+  // Probe all ports in parallel and pick the lowest that responds as
+  // figbridge. Parallel is ~10× faster than serial on cold-boot and
+  // matches what the bridge.js fallback walks.
   function probeBridgePort(cb){
-    var i = 0;
-    function tryOne(){
-      if (i >= PORT_RANGE) { cb(null); return; }
-      var p = PORT_BASE + i; i++;
+    var results = new Array(PORT_RANGE);
+    var done = 0;
+    var resolved = false;
+    function finish(){
+      if (resolved) return;
+      // Pick the lowest-numbered figbridge responder.
+      for (var i = 0; i < PORT_RANGE; i++) {
+        if (results[i]) { resolved = true; BRIDGE_PORT = PORT_BASE + i; cb(BRIDGE_PORT); return; }
+      }
+      if (done === PORT_RANGE) { resolved = true; cb(null); }
+    }
+    for (var i = 0; i < PORT_RANGE; i++) (function(idx){
+      var p = PORT_BASE + idx;
       var ctl = (typeof AbortController !== "undefined") ? new AbortController() : null;
-      var to = setTimeout(function(){ try{ ctl && ctl.abort(); }catch(e){} }, 600);
+      var to = setTimeout(function(){ try{ ctl && ctl.abort(); }catch(e){} }, 800);
       fetch("http://127.0.0.1:" + p + "/health", { cache: "no-store", signal: ctl ? ctl.signal : undefined })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           clearTimeout(to);
-          if (j && j.name === "figbridge-bridge") { BRIDGE_PORT = p; cb(p); return; }
-          tryOne();
+          results[idx] = !!(j && j.name === "figbridge-bridge");
+          done++; finish();
         })
-        .catch(function(){ clearTimeout(to); tryOne(); });
-    }
-    tryOne();
+        .catch(function(){ clearTimeout(to); results[idx] = false; done++; finish(); });
+    })(i);
   }
   var eventSource = null;
   var el = function (id) { return document.getElementById(id); };
@@ -1464,7 +1475,15 @@
           parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmd.cmdId, action: cmd.action, args: cmd.args } }, "*");
         } catch (err) { setFoot("Bad command: " + err.message); }
       });
-      eventSource.onerror = function () { setStatus("err", "Offline"); setFoot("SSE disconnected"); };
+      eventSource.onerror = function () {
+        setStatus("err", "Offline"); setFoot("SSE disconnected — re-probing…");
+        // Bridge may have died and respawned on a different port. Tear
+        // down and re-probe; if the user toggled the bridge off entirely
+        // state.bridge will be false and openEventStream won't re-open.
+        try { eventSource.close(); } catch (e) {}
+        eventSource = null;
+        if (state.bridge) setTimeout(openEventStream, 800);
+      };
     } catch (e) { setFoot("EventSource error: " + e.message); }
   }
   function closeEventStream() { if (eventSource) { try { eventSource.close(); } catch (e) {}; eventSource = null; } }

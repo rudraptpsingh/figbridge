@@ -145,6 +145,7 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
         return;
       }
       settled = true;
+      server.removeListener("error", onError);
       reject(e);
     };
     server.on("error", onError);
