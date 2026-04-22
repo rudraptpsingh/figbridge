@@ -22,6 +22,13 @@ function sendPageMap() {
   figma.ui.postMessage({ type: "pages", pages: pages });
 }
 
+function _summarizeNode(n) {
+  var hasChildren = ("children" in n) && n.children && n.children.length > 0;
+  var w = (typeof n.width === "number") ? Math.round(n.width) : null;
+  var h = (typeof n.height === "number") ? Math.round(n.height) : null;
+  return { id: n.id, name: n.name || "(unnamed)", type: n.type, width: w, height: h, hasChildren: hasChildren };
+}
+
 async function sendFramesForPage(pageId) {
   var page = figma.root.children.find(function (p) { return p.id === pageId; });
   if (!page) {
@@ -29,12 +36,22 @@ async function sendFramesForPage(pageId) {
     return;
   }
   await figma.setCurrentPageAsync(page);
-  var frames = page.children
-    .filter(function (n) { return n.type === "FRAME" || n.type === "COMPONENT" || n.type === "GROUP"; })
-    .map(function (n) {
-      return { id: n.id, name: n.name, width: Math.round(n.width), height: Math.round(n.height), type: n.type };
-    });
+  var frames = page.children.map(_summarizeNode);
   figma.ui.postMessage({ type: "frames", pageId: pageId, pageName: page.name, frames: frames });
+}
+
+async function sendChildrenFor(nodeId) {
+  try {
+    var node = await figma.getNodeByIdAsync(nodeId);
+    if (!node || !("children" in node)) {
+      figma.ui.postMessage({ type: "children", parentId: nodeId, children: [] });
+      return;
+    }
+    var kids = node.children.map(_summarizeNode);
+    figma.ui.postMessage({ type: "children", parentId: nodeId, children: kids });
+  } catch (e) {
+    figma.ui.postMessage({ type: "error", message: "get-children failed: " + (e && e.message ? e.message : e) });
+  }
 }
 
 // ── Color / CSS helpers ───────────────────────────────────────
@@ -1040,6 +1057,7 @@ figma.ui.onmessage = async function (msg) {
   switch (msg.type) {
     case "get-pages":        sendPageMap(); break;
     case "get-frames":       await sendFramesForPage(msg.pageId); break;
+    case "get-children":     await sendChildrenFor(msg.nodeId); break;
     case "export-selection": await exportSelection(); break;
     case "export-nodes":     await exportNodes(msg.pageId, msg.nodeIds); break;
     case "cmd": {

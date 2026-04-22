@@ -42,19 +42,77 @@
   .pill.err { color:var(--err); border-color:rgba(255,93,108,0.3); }
   .pill.busy { color:var(--accent); border-color:rgba(255,122,41,0.3); }
 
-  main { flex:1; display:grid; grid-template-columns: 240px 1fr; min-height:0; }
-  .sidebar { border-right:1px solid var(--line); background:var(--panel);
-    overflow:auto; padding:10px; }
-  .sidebar h4 { font-size:10px; text-transform:uppercase; letter-spacing:0.6px;
-    color:var(--dim); margin:12px 8px 6px; font-weight:600; }
-  .page-item, .frame-item { padding:7px 8px; border-radius:6px; cursor:pointer;
-    display:flex; align-items:center; gap:8px; }
-  .page-item:hover, .frame-item:hover { background:var(--panel-2); }
-  .page-item.current { background:var(--panel-2); }
-  .dot { width:6px; height:6px; border-radius:50%; background:var(--dim); }
-  .page-item.current .dot { background:var(--accent); }
-  .page-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .meta { color:var(--dim); font-size:11px; }
+  main { flex:1; display:grid; grid-template-columns: 280px 1fr; min-height:0; }
+  .sidebar { border-right:1px solid var(--line); background:var(--panel); overflow:auto; }
+  .sidebar .section-head {
+    font-family: var(--mono); font-size:10px; letter-spacing:0.18em; text-transform:uppercase;
+    color:var(--dim); padding: 16px 16px 6px; display:flex; align-items:baseline; gap:8px;
+  }
+  .sidebar .section-head::before { content:""; flex:0 0 14px; height:1px; background:var(--text); transform: translateY(-2px); }
+  .sidebar .section-head .count { margin-left:auto; font-style:italic; color:var(--line-2, #bfb8a6); font-size:10px; letter-spacing:0; }
+
+  /* Layer tree ------------------------------------------------------------ */
+  .tree { padding: 0 6px 12px; }
+  .row {
+    position:relative; display:flex; align-items:center; gap:8px;
+    padding: 5px 10px 5px 0; cursor:pointer; border-radius:2px;
+    font-size:12px; line-height:1.3; color:var(--text);
+  }
+  .row:hover { background: rgba(14,26,21,0.04); }
+  .row:hover .actions { opacity:1; transform: translateX(0); }
+  .row.current { background: rgba(173,43,31,0.06); }
+  .row.current::before {
+    content:""; position:absolute; left:0; top:3px; bottom:3px; width:2px; background:var(--accent);
+  }
+  .row .indent { flex: 0 0 auto; display:inline-block; }
+  .row .caret {
+    flex: 0 0 14px; width:14px; text-align:center; color:var(--accent);
+    font-family: var(--serif); font-size:13px; font-weight:600; user-select:none;
+    transition: transform .12s ease;
+  }
+  .row .caret.empty { color:transparent; }
+  .row .tag {
+    flex: 0 0 18px; width:18px; height:16px; display:inline-flex;
+    align-items:center; justify-content:center;
+    font-family: var(--mono); font-size:9px; font-weight:600;
+    color:var(--text); border:1px solid var(--line); border-radius:2px;
+    letter-spacing:0.04em;
+  }
+  .row .tag.t-PAGE { color:var(--accent); border-color:var(--accent); }
+  .row .tag.t-COMPONENT, .row .tag.t-COMPONENT_SET {
+    background:var(--text); color:var(--panel); border-color:var(--text);
+  }
+  .row .tag.t-INSTANCE { background:var(--accent-2); border-color:var(--accent-2); }
+  .row .tag.t-TEXT { font-style:italic; }
+  .row .name {
+    flex: 1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-family: var(--mono);
+  }
+  .row.current .name { color:var(--accent); }
+  .row .meta {
+    flex: 0 0 auto; color:var(--dim); font-family: var(--mono);
+    font-size:10px; font-style:italic; letter-spacing:0.02em;
+  }
+  .row .actions {
+    position:absolute; right:6px; top:50%; transform: translate(6px, -50%);
+    opacity:0; transition: opacity .12s, transform .12s;
+    display:flex; gap:10px; background: linear-gradient(90deg, transparent, var(--panel) 18%, var(--panel)); padding-left:20px;
+  }
+  .row:hover .meta { opacity: 0; }
+  .row .actions a {
+    font-family: var(--serif); font-style: italic; font-weight:500;
+    font-size:11.5px; color:var(--accent); cursor:pointer;
+    text-decoration: underline; text-decoration-thickness:1px; text-underline-offset:2px;
+    text-decoration-color: transparent;
+  }
+  .row .actions a:hover { text-decoration-color: var(--accent); }
+  .row.loading .caret::after { content:"·"; animation: pulse 0.9s infinite; }
+  @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
+
+  .tree-empty {
+    padding: 16px 20px; color: var(--dim); font-size:11.5px; font-style:italic;
+    font-family: var(--serif); border-left: 1px solid var(--line); margin: 0 16px;
+  }
 
   .content { display:flex; flex-direction:column; min-width:0; }
   .toolbar { padding:8px 12px; border-bottom:1px solid var(--line);
@@ -97,10 +155,73 @@
   .opts-grid select, .opts-grid textarea { font: inherit; font-family:var(--mono); font-size:12px;
     background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:6px 8px; }
   .opts-grid textarea { resize:vertical; min-height:60px; }
-  .tool-list { display:flex; flex-wrap:wrap; gap:4px 6px; padding:4px 0 14px; }
-  .tool-list span { font-family:var(--mono); font-size:10.5px; padding:3px 8px; border-radius:999px;
-    background:var(--panel-2); border:1px solid var(--line); color:var(--text); }
-  .tool-list span.new { background:var(--text); color:var(--panel); border-color:var(--text); }
+  /* Commands section — typeset table of contents ------------------------ */
+  details.cmds { background: var(--panel); border-bottom: 1px solid var(--line); padding: 6px 16px 14px; }
+  details.cmds > summary {
+    cursor:pointer; padding: 10px 0 14px; list-style:none;
+    font-family: var(--serif); font-weight: 600; font-size: 14px; color: var(--text);
+    border-bottom: 1px solid var(--line);
+  }
+  details.cmds > summary::before { content: "§  "; color: var(--accent); font-weight: 700; }
+  details.cmds > summary .cmds-hint { font-style: italic; font-weight: 400; color: var(--dim); font-size: 12px; }
+  .cmd-section { padding-top: 14px; }
+  .cmd-section-head {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--dim); padding: 4px 0 8px; display:flex; align-items:baseline; gap:10px;
+  }
+  .cmd-section-head::before { content:""; flex:0 0 22px; height:1px; background: var(--line-2, #bfb8a6); transform: translateY(-3px); }
+  .cmd {
+    display: grid; grid-template-columns: 22px 1fr auto; gap: 12px;
+    padding: 8px 4px; border-bottom: 1px dotted var(--line); align-items: baseline;
+    cursor: pointer; transition: background .1s;
+  }
+  .cmd:last-child { border-bottom: none; }
+  .cmd:hover { background: rgba(14,26,21,0.025); }
+  .cmd .num {
+    font-family: var(--mono); font-size: 10px; color: var(--dim);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
+  }
+  .cmd .title {
+    font-family: var(--serif); font-weight: 500; font-size: 14px; color: var(--text);
+    font-style: italic; letter-spacing: -0.005em;
+  }
+  .cmd .title em { font-style: normal; font-weight: 600; color: var(--accent); }
+  .cmd .desc {
+    font-family: var(--mono); font-size: 11px; color: var(--dim); line-height: 1.5;
+    margin-top: 2px;
+  }
+  .cmd .slug {
+    font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+    align-self: start; margin-top: 3px;
+  }
+  .cmd .slug::before { content: "["; } .cmd .slug::after { content: "]"; }
+  .cmd.new .slug { color: var(--accent); font-weight: 600; }
+  .cmd.new .title em { text-decoration: underline; text-decoration-color: var(--accent-2); text-underline-offset: 3px; }
+  .cmd-form { display: none; padding: 10px 0 4px; }
+  .cmd.open .cmd-form { display: block; }
+  .cmd-form .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .cmd-form label {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  .cmd-form input, .cmd-form textarea, .cmd-form select {
+    font: inherit; font-family: var(--mono); font-size: 12px;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 2px; padding: 6px 8px;
+  }
+  .cmd-form input:focus, .cmd-form textarea:focus, .cmd-form select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .cmd-form textarea { resize: vertical; min-height: 50px; font-size: 11px; }
+  .cmd-form .row-actions { display:flex; gap:8px; align-items:center; margin-top: 4px; }
+  .cmd-form .hint { color: var(--dim); font-size: 10.5px; font-family: var(--mono); font-style: italic; }
+  .cmd-form button { padding: 5px 14px; font-size: 11.5px; }
+  .cmd-result {
+    margin-top: 8px; padding: 8px 10px; font-family: var(--mono); font-size: 10.5px;
+    background: var(--code-bg); color: var(--code-ink); border-radius: 2px;
+    white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto;
+  }
+  .cmd-result.err { color: #e88; }
 
   /* First-run onboarding card */
   .welcome-overlay {
@@ -161,10 +282,10 @@
 
   <main>
     <aside class="sidebar">
-      <h4>Pages</h4>
-      <div id="pages"></div>
-      <h4 id="framesHeader" style="display:none">Frames</h4>
-      <div id="frames"></div>
+      <div class="section-head">Layers <span class="count" id="treeCount"></span></div>
+      <div class="tree" id="tree">
+        <div class="tree-empty">Loading the file…</div>
+      </div>
     </aside>
 
     <section class="content">
@@ -177,32 +298,9 @@
         <button id="copyBtn" disabled>Copy</button>
         <button id="dlBtn" disabled>Download</button>
       </div>
-      <details class="agent-opts" id="agentOpts">
-        <summary>Agent bundle options</summary>
-        <div class="opts-grid">
-          <label>Budget
-            <select id="agBudget">
-              <option value="small">small — hierarchy + tokens only</option>
-              <option value="medium" selected>medium — + components + screenshots</option>
-              <option value="large">large — everything</option>
-            </select>
-          </label>
-          <label class="inline"><input type="checkbox" id="agShots" checked /> Include per-frame screenshots</label>
-          <label>Code paths (fuzzy-mapped to Figma components — one path per line)
-            <textarea id="agPaths" rows="4" placeholder="src/components/Button.tsx&#10;src/components/Card.tsx"></textarea>
-          </label>
-        </div>
-      </details>
-      <details class="mcp-tools">
-        <summary>MCP tools (available via Claude Desktop when Live bridge is on)</summary>
-        <div class="tool-list">
-          <span>get_current_selection</span><span>get_last_export</span><span>get_tokens</span>
-          <span>list_history</span><span>bridge_status</span><span>diff_since</span>
-          <span>select_node</span><span>export_node</span><span>list_screens</span>
-          <span>list_components</span><span>describe_screen</span><span>export_app_spec</span>
-          <span>clone_screen</span><span>recolor</span><span>apply_tokens</span>
-          <span>list_assets</span><span>lint_ds</span><span class="new">get_agent_bundle</span>
-        </div>
+      <details class="cmds" open>
+        <summary>Commands <span class="cmds-hint">— eighteen operations, also exposed over MCP</span></summary>
+        <div id="cmdSections"></div>
       </details>
       <div class="tabs">
         <div class="tab active" data-tab="html">HTML</div>
@@ -289,19 +387,190 @@
     parent.postMessage({ pluginMessage: { type: "export-all" } }, "*");
   });
   el("exportAgent").addEventListener("click", function () {
-    var budget = el("agBudget").value;
-    var screenshots = el("agShots").checked;
-    var paths = (el("agPaths").value || "").split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
-    setStatus("busy", "Bundling"); setFoot("Building agent bundle (" + budget + (screenshots ? " +shots" : "") + (paths.length ? ", " + paths.length + " code paths" : "") + ")…");
-    parent.postMessage({ pluginMessage: { type: "export-agent", budget: budget, screenshots: screenshots, codePaths: paths } }, "*");
+    setStatus("busy", "Bundling"); setFoot("Building agent bundle (medium, +screenshots)…");
+    parent.postMessage({ pluginMessage: { type: "export-agent", budget: "medium", screenshots: true, codePaths: [] } }, "*");
+    // For per-option control, expand the "Build the agent handoff bundle" command below.
   });
   el("exportSpec").addEventListener("click", function () {
     setStatus("busy", "Building spec"); setFoot("Building app spec…");
-    // Round-trip through the existing handleCommand router.
     var cmdId = "ui-" + Date.now();
     parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: "export-app-spec", args: {} } }, "*");
     window._pendingSpec = cmdId;
   });
+
+  // ── Commands catalog ─────────────────────────────────────────────────
+  // Each command: human name, mono slug, description, grouped section.
+  // action === null marks UI-only commands that don't round-trip through
+  // handleCommand (they call exportSelection/exportAll/exportAgent inline).
+  var COMMAND_SECTIONS = [
+    { title: "Handoff", commands: [
+      { slug: "export-selection", action: null, title: "Export the <em>current selection</em>", desc: "HTML + CSS + Tailwind + tokens for whatever is selected on the canvas.", args: [], run: function () { parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*"); } },
+      { slug: "export-all", action: null, title: "Export <em>every page</em>", desc: "Walks the whole file and dumps each page as HTML/CSS. Slow on large files.", args: [], run: function () { parent.postMessage({ pluginMessage: { type: "export-all" } }, "*"); } },
+      { slug: "get_agent_bundle", action: null, title: "Build the <em>agent handoff bundle</em>", new: true, desc: "Hierarchy, tokens, components, DESIGN/AGENTS/ISSUES.md, snapshots, screenshots — a zip an LLM can ship from.", args: [
+        { name: "budget", label: "Token budget", kind: "select", choices: ["small","medium","large"], default: "medium" },
+        { name: "screenshots", label: "Include screenshots", kind: "bool", default: true },
+        { name: "codePaths", label: "Code paths (one per line) — fuzzy-mapped to Figma components", kind: "lines" }
+      ], run: function (args) {
+        parent.postMessage({ pluginMessage: { type: "export-agent", budget: args.budget || "medium", screenshots: !!args.screenshots, codePaths: args.codePaths || [] } }, "*");
+      } },
+      { slug: "export_app_spec", action: "export-app-spec", title: "Print the <em>app spec</em>", desc: "A single JSON catalog: every screen, every component, tokens, flows, categories.", args: [] },
+    ] },
+    { title: "Catalog", commands: [
+      { slug: "list_screens", action: "list-screens", title: "List every <em>screen</em>", desc: "Top-level frames across all pages, categorized (splash / onboarding / auth / home / detail / …).", args: [
+        { name: "pageId", label: "Restrict to page id (optional)", kind: "text" }
+      ] },
+      { slug: "list_components", action: "list-components", title: "List every <em>component</em>", desc: "All COMPONENT_SETs and top-level COMPONENTs. Variants are optional.", args: [
+        { name: "includeVariants", label: "Include variants", kind: "bool", default: false }
+      ] },
+      { slug: "describe_screen", action: "describe-screen", title: "Describe a <em>screen</em>", desc: "Background, text content, instances used, category. Paste a node id.", args: [
+        { name: "nodeId", label: "Node id", kind: "text", required: true }
+      ] },
+      { slug: "list_assets", action: "list-assets", title: "List <em>assets</em>", desc: "Exportable icons, images, or illustrations. Returns base64 SVG/PNG.", args: [
+        { name: "kind", label: "Kind", kind: "select", choices: ["icon","image","illustration"], default: "icon" },
+        { name: "limit", label: "Limit", kind: "number", default: 40 }
+      ] },
+    ] },
+    { title: "Selection", commands: [
+      { slug: "select_node", action: "select", title: "Select a <em>node</em>", desc: "Focuses the viewport on a node by id or a case-insensitive name substring.", args: [
+        { name: "nodeId", label: "Node id (preferred)", kind: "text" },
+        { name: "name", label: "…or name substring", kind: "text" }
+      ] },
+      { slug: "export_node", action: "export-node", title: "Export a <em>specific node</em>", desc: "Export by node id — pushes the payload through the bridge when live.", args: [
+        { name: "nodeId", label: "Node id", kind: "text", required: true }
+      ] },
+    ] },
+    { title: "Mutation", commands: [
+      { slug: "clone_screen", action: "clone-screen", title: "Clone a <em>screen</em>", desc: "Duplicates a frame, optionally renaming and replacing text across every TEXT child.", args: [
+        { name: "sourceNodeId", label: "Source node id", kind: "text", required: true },
+        { name: "name", label: "New name", kind: "text" },
+        { name: "textReplacements", label: "Text replacements (JSON)", kind: "json", placeholder: '{"Welcome": "Welcome back"}' }
+      ] },
+      { slug: "recolor", action: "recolor", title: "<em>Recolor</em> SOLID fills and strokes", desc: "Map old hex → new hex across a scope. Case-insensitive, 3- or 6-digit.", args: [
+        { name: "scope", label: "Scope", kind: "select", choices: ["selection","page","file"], default: "selection" },
+        { name: "nodeId", label: "…or specific node id", kind: "text" },
+        { name: "mapping", label: "Mapping (JSON)", kind: "json", required: true, placeholder: '{"#ff7a29": "#3ddc97"}' }
+      ] },
+      { slug: "apply_tokens", action: "apply-tokens", title: "<em>Bind loose colors</em> to variables", desc: "Finds SOLID fills matching a local color variable by exact hex, and binds them.", args: [
+        { name: "nodeId", label: "Node id (optional)", kind: "text" }
+      ] },
+      { slug: "lint_ds", action: "lint-ds", title: "<em>Lint</em> the design system", desc: "Unbound colors, non-grid spacing, orphan components, duplicate names. Findings grouped by rule.", args: [
+        { name: "pageId", label: "Page id (optional)", kind: "text" }
+      ] },
+    ] },
+    { title: "Bridge", commands: [
+      { slug: "bridge_status", action: null, title: "<em>Bridge</em> status", desc: "Is the MCP listener on :7331? Is anything pushed yet? (MCP-side — no plugin round-trip.)", args: [], run: function () { alert("bridge_status is read via MCP from Claude Desktop — not from this panel."); } },
+      { slug: "diff_since", action: null, title: "Recent <em>history diff</em>", desc: "Entries with capturedAt > timestamp. Also MCP-only.", args: [], run: function () { alert("diff_since is an MCP-only tool."); } },
+    ] },
+  ];
+
+  function renderCommands() {
+    var host = el("cmdSections"); if (!host) return;
+    host.innerHTML = "";
+    var idx = 0;
+    COMMAND_SECTIONS.forEach(function (section) {
+      var wrap = document.createElement("div"); wrap.className = "cmd-section";
+      var head = document.createElement("div"); head.className = "cmd-section-head"; head.textContent = section.title;
+      wrap.appendChild(head);
+      section.commands.forEach(function (cmd) {
+        idx++;
+        var row = document.createElement("div"); row.className = "cmd" + (cmd.new ? " new" : "");
+        var num = document.createElement("span"); num.className = "num"; num.textContent = String(idx).padStart(2, "0");
+        var body = document.createElement("div");
+        var title = document.createElement("div"); title.className = "title"; title.innerHTML = cmd.title;
+        var desc = document.createElement("div"); desc.className = "desc"; desc.textContent = cmd.desc;
+        body.appendChild(title); body.appendChild(desc);
+        var form = document.createElement("div"); form.className = "cmd-form";
+        cmd.args.forEach(function (arg) {
+          var field = document.createElement("div"); field.className = "field";
+          var lbl = document.createElement("label"); lbl.textContent = arg.label + (arg.required ? " *" : "");
+          field.appendChild(lbl);
+          var input;
+          if (arg.kind === "select") {
+            input = document.createElement("select");
+            arg.choices.forEach(function (c) {
+              var o = document.createElement("option"); o.value = c; o.textContent = c;
+              if (c === arg.default) o.selected = true;
+              input.appendChild(o);
+            });
+          } else if (arg.kind === "bool") {
+            var wrap2 = document.createElement("label"); wrap2.style.cssText = "flex-direction:row;align-items:center;gap:8px;text-transform:none;letter-spacing:0;color:var(--text);font-family:var(--mono);font-size:11px";
+            input = document.createElement("input"); input.type = "checkbox"; if (arg.default) input.checked = true;
+            wrap2.appendChild(input); wrap2.appendChild(document.createTextNode(" " + arg.label));
+            field.innerHTML = ""; field.appendChild(wrap2);
+          } else if (arg.kind === "number") {
+            input = document.createElement("input"); input.type = "number"; if (arg.default != null) input.value = arg.default;
+          } else if (arg.kind === "json" || arg.kind === "lines") {
+            input = document.createElement("textarea"); if (arg.placeholder) input.placeholder = arg.placeholder;
+          } else {
+            input = document.createElement("input"); input.type = "text"; if (arg.placeholder) input.placeholder = arg.placeholder;
+          }
+          input.dataset.argName = arg.name;
+          input.dataset.argKind = arg.kind;
+          if (arg.kind !== "bool") field.appendChild(input);
+          form.appendChild(field);
+        });
+        var actions = document.createElement("div"); actions.className = "row-actions";
+        var runBtn = document.createElement("button"); runBtn.className = "primary"; runBtn.textContent = "Run";
+        var hint = document.createElement("span"); hint.className = "hint"; hint.textContent = "";
+        var result = document.createElement("div"); result.className = "cmd-result"; result.style.display = "none";
+        actions.appendChild(runBtn); actions.appendChild(hint);
+        form.appendChild(actions); form.appendChild(result);
+        runBtn.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          var args = collectArgs(form);
+          if (cmd.args.some(function (a) { return a.required && !args[a.name]; })) {
+            hint.textContent = "Missing required argument."; return;
+          }
+          hint.textContent = "Running…"; result.style.display = "none";
+          if (cmd.run) { cmd.run(args); hint.textContent = "Sent."; return; }
+          runCommand(cmd.action, args, function (body) {
+            hint.textContent = "";
+            result.style.display = "block";
+            result.className = "cmd-result" + (body && body.ok === false ? " err" : "");
+            try { result.textContent = JSON.stringify(body, null, 2); } catch (e) { result.textContent = String(body); }
+          });
+        });
+        var slug = document.createElement("span"); slug.className = "slug"; slug.textContent = cmd.slug;
+        row.appendChild(num); row.appendChild(body); row.appendChild(slug);
+        body.appendChild(form); // form sits under title/desc so it spans naturally
+        row.addEventListener("click", function (ev) {
+          // Don't toggle when interacting with form controls.
+          if (ev.target.closest && ev.target.closest(".cmd-form")) return;
+          row.classList.toggle("open");
+        });
+        wrap.appendChild(row);
+      });
+      host.appendChild(wrap);
+    });
+  }
+
+  function collectArgs(form) {
+    var out = {};
+    form.querySelectorAll("[data-arg-name]").forEach(function (inp) {
+      var n = inp.dataset.argName, k = inp.dataset.argKind, v;
+      if (k === "bool") v = inp.checked;
+      else if (k === "number") v = inp.value === "" ? undefined : Number(inp.value);
+      else if (k === "json") {
+        if (!inp.value.trim()) return;
+        try { v = JSON.parse(inp.value); } catch (e) { v = inp.value; }
+      } else if (k === "lines") {
+        v = (inp.value || "").split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+      } else {
+        v = inp.value === "" ? undefined : inp.value;
+      }
+      if (v !== undefined && v !== "") out[n] = v;
+    });
+    return out;
+  }
+
+  var _cmdHandlers = {};
+  function runCommand(action, args, handler) {
+    var cmdId = "ui-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+    if (handler) _cmdHandlers[cmdId] = handler;
+    parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: action, args: args || {} } }, "*");
+  }
+
+  renderCommands();
 
   el("bridgeToggle").addEventListener("change", function (e) {
     parent.postMessage({ pluginMessage: { type: "set-bridge", enabled: e.target.checked } }, "*");
@@ -369,56 +638,177 @@
     }).catch(function () {});
   }
 
-  function renderPages(pages) {
-    var root = el("pages"); root.innerHTML = "";
+  // ── Layer tree (Figma-like navigator) ────────────────────────────────
+  // Model: flat map of nodes keyed by id, each node tracks parentId,
+  // expanded, loaded, children[]. Rendered as a single flat virtual list
+  // indented by depth — no DOM nesting, so opening/closing is O(n).
+  var tree = { roots: [], nodes: {}, selectedId: null, currentPageId: null };
+
+  function typeTag(t) {
+    if (t === "PAGE") return "P";
+    if (t === "FRAME") return "F";
+    if (t === "COMPONENT") return "C";
+    if (t === "COMPONENT_SET") return "S";
+    if (t === "INSTANCE") return "I";
+    if (t === "TEXT") return "T";
+    if (t === "GROUP") return "G";
+    if (t === "RECTANGLE" || t === "ELLIPSE" || t === "POLYGON" || t === "STAR" || t === "LINE" || t === "VECTOR") return "V";
+    return (t || "?").slice(0, 1);
+  }
+
+  function hydratePages(pages) {
+    tree.roots = pages.map(function (p) { return p.id; });
     pages.forEach(function (p) {
-      var d = document.createElement("div");
-      d.className = "page-item" + (p.isCurrent ? " current" : "");
-      d.innerHTML = '<span class="dot"></span><span class="page-name"></span><span class="meta"></span>';
-      d.querySelector(".page-name").textContent = p.name;
-      d.querySelector(".meta").textContent = p.frameCount + "f";
-      d.addEventListener("click", function () {
-        parent.postMessage({ pluginMessage: { type: "get-frames", pageId: p.id } }, "*");
+      tree.nodes[p.id] = {
+        id: p.id, name: p.name, type: "PAGE", parentId: null, depth: 0,
+        hasChildren: p.frameCount > 0, expanded: false, loaded: false,
+        children: [], meta: p.frameCount + " frames", current: !!p.isCurrent
+      };
+    });
+    if (pages.length) {
+      var cur = pages.find(function (p) { return p.isCurrent; }) || pages[0];
+      tree.currentPageId = cur.id;
+      // Auto-expand current page so the user sees frames on first paint.
+      tree.nodes[cur.id].expanded = true;
+      parent.postMessage({ pluginMessage: { type: "get-frames", pageId: cur.id } }, "*");
+    }
+    renderTree();
+  }
+
+  function hydrateChildren(parentId, pageName, children) {
+    var p = tree.nodes[parentId];
+    if (!p) return;
+    p.loaded = true;
+    p.children = children.map(function (c) { return c.id; });
+    children.forEach(function (c) {
+      tree.nodes[c.id] = {
+        id: c.id, name: c.name, type: c.type, parentId: parentId, depth: p.depth + 1,
+        hasChildren: !!c.hasChildren, expanded: false, loaded: false, children: [],
+        meta: (c.width != null && c.height != null) ? (c.width + "×" + c.height) : ""
+      };
+    });
+    renderTree();
+  }
+
+  function flatten() {
+    var out = [];
+    (function walk(ids) {
+      ids.forEach(function (id) {
+        var n = tree.nodes[id]; if (!n) return;
+        out.push(n);
+        if (n.expanded && n.loaded) walk(n.children);
       });
-      root.appendChild(d);
+    })(tree.roots);
+    return out;
+  }
+
+  function renderTree() {
+    var host = el("tree");
+    var rows = flatten();
+    el("treeCount").textContent = rows.length + " shown";
+    if (!rows.length) {
+      host.innerHTML = '<div class="tree-empty">No pages or frames.</div>';
+      return;
+    }
+    host.innerHTML = "";
+    rows.forEach(function (n) {
+      var row = document.createElement("div");
+      row.className = "row" + (tree.selectedId === n.id ? " current" : "") + (n.current ? " current" : "");
+      row.dataset.id = n.id;
+      // Indent
+      var indent = document.createElement("span"); indent.className = "indent";
+      indent.style.width = (n.depth * 14) + "px";
+      row.appendChild(indent);
+      // Caret (disclosure)
+      var caret = document.createElement("span");
+      caret.className = "caret" + (n.hasChildren ? "" : " empty");
+      caret.textContent = n.hasChildren ? (n.expanded ? "▾" : "›") : "·";
+      row.appendChild(caret);
+      // Type tag
+      var tag = document.createElement("span"); tag.className = "tag t-" + n.type;
+      tag.textContent = typeTag(n.type);
+      tag.title = n.type;
+      row.appendChild(tag);
+      // Name
+      var name = document.createElement("span"); name.className = "name";
+      name.textContent = n.name;
+      name.title = n.name;
+      row.appendChild(name);
+      // Meta
+      if (n.meta) {
+        var m = document.createElement("span"); m.className = "meta"; m.textContent = n.meta;
+        row.appendChild(m);
+      }
+      // Hover actions
+      var actions = document.createElement("span"); actions.className = "actions";
+      if (n.type !== "PAGE") {
+        var exp = document.createElement("a"); exp.textContent = "export"; exp.title = "Export as HTML/CSS";
+        exp.addEventListener("click", function (ev) { ev.stopPropagation(); exportOne(n); });
+        actions.appendChild(exp);
+        var sel = document.createElement("a"); sel.textContent = "select"; sel.title = "Select in Figma canvas";
+        sel.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          runCommand("select_node", { nodeId: n.id });
+        });
+        actions.appendChild(sel);
+      } else {
+        var open = document.createElement("a"); open.textContent = n.expanded ? "collapse" : "open";
+        open.addEventListener("click", function (ev) { ev.stopPropagation(); toggleNode(n); });
+        actions.appendChild(open);
+      }
+      row.appendChild(actions);
+
+      // Row click: expand (for PAGE/expandable) or export (for leaf frames/components)
+      row.addEventListener("click", function (ev) {
+        if (n.hasChildren && (ev.target === caret || ev.target === row || ev.target === indent || ev.target === name || ev.target === tag)) {
+          toggleNode(n);
+        }
+        // Also select in tree UI
+        tree.selectedId = n.id;
+        renderTree();
+        // If it's a frame-like leaf, export it on click
+        if (!n.hasChildren && n.type !== "PAGE") exportOne(n);
+      });
+      // Double-click always exports
+      row.addEventListener("dblclick", function (ev) {
+        ev.stopPropagation();
+        if (n.type !== "PAGE") exportOne(n);
+      });
+      host.appendChild(row);
     });
   }
-  var _currentPageId = null;
-  function renderFrames(pageId, pageName, frames) {
-    _currentPageId = pageId;
-    var h = el("framesHeader"); h.style.display = "block"; h.textContent = "Frames — " + pageName;
-    var root = el("frames"); root.innerHTML = "";
-    frames.forEach(function (f) {
-      var d = document.createElement("div"); d.className = "frame-item";
-      d.title = "Click to export — Shift+click to add to selection";
-      d.innerHTML = '<span class="dot"></span><span class="page-name"></span><span class="meta"></span>';
-      d.querySelector(".page-name").textContent = f.name;
-      d.querySelector(".meta").textContent = f.width + "×" + f.height;
-      d.addEventListener("click", function (ev) {
-        var selected = Array.from(document.querySelectorAll(".frame-item.current")).map(function (x) { return x.dataset.nodeId; });
-        var ids;
-        if (ev.shiftKey) {
-          d.classList.toggle("current");
-          ids = Array.from(document.querySelectorAll(".frame-item.current")).map(function (x) { return x.dataset.nodeId; });
-        } else {
-          document.querySelectorAll(".frame-item.current").forEach(function (x) { x.classList.remove("current"); });
-          d.classList.add("current");
-          ids = [f.id];
-        }
-        d.dataset.nodeId = f.id;
-        setStatus("busy", "Exporting"); setFoot("Exporting " + ids.length + " frame(s)…");
-        parent.postMessage({ pluginMessage: { type: "export-nodes", pageId: pageId, nodeIds: ids } }, "*");
-      });
-      d.dataset.nodeId = f.id;
-      root.appendChild(d);
-    });
+
+  function toggleNode(n) {
+    if (!n.hasChildren) return;
+    n.expanded = !n.expanded;
+    if (n.expanded && !n.loaded) {
+      if (n.type === "PAGE") {
+        parent.postMessage({ pluginMessage: { type: "get-frames", pageId: n.id } }, "*");
+      } else {
+        parent.postMessage({ pluginMessage: { type: "get-children", nodeId: n.id } }, "*");
+      }
+    }
+    renderTree();
+  }
+
+  function exportOne(n) {
+    var pageId = n.type === "PAGE" ? n.id : findPageId(n.id);
+    setStatus("busy", "Exporting"); setFoot("Exporting " + n.name + "…");
+    parent.postMessage({ pluginMessage: { type: "export-nodes", pageId: pageId, nodeIds: [n.id] } }, "*");
+  }
+
+  function findPageId(id) {
+    var cur = tree.nodes[id];
+    while (cur && cur.parentId) cur = tree.nodes[cur.parentId];
+    return cur ? cur.id : tree.currentPageId;
   }
 
   window.onmessage = function (e) {
     var msg = e.data.pluginMessage; if (!msg) return;
     switch (msg.type) {
-      case "pages": renderPages(msg.pages); break;
-      case "frames": renderFrames(msg.pageId, msg.pageName, msg.frames); break;
+      case "pages": hydratePages(msg.pages); break;
+      case "frames": hydrateChildren(msg.pageId, msg.pageName, msg.frames); break;
+      case "children": hydrateChildren(msg.parentId, null, msg.children); break;
       case "bridge-state":
         state.bridge = msg.enabled;
         el("bridgeToggle").checked = msg.enabled;
@@ -432,6 +822,8 @@
           state.data = { html: text, css: "", tailwindHtml: "", tokens: {}, cssVars: "", tailwindConfig: "" };
           render();
           setStatus("ok", "Spec ready"); setFoot("App spec rendered in HTML tab");
+        } else if (_cmdHandlers[msg.cmdId]) {
+          try { _cmdHandlers[msg.cmdId](msg.body); } finally { delete _cmdHandlers[msg.cmdId]; }
         } else {
           postCmdResult(msg.cmdId, msg.body);
         }
