@@ -1,6 +1,6 @@
 {
   "name": "figbridge-mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Free, local MCP bridge for Figbridge — exposes Figma → HTML/CSS/Tailwind/tokens to AI agents.",
   "license": "MIT",
   "author": "Rudra Pratap Singh",
@@ -9,8 +9,14 @@
     "figbridge-mcp": "bin/figbridge-mcp.js"
   },
   "main": "src/server.js",
-  "files": ["bin", "src", "README.md"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node bin/figbridge-mcp.js",
     "test": "node test/smoke.mjs"
@@ -18,7 +24,18 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4"
   },
-  "keywords": ["figma", "mcp", "claude", "html", "css", "tailwind", "design-tokens"],
-  "repository": { "type": "git", "url": "https://github.com/rudraptpsingh/figbridge.git" },
+  "keywords": [
+    "figma",
+    "mcp",
+    "claude",
+    "html",
+    "css",
+    "tailwind",
+    "design-tokens"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rudraptpsingh/figbridge.git"
+  },
   "homepage": "https://github.com/rudraptpsingh/figbridge"
 }
