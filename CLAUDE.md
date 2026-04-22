@@ -30,10 +30,18 @@ On tag push, `.github/workflows/publish.yml` runs:
 1. Verify tag matches `mcp/package.json` version.
 2. Smoke + full pipeline + tool-surface tests.
 3. `npm publish --provenance`.
-4. Poll registry.
-5. Create GitHub Release — notes grouped by conventional-commit prefix (`feat` / `fix` / `docs` / `ci|chore` / other), appends install + update footer. Idempotent on re-run (`gh release edit`).
+4. Poll npm until the version resolves.
+5. Sync `server.json` version to the tag (release script already did this, but CI re-runs to be safe).
+6. Install `mcp-publisher` from modelcontextprotocol/registry GH releases, login via `github-oidc` (no secrets), `publish`.
+7. Create GitHub Release — notes grouped by conventional-commit prefix (`feat` / `fix` / `docs` / `ci|chore` / other), appends install + update footer. Idempotent on re-run (`gh release edit`).
 
-Checkout uses `fetch-depth: 0` + `fetch-tags: true` so `git describe --tags "$TAG^"` can resolve the previous tag for the notes range.
+Checkout uses `fetch-depth: 0` + `fetch-tags: true` so `git describe --tags "$TAG^"` can resolve the previous tag for the notes range. `id-token: write` permission covers both npm provenance and MCP registry OIDC.
+
+## MCP registry listing
+
+Listed at `io.github.rudraptpsingh/figbridge` on registry.modelcontextprotocol.io since 0.1.8. `server.json` lives at repo root; `mcp/package.json` has `"mcpName": "io.github.rudraptpsingh/figbridge"` matching it. The namespace `io.github.rudraptpsingh/*` is gated by GitHub auth, so only you (or an OIDC-authenticated workflow running in this repo) can publish under it.
+
+Verify a listing: `curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.rudraptpsingh/figbridge"`.
 
 ## Seamless auto-updates for users
 

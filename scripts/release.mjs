@@ -29,6 +29,7 @@ import url from "node:url";
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const PKG = path.join(ROOT, "mcp", "package.json");
+const SRV = path.join(ROOT, "server.json");
 
 const DRY = process.argv.includes("--dry") || process.argv.includes("--dry-run");
 const bumpArg = process.argv.slice(2).find(a => !a.startsWith("--"));
@@ -115,7 +116,18 @@ if (DRY) { console.log("(dry run — nothing was changed)"); process.exit(0); }
 // ── 4. Mutate: bump + commit + tag + push ─────────────────────────
 pkg.version = nextVer;
 fs.writeFileSync(PKG, JSON.stringify(pkg, null, 2) + "\n");
-run(`git add ${path.relative(ROOT, PKG)}`);
+// Keep server.json (MCP registry manifest) in lockstep with mcp/package.json.
+// The registry schema requires packages[0].version to match the published npm
+// version — drift here would make `mcp-publisher publish` fail in CI.
+let srvAdd = "";
+if (fs.existsSync(SRV)) {
+  const srv = JSON.parse(fs.readFileSync(SRV, "utf8"));
+  srv.version = nextVer;
+  for (const p of srv.packages || []) p.version = nextVer;
+  fs.writeFileSync(SRV, JSON.stringify(srv, null, 2) + "\n");
+  srvAdd = ` ${path.relative(ROOT, SRV)}`;
+}
+run(`git add ${path.relative(ROOT, PKG)}${srvAdd}`);
 run(`git commit -m "chore(release): ${tag}"`);
 run(`git tag ${tag}`);
 run(`git push origin main`);

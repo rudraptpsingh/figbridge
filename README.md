@@ -38,6 +38,20 @@ That patches your Claude Desktop config and prints the next steps. Then:
 
 For any other MCP client, point it at the same binary: `npx figbridge-mcp`.
 
+### Via the MCP registry
+
+Figbridge is also listed on the official [Model Context Protocol registry](https://registry.modelcontextprotocol.io/) as `io.github.rudraptpsingh/figbridge`. Clients that support the registry (Claude Desktop, Cursor, VS Code) can discover and install it without hand-editing config.
+
+### Troubleshooting
+
+If Claude Desktop shows **"Server disconnected"** or port 7331 gets stuck, run:
+
+```bash
+npx figbridge-mcp doctor
+```
+
+It reaps orphan `figbridge-mcp` processes and reports which ports are alive. The bridge auto-falls-back to 7332..7340 if 7331 is held, and the plugin auto-probes the same range — so "port in use" won't block you. `FIGBRIDGE_PORT=NNNN` overrides the preferred starting port.
+
 ### Updating
 
 `init` writes a config that runs `npx -y figbridge-mcp@latest`, so every Claude Desktop launch pulls the current version — **no action needed** after a new release.

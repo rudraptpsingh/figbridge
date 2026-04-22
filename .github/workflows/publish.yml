@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write    # required to create a GitHub Release on tag push
-      id-token: write    # required for npm provenance
+      id-token: write    # required for npm provenance + MCP registry OIDC
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -110,12 +110,48 @@ jobs:
             PUB=$(npm view figbridge-mcp@$VERSION version 2>/dev/null || true)
             if [ "$PUB" = "$VERSION" ]; then
               echo "✓ figbridge-mcp@$VERSION live on npm"
-              exit 0
+              break
             fi
             echo "waiting for registry... (attempt $i)"
             sleep 5
           done
-          echo "::warning::figbridge-mcp@$VERSION not yet visible via npm view; it may still propagate."
+
+      # ── MCP registry publish ────────────────────────────────────────
+      # Mirror the release to registry.modelcontextprotocol.io so Claude
+      # Desktop / Claude Code / Cursor can discover figbridge-mcp without
+      # hand-editing a config. Uses GitHub OIDC — no secrets needed.
+      # server.json sits at the repo root; its `packages[0].version` MUST
+      # match the npm version. The release script keeps them in sync.
+      - name: Sync server.json version
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          export V="${TAG#v}"
+          node -e '
+            const fs=require("fs");
+            const p="server.json";
+            const j=JSON.parse(fs.readFileSync(p,"utf8"));
+            j.version=process.env.V;
+            for (const pkg of j.packages||[]) pkg.version=process.env.V;
+            fs.writeFileSync(p, JSON.stringify(j,null,2)+"\n");
+          '
+          cat server.json
+
+      - name: Install mcp-publisher
+        if: github.event_name == 'push'
+        run: |
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher --help >/dev/null
+
+      - name: Publish to MCP registry
+        if: github.event_name == 'push'
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
 
       # Create a GitHub Release with grouped, commit-based notes. We bucket
       # commits by conventional-commit prefix (feat/fix/docs/ci/chore) since
