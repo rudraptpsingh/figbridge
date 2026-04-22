@@ -7,6 +7,29 @@
 
 figma.showUI(__html__, { width: 680, height: 820, title: "Figbridge" });
 
+// ── Token reverse lookup (hex → variable) ────────────────────
+// Declared at the very top so every emitter (paintToCSS, strokeToCSS,
+// swiftColor, kotlinColor) can reach it regardless of source order.
+// `_varByHex` is populated by setVariableMap() later in the file.
+var _varByHex = {};
+function sanitizeSwiftIdent(raw) {
+  var s = String(raw || "").replace(/^--/, "").replace(/^-+|-+$/g, "");
+  s = s.replace(/([a-z0-9])([A-Z])/g, "$1-$2");
+  s = s.replace(/[\/_\s]+/g, "-").replace(/-+/g, "-").toLowerCase();
+  var parts = s.split("-").filter(Boolean);
+  if (!parts.length) return "color";
+  return parts[0] + parts.slice(1).map(function (p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join("");
+}
+function paintToTokenRef(paint) {
+  if (!paint || paint.type !== "SOLID" || !paint.color) return null;
+  var op = paint.opacity == null ? 1 : paint.opacity;
+  if (op < 1) return null;
+  var t = function (v) { return Math.round(v * 255); };
+  var hex = "#" + [paint.color.r, paint.color.g, paint.color.b]
+    .map(function (v) { return t(v).toString(16).padStart(2, "0"); }).join("").toLowerCase();
+  return _varByHex[hex] || null;
+}
+
 // ── Page map ──────────────────────────────────────────────────
 function sendPageMap() {
   var pages = figma.root.children.map(function (page) {
@@ -1261,7 +1284,7 @@ var _rules = [];
 var _mode = "css"; // "css" | "tailwind" | "react"
 var _minify = false;
 var _varMap = {}; // { [variableId]: { cssName, value } }
-var _varByHex = {}; // "#rrggbb" → { cssName, swiftName, name }
+// _varByHex is declared at the top of the file (populated by setVariableMap).
 var _assetCache = {}; // { [nodeId]: { kind: 'svg'|'png', data: string } }
 var _textStyleMap = {}; // { [styleId]: { className, decls } }
 var _emittedSelectors = new Set();
@@ -1375,24 +1398,7 @@ function setVariableMap(map) {
   }
 }
 
-function sanitizeSwiftIdent(raw) {
-  var s = String(raw || "").replace(/^--/, "").replace(/^-+|-+$/g, "");
-  s = s.replace(/([a-z0-9])([A-Z])/g, "$1-$2");
-  s = s.replace(/[\/_\s]+/g, "-").replace(/-+/g, "-").toLowerCase();
-  var parts = s.split("-").filter(Boolean);
-  if (!parts.length) return "color";
-  return parts[0] + parts.slice(1).map(function (p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join("");
-}
-
-function paintToTokenRef(paint) {
-  if (!paint || paint.type !== "SOLID" || !paint.color) return null;
-  var op = paint.opacity == null ? 1 : paint.opacity;
-  if (op < 1) return null;
-  var t = function (v) { return Math.round(v * 255); };
-  var hex = "#" + [paint.color.r, paint.color.g, paint.color.b]
-    .map(function (v) { return t(v).toString(16).padStart(2, "0"); }).join("").toLowerCase();
-  return _varByHex[hex] || null;
-}
+// sanitizeSwiftIdent and paintToTokenRef live at the top of the file.
 function setAssetCache(cache) { _assetCache = cache || {}; }
 
 function isVectorLike(node) {
