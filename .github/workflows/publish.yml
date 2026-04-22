@@ -72,8 +72,7 @@ jobs:
           kill $PID 2>/dev/null || true
 
       - name: Run smoke test
-        working-directory: mcp
-        run: npm test
+        run: node test/smoke.mjs
 
       - name: Run full plugin pipeline unit tests
         run: node test-agent/run.js

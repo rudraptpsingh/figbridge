@@ -40,8 +40,7 @@ jobs:
         run: node --check plugin/code.js
 
       - name: MCP smoke test
-        working-directory: mcp
-        run: npm test
+        run: node test/smoke.mjs
 
       - name: Render pipeline unit tests
         run: node test-agent/run.js
