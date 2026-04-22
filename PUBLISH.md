@@ -85,7 +85,7 @@ Figma review is usually 5–10 business days. Use the time to:
 
 ## 7. After approval
 
-- Tag a GitHub release (`v0.1.x`) that matches `mcp/package.json`. The `Publish figbridge-mcp to npm` workflow on tag push runs smoke + full pipeline + tool-surface tests, verifies the tag matches the package version, then `npm publish --provenance`s and re-queries the registry to confirm.
+- Cut a release with `node scripts/release.mjs patch` (or `minor` / `major` / explicit `X.Y.Z`). The script refuses to run on dirty trees, off main, or when local is behind origin, so it's hard to misfire. It bumps `mcp/package.json`, commits `chore(release): vX.Y.Z`, tags, and pushes. The `Publish figbridge-mcp to npm` workflow then runs smoke + full pipeline + tool-surface tests, `npm publish --provenance`s, verifies the registry, and creates a GitHub Release with notes grouped by commit prefix (feat/fix/docs/ci|chore). Add `--dry` to the script to preview without mutating.
 - ~~Publish the bridge to npm so `npx figbridge-mcp` works without a git clone: `cd mcp && npm publish --access public`.~~ **Done:** `figbridge-mcp` is live on npm (https://www.npmjs.com/package/figbridge-mcp). `npx figbridge-mcp init` works cold.
 - **Users auto-update.** Since 0.1.2, `init` writes `{ command: "npx", args: ["-y", "figbridge-mcp@latest"] }` into Claude Desktop's config, so every Claude launch pulls the current release. No action needed from users after a new npm publish. Earlier installs (≤ 0.1.1) pinned an absolute path and need to run `npx figbridge-mcp@latest update` once to self-heal — call this out in release notes.
 - Update the landing page at `docs/index.html` with the Figma Community URL once it is live.
