@@ -45,7 +45,13 @@ export function sendCommand(action, args, timeoutMs = 5000) {
 export function clientCount() { return clients.size; }
 
 // ── HTTP server ──────────────────────────────────────────────
-export function startBridge(port = 7331, log = () => {}) {
+// Try the requested port first; on EADDRINUSE walk up to `portRange`
+// additional ports. Claude Desktop can respawn this process while an
+// older instance is still holding 7331, so a hard fatal there means
+// the user sees "Server disconnected" with no useful recovery. With
+// fallback, the new instance just picks 7332 and the plugin (which
+// probes the range) finds it. Resolves to `{ server, port }`.
+export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9) {
   const server = http.createServer((req, res) => {
     if (req.method === "OPTIONS") { res.writeHead(204, CORS_HEADERS); return res.end(); }
 
@@ -125,10 +131,31 @@ export function startBridge(port = 7331, log = () => {}) {
   });
 
   return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => {
+    let attempt = 0;
+    let settled = false;
+    const onError = (e) => {
+      if (settled) return;
+      if (e && e.code === "EADDRINUSE" && attempt < portRange) {
+        const stale = preferredPort + attempt;
+        attempt++;
+        const next = preferredPort + attempt;
+        log(`port ${stale} in use, trying ${next}`);
+        // server is still usable; re-listen on the next port
+        setImmediate(() => { if (!settled) server.listen(next, "127.0.0.1"); });
+        return;
+      }
+      settled = true;
+      reject(e);
+    };
+    server.on("error", onError);
+    server.once("listening", () => {
+      settled = true;
+      server.removeListener("error", onError);
+      const addr = server.address();
+      const port = addr && typeof addr === "object" ? addr.port : preferredPort + attempt;
       log(`bridge listening on http://127.0.0.1:${port}`);
-      resolve(server);
+      resolve({ server, port });
     });
+    server.listen(preferredPort, "127.0.0.1");
   });
 }

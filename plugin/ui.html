@@ -733,9 +733,33 @@
     });
   })();
 
-  var BRIDGE_BASE = "http://localhost:7331";
-  var BRIDGE_URL = BRIDGE_BASE + "/push";
-  var EVENTS_URL = BRIDGE_BASE + "/events";
+  // Bridge can bind to 7331 or fall back to 7332..7340 if the port is
+  // held by a stale instance. We discover the active port lazily via
+  // /health probes before the first connect.
+  var PORT_BASE = 7331;
+  var PORT_RANGE = 10;
+  var BRIDGE_PORT = PORT_BASE;
+  function bridgeBase(){ return "http://127.0.0.1:" + BRIDGE_PORT; }
+  function bridgePush(){ return bridgeBase() + "/push"; }
+  function bridgeEvents(){ return bridgeBase() + "/events"; }
+  function probeBridgePort(cb){
+    var i = 0;
+    function tryOne(){
+      if (i >= PORT_RANGE) { cb(null); return; }
+      var p = PORT_BASE + i; i++;
+      var ctl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+      var to = setTimeout(function(){ try{ ctl && ctl.abort(); }catch(e){} }, 600);
+      fetch("http://127.0.0.1:" + p + "/health", { cache: "no-store", signal: ctl ? ctl.signal : undefined })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){
+          clearTimeout(to);
+          if (j && j.name === "figbridge-bridge") { BRIDGE_PORT = p; cb(p); return; }
+          tryOne();
+        })
+        .catch(function(){ clearTimeout(to); tryOne(); });
+    }
+    tryOne();
+  }
   var eventSource = null;
   var el = function (id) { return document.getElementById(id); };
   var state = { tab: "html", data: null, bridge: false, view: "output" };
@@ -1404,14 +1428,35 @@
     parent.postMessage({ pluginMessage: { type: "set-bridge", enabled: e.target.checked } }, "*");
   });
   function pushToBridge(payload) {
-    return fetch(BRIDGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
-      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); setStatus("ok", "Bridge"); setFoot("Pushed @ " + new Date().toLocaleTimeString()); })
-      .catch(function (e) { setStatus("err", "Bridge offline"); setFoot("Bridge: " + e.message); });
+    function doPost(){
+      return fetch(bridgePush(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); setStatus("ok", "Bridge"); setFoot("Pushed @ " + new Date().toLocaleTimeString()); })
+        .catch(function (e) { setStatus("err", "Bridge offline"); setFoot("Bridge: " + e.message); });
+    }
+    // If SSE hasn't connected yet, probe before posting so we land on the right port.
+    if (!eventSource) {
+      return new Promise(function(resolve){
+        probeBridgePort(function(found){ if (found) updatePortLabel(); resolve(doPost()); });
+      });
+    }
+    return doPost();
+  }
+  function updatePortLabel(){
+    var el = document.querySelector(".footer .port");
+    if (el) el.textContent = "127.0.0.1:" + BRIDGE_PORT;
   }
   function openEventStream() {
     if (eventSource) return;
+    probeBridgePort(function(found){
+      if (!found) { setStatus("err", "Bridge offline"); setFoot("No bridge on " + PORT_BASE + "–" + (PORT_BASE + PORT_RANGE - 1)); return; }
+      updatePortLabel();
+      _openEventStreamInner();
+    });
+  }
+  function _openEventStreamInner() {
+    if (eventSource) return;
     try {
-      eventSource = new EventSource(EVENTS_URL);
+      eventSource = new EventSource(bridgeEvents());
       eventSource.addEventListener("hello", function () { setStatus("ok", "Bridge"); setFoot("Live"); });
       eventSource.addEventListener("command", function (e) {
         try {
@@ -1424,7 +1469,7 @@
   }
   function closeEventStream() { if (eventSource) { try { eventSource.close(); } catch (e) {}; eventSource = null; } }
   function postCmdResult(cmdId, body) {
-    return fetch(BRIDGE_BASE + "/command/" + cmdId + "/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(function () {});
+    return fetch(bridgeBase() + "/command/" + cmdId + "/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(function () {});
   }
 
   // ── Router ──────────────────────────────────────────────────────

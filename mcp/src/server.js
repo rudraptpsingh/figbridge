@@ -41,8 +41,29 @@ function asText(obj) {
 }
 
 export async function main() {
-  const port = Number(process.env.FIGBRIDGE_PORT || 7331);
-  await startBridge(port, log);
+  const preferredPort = Number(process.env.FIGBRIDGE_PORT || 7331);
+  const { server: bridgeServer, port } = await startBridge(preferredPort, log);
+
+  // ── Clean shutdown ──────────────────────────────────────────
+  // Claude Desktop closes our stdin when it wants us to exit. If we
+  // don't notice we become a zombie holding :7331 and the next launch
+  // lands on the port-fallback path (still works, but we'd leak a
+  // process per relaunch). Exit on stdin EOF and on signals.
+  let shuttingDown = false;
+  function shutdown(reason) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log(`shutting down: ${reason}`);
+    try { bridgeServer.close(); } catch {}
+    // Give the close a beat, then hard-exit. MCP stdio transport does
+    // not itself hold the loop open once stdin is gone.
+    setTimeout(() => process.exit(0), 200).unref();
+  }
+  process.stdin.on("end", () => shutdown("stdin end"));
+  process.stdin.on("close", () => shutdown("stdin close"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT",  () => shutdown("SIGINT"));
+  process.on("SIGHUP",  () => shutdown("SIGHUP"));
 
   const server = new McpServer({ name: "figbridge", version: "0.1.0" });
 

@@ -6,8 +6,17 @@ if (arg === "init" || arg === "update") {
   // the npx-launched form so future launches always pull the latest version.
   // This is what users run after we ship a new release.
   const { runInit } = await import("../src/init.js");
+  const { reapOrphans } = await import("../src/doctor.js");
+  // Reap before rewriting config so the next launch lands on a clean :7331.
+  await reapOrphans({ quiet: false });
   runInit({ pin: process.argv.includes("--pin") }).catch((e) => {
     process.stderr.write(`[figbridge] ${arg} failed: ${e && e.stack || e}\n`);
+    process.exit(1);
+  });
+} else if (arg === "doctor") {
+  const { runDoctor } = await import("../src/doctor.js");
+  runDoctor().catch((e) => {
+    process.stderr.write(`[figbridge] doctor failed: ${e && e.stack || e}\n`);
     process.exit(1);
   });
 } else if (arg === "--version" || arg === "-v" || arg === "version") {
@@ -27,6 +36,9 @@ Usage:
                                (absolute path; no auto-updates).
   figbridge-mcp update         Alias for init — re-run after upgrading
                                figbridge-mcp to rewrite a stale config.
+  figbridge-mcp doctor         Reap orphan figbridge-mcp processes holding
+                               :7331 (the port-conflict "restarted. failed"
+                               case). Also reports bridge health.
   figbridge-mcp --version      Print the installed version.
   figbridge-mcp --help         Show this help.
 
