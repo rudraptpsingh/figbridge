@@ -883,7 +883,6 @@ async function handleCommand(cmdId, action, args) {
       return { ok: true, pageCount: pageResults.length, pages: pageResults };
     }
     if (action === "agent-bundle") {
-      if (typeof FrameshiftAgent === "undefined") return { ok: false, error: "agent bundle module not loaded" };
       var roots;
       if (args && args.nodeId) {
         var n = await figma.getNodeByIdAsync(args.nodeId);
@@ -896,7 +895,7 @@ async function handleCommand(cmdId, action, args) {
         });
       }
       if (!roots.length) return { ok: false, error: "no frames to export" };
-      var files = await FrameshiftAgent.computeAgentBundle(roots, {
+      var files = await computeAgentBundle(roots, {
         budget: (args && args.budget) || "medium",
         screenshots: !!(args && args.screenshots),
         codePaths: (args && args.codePaths) || [],
@@ -940,8 +939,7 @@ figma.ui.onmessage = async function (msg) {
       if (_liveBridge) onSelectionChange();
       break;
     case "export-agent":
-      if (typeof FrameshiftAgent !== "undefined") await FrameshiftAgent.exportAgentBundle(msg);
-      else figma.ui.postMessage({ type: "error", message: "Agent bundle module not loaded." });
+      await exportAgentBundle(msg);
       break;
     case "close": figma.closePlugin(); break;
   }
@@ -949,13 +947,11 @@ figma.ui.onmessage = async function (msg) {
 
 // ============================================================
 // FRAMESHIFT AGENT BUNDLE (ported from figma2code)
-// Self-contained IIFE — no name collisions with Figbridge code above.
-// Exposes: FrameshiftAgent.exportAgentBundle(msg)
+// Top-level helpers — formerly wrapped in a `FrameshiftAgent` IIFE,
+// unwrapped so the router above can actually see them. QuickJS
+// function-scopes everything inside an IIFE.
 // ============================================================
 // ── Page map ──────────────────────────────────────────────────
-// (Formerly wrapped in a `FrameshiftAgent` IIFE — unwrapped so that
-// top-of-file event handlers can actually see these helpers. The IIFE
-// scope was the real root cause of every "X is not defined" error.)
 function sendPageMap() {
   var pages = figma.root.children.map(function (page) {
     return {
