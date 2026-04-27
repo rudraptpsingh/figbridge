@@ -3290,38 +3290,38 @@ async function exportAgentBundle(msg) {
 }
 
 
-  async function computeAgentBundle(roots, opts) {
-    opts = opts || {};
-    resetCSS("css");
-    resetMainCompCache();
-    setVariableMap(await loadVariables());
-    setAssetCache(await prefetchAssets(roots));
-    setTextStyleMap(await loadTextStyles(roots));
-    await prefetchMainComponents(roots);
-    var slugLock = {};
-    var priorSnapshot = null;
-    if (figma.clientStorage) {
-      try { slugLock = (await figma.clientStorage.getAsync("frameshift:slugLock")) || {}; } catch (e) {}
-      try { priorSnapshot = (await figma.clientStorage.getAsync("frameshift:snapshot")) || null; } catch (e) {}
-    }
-    setSlugLock(slugLock);
-    var screenshots = null;
-    if (opts.screenshots) {
-      screenshots = {};
-      for (var i = 0; i < roots.length; i++) {
-        try { screenshots[roots[i].id] = await roots[i].exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } }); } catch (e) {}
-      }
-    }
-    var files = buildAgentBundle(roots, figma.currentPage.name, {
-      budget: opts.budget || "medium",
-      screenshots: screenshots,
-      codePaths: opts.codePaths || [],
-      priorSnapshot: priorSnapshot,
-    });
-    if (figma.clientStorage) {
-      try { await figma.clientStorage.setAsync("frameshift:slugLock", getSlugLock()); } catch (e) {}
-      var snapFile = files.find(function (f) { return f.path === "snapshot.json"; });
-      if (snapFile) { try { await figma.clientStorage.setAsync("frameshift:snapshot", JSON.parse(snapFile.data)); } catch (e) {} }
-    }
-    return files;
+async function computeAgentBundle(roots, opts) {
+  opts = opts || {};
+  resetCSS("css");
+  resetMainCompCache();
+  setVariableMap(await loadVariables());
+  setAssetCache(await prefetchAssets(roots));
+  setTextStyleMap(await loadTextStyles(roots));
+  await prefetchMainComponents(roots);
+  var slugLock = {};
+  var priorSnapshot = null;
+  if (figma.clientStorage) {
+    try { slugLock = (await figma.clientStorage.getAsync("frameshift:slugLock")) || {}; } catch (e) {}
+    try { priorSnapshot = (await figma.clientStorage.getAsync("frameshift:snapshot")) || null; } catch (e) {}
   }
+  setSlugLock(slugLock);
+  var screenshots = null;
+  if (opts.screenshots) {
+    screenshots = {};
+    for (var i = 0; i < roots.length; i++) {
+      try { screenshots[roots[i].id] = await roots[i].exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } }); } catch (e) {}
+    }
+  }
+  var files = buildAgentBundle(roots, figma.currentPage.name, {
+    budget: opts.budget || "medium",
+    screenshots: screenshots,
+    codePaths: opts.codePaths || [],
+    priorSnapshot: priorSnapshot,
+  });
+  if (figma.clientStorage) {
+    try { await figma.clientStorage.setAsync("frameshift:slugLock", getSlugLock()); } catch (e) {}
+    var snapFile = files.find(function (f) { return f.path === "snapshot.json"; });
+    if (snapFile) { try { await figma.clientStorage.setAsync("frameshift:snapshot", JSON.parse(snapFile.data)); } catch (e) {} }
+  }
+  return files;
+}
