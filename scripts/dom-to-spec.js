@@ -81,10 +81,37 @@
     if (cs.display.includes('flex')) {
       return cs.flexDirection && cs.flexDirection.startsWith('row') ? 'HORIZONTAL' : 'VERTICAL';
     }
-    // For grid we don't try to recreate the grid (Figma has no equivalent);
-    // we let it fall through to NONE so the per-child absolute positions
-    // captured below preserve the visual layout exactly. Same for block.
     return 'NONE';
+  }
+
+  function flexWrapOf(cs) {
+    if (!cs.display.includes('flex')) return null;
+    const w = cs.flexWrap;
+    return (w === 'wrap' || w === 'wrap-reverse') ? 'WRAP' : null;
+  }
+
+  function whiteSpaceOf(cs) {
+    return (cs.whiteSpace === 'nowrap' || cs.whiteSpace === 'pre') ? 'NOWRAP' : null;
+  }
+
+  function minMaxOf(cs) {
+    const out = {};
+    const mw = px(cs.minWidth), MW = px(cs.maxWidth);
+    const mh = px(cs.minHeight), MH = px(cs.maxHeight);
+    if (mw && mw > 0) out.minWidth = mw;
+    if (MW && MW < 100000) out.maxWidth = MW;
+    if (mh && mh > 0) out.minHeight = mh;
+    if (MH && MH < 100000) out.maxHeight = MH;
+    return Object.keys(out).length ? out : null;
+  }
+
+  // text-shadow: extracts the first non-zero shadow as a Figma drop-shadow
+  // on the text node. Same shape as box-shadow shadowOf().
+  function textShadowOf(cs) {
+    const t = cs.textShadow;
+    if (!t || t === 'none') return null;
+    // Reuse the box-shadow parser by aliasing into a fake CS-like object.
+    return shadowOf({ boxShadow: t });
   }
 
   function padOf(cs) {
@@ -421,10 +448,12 @@
         textAlign: textAlignOf(cs),
         textDecoration: textDecorationOf(cs),
         textTransform: textTransformOf(cs),
+        whiteSpace: whiteSpaceOf(cs),
+        textShadow: textShadowOf(cs),
         color: rgbToHex(cs.color),
         opacity: opacityOf(cs),
-        // Per-range overrides when inline spans have distinct color/weight/size.
-        // The plugin applies these via setRange* APIs on the text node.
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
         ranges: ranges.length ? ranges : undefined,
       };
     }
@@ -462,10 +491,12 @@
     }
 
     // Generic container → frame with auto-layout heuristic.
+    const mm = minMaxOf(cs);
     const frame = {
       type: 'frame',
       name: name,
       layout: pickLayout(cs),
+      layoutWrap: flexWrapOf(cs),
       padding: padOf(cs),
       spacing: px(cs.gap) || px(cs.rowGap) || 0,
       fill: fillOf(cs),
@@ -479,6 +510,10 @@
       zIndex: zIndexOf(cs),
       width: Math.round(rect.width),
       height: Math.round(rect.height),
+      minWidth: mm && mm.minWidth,
+      maxWidth: mm && mm.maxWidth,
+      minHeight: mm && mm.minHeight,
+      maxHeight: mm && mm.maxHeight,
       children: [],
     };
 
