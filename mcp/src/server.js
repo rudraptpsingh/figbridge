@@ -321,17 +321,46 @@ export async function main() {
 
   server.tool(
     "screenshot_url",
-    "Render a URL in headless Chrome and return a base64 PNG screenshot (full page by default). Use to capture a live reference next to a Figma frame for visual diff. Returns { ok, width, height, bytes, base64 }.",
+    "Render a URL in headless Chrome and capture a PNG. If `outPath` is given, writes the PNG to disk and returns the path (cheap on agent context). Otherwise returns the base64 bytes. Use for visual diffs against Figma exports.",
     {
       url: z.string().describe("Page URL."),
       width: z.number().optional().describe("Viewport width. Default 1280."),
-      fullPage: z.boolean().optional().describe("Capture the whole page vs just the viewport. Default true.")
+      fullPage: z.boolean().optional().describe("Capture the whole page vs just the viewport. Default true."),
+      outPath: z.string().optional().describe("Absolute filesystem path to write the PNG to. When set, response includes { path } and omits base64.")
     },
-    async ({ url, width, fullPage }) => {
+    async ({ url, width, fullPage, outPath }) => {
       try {
         const { screenshotUrl } = await import("./browser.js");
         const b64 = await screenshotUrl(url, { width: width || 1280, fullPage: fullPage !== false });
+        if (outPath) {
+          const fs = await import("node:fs/promises"); const path = await import("node:path");
+          await fs.mkdir(path.dirname(outPath), { recursive: true }).catch(() => {});
+          await fs.writeFile(outPath, Buffer.from(b64, "base64"));
+          return asText({ ok: true, path: outPath, width: width || 1280, bytes: Math.round(b64.length * 0.75) });
+        }
         return asText({ ok: true, width: width || 1280, bytes: Math.round(b64.length * 0.75), base64: b64 });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "visual_diff",
+    "One-call visual reference: take a live Chrome screenshot of `url` AND export the Figma frame at `nodeId`, write both PNGs to `outDir` (default /tmp), and return their paths. Hand the paths to the Read tool to view side-by-side. Replaces the chrome-devtools-mcp + python-decode + manual-write dance.",
+    {
+      url: z.string().describe("Live page URL."),
+      nodeId: z.string().describe("Figma node id of the imported frame."),
+      width: z.number().optional().describe("Chrome viewport width. Default 1280."),
+      scale: z.number().optional().describe("Figma export scale. Default 0.5."),
+      outDir: z.string().optional().describe("Directory to write PNGs into. Default /tmp."),
+      prefix: z.string().optional().describe("Filename prefix. Default 'diff'.")
+    },
+    async ({ url, nodeId, width, scale, outDir, prefix }) => {
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/command`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "visual-diff", args: { url, nodeId, width: width || 1280, scale: scale || 0.5, outDir: outDir || "/tmp", prefix: prefix || "diff" }, timeoutMs: 120000 })
+        });
+        return asText(await r.json());
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );
@@ -355,15 +384,20 @@ export async function main() {
 
   server.tool(
     "export_frame",
-    "Export an existing Figma frame as a base64 PNG. Use to pull a rendered version of an imported frame back out for visual diff or for sending to an image-capable model. Returns { ok, nodeId, name, width, height, base64 }.",
+    "Export a Figma frame as PNG. With `outPath`: writes to disk, returns path. Without: returns base64. Use to pull a rendered version of an imported frame back out for visual diff.",
     {
       nodeId: z.string().describe("Figma node id, e.g. '6:1121'."),
-      scale: z.number().optional().describe("Export scale (1 = native size). Default 1.")
+      scale: z.number().optional().describe("Export scale (1 = native). Default 1."),
+      outPath: z.string().optional().describe("Absolute path to write PNG. When set, response includes { path } and omits base64.")
     },
-    async ({ nodeId, scale }) => {
+    async ({ nodeId, scale, outPath }) => {
       try {
         const r = await sendCommand("export-frame", { nodeId, scale: scale || 1 }, 60000);
-        return asText(r);
+        if (!r.ok || !outPath) return asText(r);
+        const fs = await import("node:fs/promises"); const path = await import("node:path");
+        await fs.mkdir(path.dirname(outPath), { recursive: true }).catch(() => {});
+        await fs.writeFile(outPath, Buffer.from(r.base64, "base64"));
+        return asText({ ok: true, nodeId: r.nodeId, name: r.name, width: r.width, height: r.height, bytes: r.bytes, path: outPath });
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );
