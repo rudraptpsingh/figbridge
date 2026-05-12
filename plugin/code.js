@@ -986,6 +986,13 @@ async function _ifcCreateNode(spec, warnings) {
     if (spec.textTransform === "UPPER" || spec.textTransform === "LOWER" || spec.textTransform === "TITLE") {
       try { t.textCase = spec.textTransform; } catch (e) {}
     }
+    if (spec.textTruncation === "ENDING") {
+      try { t.textTruncation = "ENDING"; } catch (e) {}
+      // line-clamp: limit number of visible lines.
+      if (typeof spec.lineClamp === "number" && spec.lineClamp > 0) {
+        try { t.maxLines = spec.lineClamp; } catch (e) {}
+      }
+    }
     if (spec.whiteSpace === "NOWRAP") {
       try { t.textAutoResize = "WIDTH_AND_HEIGHT"; } catch (e) {}
     } else if (typeof spec.width === "number" && spec.width > 0) {
@@ -1089,6 +1096,15 @@ async function _ifcCreateNode(spec, warnings) {
       fr.paddingLeft = pad.left; fr.paddingRight = pad.right;
     }
     if (spec.spacing != null) fr.itemSpacing = Number(spec.spacing) || 0;
+    // Alignment: CSS justify-content / align-items → Figma primary/counter
+    // axis alignment. Lets cards with space-between, centered icons, etc.
+    // render correctly without manual nudging.
+    if (spec.primaryAxisAlign && "primaryAxisAlignItems" in fr) {
+      try { fr.primaryAxisAlignItems = spec.primaryAxisAlign; } catch (e) {}
+    }
+    if (spec.counterAxisAlign && "counterAxisAlignItems" in fr && spec.counterAxisAlign !== "BASELINE") {
+      try { fr.counterAxisAlignItems = spec.counterAxisAlign; } catch (e) {}
+    }
     if (spec.layoutWrap === "WRAP" && "layoutWrap" in fr) {
       try {
         fr.layoutWrap = "WRAP";
