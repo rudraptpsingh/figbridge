@@ -163,6 +163,42 @@
     return el.textContent.replace(/\s+/g, ' ').trim();
   }
 
+  // Flex/grid alignment → Figma auto-layout primary/counter-axis alignment.
+  // CSS values map to Figma's enum values. justify-content maps to
+  // primary-axis alignment; align-items to counter-axis alignment.
+  function primaryAxisAlignOf(cs) {
+    if (!cs.display.includes('flex') && !cs.display.includes('grid')) return null;
+    const v = cs.justifyContent;
+    if (v === 'flex-start' || v === 'start' || v === 'left') return 'MIN';
+    if (v === 'flex-end' || v === 'end' || v === 'right') return 'MAX';
+    if (v === 'center') return 'CENTER';
+    if (v === 'space-between') return 'SPACE_BETWEEN';
+    return null;
+  }
+  function counterAxisAlignOf(cs) {
+    if (!cs.display.includes('flex') && !cs.display.includes('grid')) return null;
+    const v = cs.alignItems;
+    if (v === 'flex-start' || v === 'start') return 'MIN';
+    if (v === 'flex-end' || v === 'end') return 'MAX';
+    if (v === 'center') return 'CENTER';
+    if (v === 'baseline') return 'BASELINE';
+    if (v === 'stretch') return 'MIN'; // Figma stretches via FILL on children
+    return null;
+  }
+
+  // text-overflow: ellipsis → text truncation. Captured for the plugin
+  // to set textTruncation on the text node.
+  function textTruncationOf(cs) {
+    return cs.textOverflow === 'ellipsis' ? 'ENDING' : null;
+  }
+
+  // Child sizing strategy: flex:1 / flex-grow:1 → FILL the container.
+  // Otherwise FIXED at the measured rect (default).
+  function layoutGrowOf(cs) {
+    const fg = parseFloat(cs.flexGrow);
+    return isFinite(fg) && fg > 0 ? 1 : 0;
+  }
+
   function pickLayout(cs) {
     if (cs.display.includes('flex')) {
       return cs.flexDirection && cs.flexDirection.startsWith('row') ? 'HORIZONTAL' : 'VERTICAL';
@@ -740,6 +776,7 @@
         whiteSpace: whiteSpaceOf(cs),
         textShadow: textShadowOf(cs),
         lineClamp: lineClampOf(cs),
+        textTruncation: textTruncationOf(cs),
         color: rgbToHex(cs.color),
         opacity: opacityOf(cs),
         width: Math.round(rect.width),
@@ -792,9 +829,10 @@
       name: name,
       layout: pickLayout(cs),
       layoutWrap: flexWrapOf(cs),
+      primaryAxisAlign: primaryAxisAlignOf(cs),
+      counterAxisAlign: counterAxisAlignOf(cs),
+      layoutGrow: layoutGrowOf(cs),
       padding: padOf(cs),
-      // Figma auto-layout uses itemSpacing (primary axis) + counterAxisSpacing
-      // (secondary axis when wrapping). Pick the right CSS value for each.
       spacing: px(cs.columnGap) || px(cs.gap) || 0,
       counterAxisSpacing: px(cs.rowGap) || px(cs.gap) || 0,
       fill: fillOf(cs),
