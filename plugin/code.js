@@ -710,7 +710,19 @@ function _ifcFillFromValue(val) {
       if (!layer || typeof layer !== "object") continue;
       if (layer.kind === "solid" && layer.color) {
         var rgb1 = hexToRGB(layer.color);
-        if (rgb1) paints.push({ type: "SOLID", color: { r: rgb1.r, g: rgb1.g, b: rgb1.b }, opacity: rgb1.a == null ? 1 : rgb1.a });
+        if (rgb1) {
+          var paint = { type: "SOLID", color: { r: rgb1.r, g: rgb1.g, b: rgb1.b }, opacity: rgb1.a == null ? 1 : rgb1.a };
+          // Bind to Figma Variable if a token name was carried.
+          if (layer.token) {
+            try {
+              var v = _ifcVarByName && _ifcVarByName[layer.token];
+              if (v && figma.variables && figma.variables.setBoundVariableForPaint) {
+                paint = figma.variables.setBoundVariableForPaint(paint, "color", v);
+              }
+            } catch (e) {}
+          }
+          paints.push(paint);
+        }
       } else if (layer.kind === "linear-gradient" && layer.value) {
         var g = _ifcParseLinearGradient(layer.value);
         if (g) paints.push(g);
@@ -1303,6 +1315,10 @@ function _ifcPx(v) {
 // Ensure each `--foo: value` from spec._cssVariables exists as a Figma
 // Variable in a collection named "CSS Variables" — handed off to designers
 // for design-system editing without auto-binding fills (too lossy).
+// Module-level lookup of Variable name → Variable object. Populated by
+// _ifcSyncCssVariables so fill emission can bind paints to variables.
+var _ifcVarByName = {};
+
 async function _ifcSyncCssVariables(vars, warnings) {
   if (!vars || !Object.keys(vars).length) return 0;
   if (!figma.variables) return 0;
@@ -1338,6 +1354,7 @@ async function _ifcSyncCssVariables(vars, warnings) {
         if (!v) { v = figma.variables.createVariable(name, col, "STRING"); created++; }
         if (v.resolvedType === "STRING") v.setValueForMode(modeId, String(val));
       }
+      if (v) _ifcVarByName[name] = v;
     } catch (e) { _ifcWarn(warnings, "var " + name + ": " + e.message); }
   }
   return created;
