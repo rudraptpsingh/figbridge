@@ -693,6 +693,373 @@ function isIconCandidate(node) {
   return false;
 }
 
+// ── import-from-code ─────────────────────────────────────────
+// Build a real, editable Figma frame tree from either a deterministic
+// JSON spec or a best-effort HTML parse. ES2017-safe (no spread / ?? / ?.)
+// because the Figma plugin sandbox runs QuickJS.
+
+function _ifcWarn(warnings, msg) { warnings.push(msg); }
+
+function _ifcFillFromValue(val) {
+  if (!val) return null;
+  if (typeof val === "string") {
+    var rgb = hexToRGB(val);
+    if (rgb) return [{ type: "SOLID", color: { r: rgb.r, g: rgb.g, b: rgb.b }, opacity: rgb.a == null ? 1 : rgb.a }];
+    return null;
+  }
+  return null;
+}
+
+function _ifcSetSize(node, w, h) {
+  if (w != null && h != null) {
+    try { node.resizeWithoutConstraints(Math.max(1, w), Math.max(1, h)); } catch (e) {
+      try { node.resize(Math.max(1, w), Math.max(1, h)); } catch (e2) {}
+    }
+  }
+}
+
+async function _ifcCreateNode(spec, warnings) {
+  var type = (spec && spec.type) || "frame";
+  if (type === "text") {
+    var t = figma.createText();
+    var fontName = { family: (spec.fontFamily || "Inter"), style: _ifcFontStyle(spec.fontWeight) };
+    try { await figma.loadFontAsync(fontName); }
+    catch (e) {
+      fontName = { family: "Inter", style: "Regular" };
+      try { await figma.loadFontAsync(fontName); } catch (e2) { _ifcWarn(warnings, "font load failed: " + e2.message); }
+    }
+    t.fontName = fontName;
+    if (spec.fontSize) t.fontSize = Number(spec.fontSize) || 16;
+    t.characters = String(spec.characters != null ? spec.characters : (spec.text || ""));
+    var col = _ifcFillFromValue(spec.color || spec.fill);
+    if (col) t.fills = col;
+    if (spec.name) t.name = spec.name;
+    return t;
+  }
+  if (type === "rect") {
+    var r = figma.createRectangle();
+    _ifcSetSize(r, spec.width, spec.height);
+    if (spec.cornerRadius != null) r.cornerRadius = Number(spec.cornerRadius) || 0;
+    if (spec.name) r.name = spec.name;
+    // Image fill takes priority over solid fill if `_imageBytes` (base64 PNG/JPG) was inlined.
+    if (spec._imageBytes) {
+      try {
+        var raw = spec._imageBytes.replace(/^data:[^;]+;base64,/, "");
+        var bin = atob(raw);
+        var u8 = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        var img = figma.createImage(u8);
+        r.fills = [{ type: "IMAGE", scaleMode: "FILL", imageHash: img.hash }];
+        return r;
+      } catch (e) { _ifcWarn(warnings, "image decode failed: " + e.message); }
+    }
+    var f = _ifcFillFromValue(spec.fill);
+    if (f) r.fills = f; else r.fills = [];
+    return r;
+  }
+  // frame (default)
+  var fr = figma.createFrame();
+  if (spec.name) fr.name = spec.name;
+  var ff = _ifcFillFromValue(spec.fill);
+  if (ff) fr.fills = ff; else fr.fills = [];
+  if (spec.cornerRadius != null) fr.cornerRadius = Number(spec.cornerRadius) || 0;
+  // auto-layout
+  var layout = spec.layout || "NONE";
+  if (layout === "VERTICAL" || layout === "HORIZONTAL") {
+    fr.layoutMode = layout;
+    var pad = spec.padding;
+    if (pad != null) {
+      var pNum = Number(pad) || 0;
+      fr.paddingTop = pNum; fr.paddingBottom = pNum;
+      fr.paddingLeft = pNum; fr.paddingRight = pNum;
+    }
+    if (spec.spacing != null) fr.itemSpacing = Number(spec.spacing) || 0;
+    // When an explicit dimension is provided, lock that axis to FIXED so the
+    // resize call below sticks. Otherwise auto-layout hugs content and the
+    // resize gets immediately reverted on the next layout pass.
+    var primaryIsVertical = layout === "VERTICAL";
+    var primaryExplicit  = primaryIsVertical ? spec.height != null : spec.width  != null;
+    var counterExplicit  = primaryIsVertical ? spec.width  != null : spec.height != null;
+    fr.primaryAxisSizingMode = primaryExplicit ? "FIXED" : "AUTO";
+    fr.counterAxisSizingMode = counterExplicit ? "FIXED" : "AUTO";
+  }
+  _ifcSetSize(fr, spec.width, spec.height);
+  var children = spec.children || [];
+  for (var i = 0; i < children.length; i++) {
+    try {
+      var child = await _ifcCreateNode(children[i], warnings);
+      if (child) fr.appendChild(child);
+    } catch (e) { _ifcWarn(warnings, "child[" + i + "] failed: " + (e && e.message || e)); }
+  }
+  return fr;
+}
+
+function _ifcFontStyle(weight) {
+  if (!weight) return "Regular";
+  var w = String(weight).toLowerCase();
+  if (w === "bold" || w === "700" || w === "800" || w === "900") return "Bold";
+  if (w === "600" || w === "semibold" || w === "semi-bold") return "Semi Bold";
+  if (w === "500" || w === "medium") return "Medium";
+  if (w === "300" || w === "light") return "Light";
+  return "Regular";
+}
+
+// Minimal HTML → spec converter. Not a real parser — handles the common
+// cases (semantic tags, inline styles for color/background/font-size/
+// padding/gap/border-radius/width/height/flex direction). Anything fancier,
+// pass `spec` instead.
+function _ifcHtmlToSpec(html, warnings) {
+  // Strip <head> / <script> / <style> blocks for the body walk.
+  var headMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  var title = headMatch ? headMatch[1].trim() : null;
+  var body = html.replace(/<script[\s\S]*?<\/script>/gi, "")
+                 .replace(/<style[\s\S]*?<\/style>/gi, "")
+                 .replace(/<head[\s\S]*?<\/head>/gi, "");
+  var rootMatch = body.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  var inner = rootMatch ? rootMatch[1] : body;
+  // Tokenize into a tree.
+  var voidTags = { img: 1, hr: 1, br: 1, input: 1, meta: 1, link: 1 };
+  var frameTags = { div: 1, section: 1, header: 1, footer: 1, nav: 1, article: 1, aside: 1, main: 1, ul: 1, ol: 1, li: 1, form: 1, figure: 1 };
+  var textTags = { h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, p: 1, span: 1, a: 1, button: 1, label: 1, strong: 1, em: 1 };
+  var rectTags = { img: 1, hr: 1 };
+  var pos = 0;
+  function parseChildren(stopTag) {
+    var out = [];
+    while (pos < inner.length) {
+      // closing tag?
+      if (stopTag) {
+        var closeRe = new RegExp("^</" + stopTag + "\\s*>", "i");
+        var rest = inner.slice(pos);
+        var cm = rest.match(closeRe);
+        if (cm) { pos += cm[0].length; return out; }
+      }
+      var lt = inner.indexOf("<", pos);
+      if (lt < 0) {
+        var tail = inner.slice(pos).trim();
+        if (tail) out.push({ type: "text", characters: _ifcDecode(tail) });
+        pos = inner.length; break;
+      }
+      if (lt > pos) {
+        var txt = inner.slice(pos, lt).replace(/\s+/g, " ").trim();
+        if (txt) out.push({ type: "text", characters: _ifcDecode(txt) });
+      }
+      pos = lt;
+      var tagMatch = inner.slice(pos).match(/^<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/);
+      if (!tagMatch) { pos++; continue; }
+      var tagName = tagMatch[1].toLowerCase();
+      var attrs = tagMatch[2];
+      var isClose = inner[pos + 1] === "/";
+      pos += tagMatch[0].length;
+      if (isClose) {
+        // unexpected close — bail to caller
+        return out;
+      }
+      var selfClose = /\/\s*>$/.test(tagMatch[0]) || voidTags[tagName];
+      var style = _ifcParseStyle(_ifcAttr(attrs, "style"));
+      var node;
+      if (rectTags[tagName]) {
+        node = { type: "rect", name: tagName };
+        if (style.width) node.width = style.width;
+        if (style.height) node.height = style.height;
+        if (style.background) node.fill = style.background;
+        if (style.borderRadius != null) node.cornerRadius = style.borderRadius;
+      } else if (textTags[tagName]) {
+        // Treat as text — collect inner text only (drop nested tags).
+        var inside = "";
+        if (!selfClose) {
+          var endIdx = inner.toLowerCase().indexOf("</" + tagName + ">", pos);
+          if (endIdx >= 0) { inside = inner.slice(pos, endIdx); pos = endIdx + tagName.length + 3; }
+        }
+        var plain = inside.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+        node = { type: "text", name: tagName, characters: _ifcDecode(plain) };
+        if (tagName === "h1") node.fontSize = 32; else if (tagName === "h2") node.fontSize = 24;
+        else if (tagName === "h3") node.fontSize = 20; else if (tagName === "h4") node.fontSize = 18;
+        else if (tagName === "button") { node.fontSize = 14; node.fontWeight = "600"; }
+        if (style.fontSize) node.fontSize = style.fontSize;
+        if (style.fontWeight) node.fontWeight = style.fontWeight;
+        if (style.color) node.color = style.color;
+      } else if (frameTags[tagName] || true) {
+        node = { type: "frame", name: tagName, layout: style.flexDirection === "row" ? "HORIZONTAL" : (style.display === "flex" ? "VERTICAL" : "VERTICAL") };
+        if (style.padding != null) node.padding = style.padding;
+        if (style.gap != null) node.spacing = style.gap;
+        if (style.background) node.fill = style.background;
+        if (style.borderRadius != null) node.cornerRadius = style.borderRadius;
+        if (style.width) node.width = style.width;
+        if (style.height) node.height = style.height;
+        if (!selfClose) node.children = parseChildren(tagName);
+      }
+      out.push(node);
+    }
+    return out;
+  }
+  var kids = parseChildren(null);
+  return { type: "frame", name: title || "Imported design", layout: "VERTICAL", padding: 0, spacing: 0, fill: "#ffffff", children: kids };
+}
+function _ifcAttr(attrs, key) {
+  if (!attrs) return null;
+  var m = attrs.match(new RegExp(key + "\\s*=\\s*\"([^\"]*)\"", "i"));
+  if (m) return m[1];
+  m = attrs.match(new RegExp(key + "\\s*=\\s*'([^']*)'", "i"));
+  return m ? m[1] : null;
+}
+function _ifcDecode(s) {
+  return s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&nbsp;/g, " ");
+}
+function _ifcParseStyle(str) {
+  var out = {};
+  if (!str) return out;
+  var parts = str.split(";");
+  for (var i = 0; i < parts.length; i++) {
+    var kv = parts[i].split(":");
+    if (kv.length < 2) continue;
+    var k = kv[0].trim().toLowerCase();
+    var v = kv.slice(1).join(":").trim();
+    if (k === "background" || k === "background-color") out.background = _ifcColor(v);
+    else if (k === "color") out.color = _ifcColor(v);
+    else if (k === "font-size") out.fontSize = _ifcPx(v);
+    else if (k === "font-weight") out.fontWeight = v;
+    else if (k === "padding") out.padding = _ifcPx(v);
+    else if (k === "gap") out.gap = _ifcPx(v);
+    else if (k === "border-radius") out.borderRadius = _ifcPx(v);
+    else if (k === "width") out.width = _ifcPx(v);
+    else if (k === "height") out.height = _ifcPx(v);
+    else if (k === "display") out.display = v;
+    else if (k === "flex-direction") out.flexDirection = v;
+  }
+  return out;
+}
+function _ifcColor(v) {
+  v = v.trim();
+  if (/^#/.test(v)) return v;
+  var m = v.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (m) {
+    var hx = function (n) { var s = parseInt(n, 10).toString(16); return s.length === 1 ? "0" + s : s; };
+    return "#" + hx(m[1]) + hx(m[2]) + hx(m[3]);
+  }
+  return null;
+}
+function _ifcPx(v) {
+  var m = String(v).match(/(-?[\d.]+)/);
+  return m ? Number(m[1]) : null;
+}
+
+async function importFromCode(args) {
+  var warnings = [];
+  var spec = args.spec;
+  if (!spec && args.html) {
+    spec = _ifcHtmlToSpec(args.html, warnings);
+  }
+  if (!spec) return { ok: false, error: "Provide spec or html." };
+  // Resolve page
+  var page = figma.currentPage;
+  if (args.pageId) {
+    var p = figma.root.children.find(function (pp) { return pp.id === args.pageId; });
+    if (p) { await figma.setCurrentPageAsync(p); page = p; }
+    else _ifcWarn(warnings, "pageId not found, using current page");
+  }
+  if (args.name) spec.name = args.name;
+  var root;
+  try { root = await _ifcCreateNode(spec, warnings); }
+  catch (e) { return { ok: false, error: "create failed: " + (e && e.message || e), warnings: warnings }; }
+  // Place to the right of any existing top-level frame on the page.
+  var maxRight = 0;
+  for (var i = 0; i < page.children.length; i++) {
+    var ch = page.children[i];
+    if ("x" in ch && "width" in ch && ch !== root) {
+      var r = ch.x + ch.width;
+      if (r > maxRight) maxRight = r;
+    }
+  }
+  if ("x" in root) root.x = maxRight ? maxRight + 80 : 0;
+  if ("y" in root) root.y = 0;
+  try { figma.currentPage.selection = [root]; figma.viewport.scrollAndZoomIntoView([root]); } catch (e) {}
+  // Count nodes recursively.
+  function count(n) {
+    var c = 1;
+    if ("children" in n && n.children) for (var i = 0; i < n.children.length; i++) c += count(n.children[i]);
+    return c;
+  }
+  return { ok: true, nodeId: root.id, name: root.name, createdCount: count(root), warnings: warnings };
+}
+
+async function updateFromCode(args) {
+  var warnings = [];
+  var spec = args.spec;
+  if (!spec && args.html) spec = _ifcHtmlToSpec(args.html, warnings);
+  if (!spec) return { ok: false, error: "Provide spec or html." };
+  var target = null;
+  if (args.nodeId) target = await figma.getNodeByIdAsync(args.nodeId);
+  if (!target && args.name) {
+    var nm = args.name;
+    var page = figma.currentPage;
+    for (var i = 0; i < page.children.length; i++) {
+      if (page.children[i].name === nm) { target = page.children[i]; break; }
+    }
+  }
+  if (!target) {
+    // No match — degrade gracefully to a fresh import.
+    return await importFromCode(args);
+  }
+  if (target.type !== "FRAME" && typeof target.appendChild !== "function") {
+    return { ok: false, error: "target is not a frame: " + target.type };
+  }
+  // Remove existing children before rebuilding.
+  var existing = target.children.slice();
+  for (var j = 0; j < existing.length; j++) {
+    try { existing[j].remove(); } catch (e) {}
+  }
+  // Build new subtree and append.
+  var newRoot;
+  try { newRoot = await _ifcCreateNode(spec, warnings); }
+  catch (e) { return { ok: false, error: "rebuild failed: " + e.message, warnings: warnings }; }
+  // Copy properties from new root to the existing one (so id stays stable),
+  // then move new root's children into it.
+  if (spec.fill) {
+    var f = _ifcFillFromValue(spec.fill);
+    if (f) target.fills = f;
+  }
+  if (spec.layout === "VERTICAL" || spec.layout === "HORIZONTAL") {
+    target.layoutMode = spec.layout;
+    if (spec.padding != null) {
+      var p = Number(spec.padding) || 0;
+      target.paddingTop = p; target.paddingBottom = p; target.paddingLeft = p; target.paddingRight = p;
+    }
+    if (spec.spacing != null) target.itemSpacing = Number(spec.spacing) || 0;
+  }
+  _ifcSetSize(target, spec.width, spec.height);
+  var newChildren = (newRoot.children || []).slice();
+  for (var k = 0; k < newChildren.length; k++) target.appendChild(newChildren[k]);
+  try { newRoot.remove(); } catch (e) {}
+  try { figma.currentPage.selection = [target]; figma.viewport.scrollAndZoomIntoView([target]); } catch (e) {}
+  function ncount(n) { var c = 1; if ("children" in n && n.children) for (var i = 0; i < n.children.length; i++) c += ncount(n.children[i]); return c; }
+  return { ok: true, nodeId: target.id, name: target.name, replacedCount: ncount(target), warnings: warnings };
+}
+
+async function deleteNodes(args) {
+  var ids = [];
+  if (args.nodeId) ids.push(args.nodeId);
+  if (Array.isArray(args.nodeIds)) ids = ids.concat(args.nodeIds);
+  // Allow deleting by exact name(s) on the current page.
+  var byName = args.name ? (Array.isArray(args.name) ? args.name : [args.name]) : [];
+  if (byName.length) {
+    var ch = figma.currentPage.children;
+    for (var i = 0; i < ch.length; i++) {
+      if (byName.indexOf(ch[i].name) !== -1) ids.push(ch[i].id);
+    }
+  }
+  var deleted = [];
+  var errors = [];
+  for (var j = 0; j < ids.length; j++) {
+    try {
+      var n = await figma.getNodeByIdAsync(ids[j]);
+      if (!n) { errors.push({ id: ids[j], error: "not found" }); continue; }
+      n.remove();
+      deleted.push(ids[j]);
+    } catch (e) { errors.push({ id: ids[j], error: e.message }); }
+  }
+  return { ok: true, deleted: deleted, errors: errors };
+}
+
 async function listAssets(args) {
   var kind = (args && args.kind) || "icon";
   var limit = args && typeof args.limit === "number" ? args.limit : 40;
@@ -842,6 +1209,43 @@ async function handleCommand(cmdId, action, args) {
     if (action === "export-app-spec") {
       var spec = await exportAppSpec();
       return { ok: true, spec: spec };
+    }
+    if (action === "import-from-code") {
+      return await importFromCode(args || {});
+    }
+    if (action === "update-from-code") {
+      // Find an existing frame by name (or nodeId) and replace its children
+      // with the new spec's children. Preserves the parent frame's id so
+      // selection / references survive — closes the iteration loop.
+      return await updateFromCode(args || {});
+    }
+    if (action === "delete-node") {
+      // Delete a node by id (or list of ids, or by name). Returns the
+      // ids that were actually removed.
+      return await deleteNodes(args || {});
+    }
+    if (action === "run-script") {
+      // Generic escape hatch — evaluate arbitrary JS in the plugin sandbox
+      // with the figma API in scope. Lets the agent ship new Figma
+      // behaviors without rebuilding/reloading the plugin. Trust model:
+      // bridge is 127.0.0.1-only, same as every other write action.
+      // Returns { ok, result, error? }.
+      var src = args && args.script;
+      if (!src || typeof src !== "string") return { ok: false, error: "script (string) required" };
+      try {
+        // The script body is async; wrap to await it. `figma` is already global.
+        var wrapped = "(async () => { " + src + " })()";
+        // eslint-disable-next-line no-eval
+        var p = eval(wrapped);
+        var result = await Promise.resolve(p);
+        // Try JSON-serialize; if non-serializable, stringify shallowly.
+        var out;
+        try { out = JSON.parse(JSON.stringify(result)); }
+        catch (e) { out = String(result); }
+        return { ok: true, result: out };
+      } catch (e) {
+        return { ok: false, error: (e && e.message) || String(e), stack: e && e.stack };
+      }
     }
     if (action === "clone-screen") {
       if (!args || !args.sourceNodeId) return { ok: false, error: "sourceNodeId required" };

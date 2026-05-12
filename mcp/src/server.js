@@ -294,6 +294,95 @@ export async function main() {
     }
   );
 
+  // ── Code → Figma import ────────────────────────────────────
+  server.tool(
+    "import_from_code",
+    "Create a real Figma frame (auto-layout, text, fills, radii — editable layers, not a flattened image) directly from code. Provide ONE of: `spec` (deterministic JSON tree — preferred), `html` (raw HTML string — best-effort element→frame mapping), or `htmlPath` (read file from disk, then parse as html). Top-level spec shape: { name, width?, height?, fill?, layout: 'VERTICAL'|'HORIZONTAL'|'NONE', padding?, spacing?, children: Node[] } where Node = { type: 'frame'|'text'|'rect', ...style }. The new frame is placed to the right of any existing top-level frame on the current page and selected. Returns { nodeId, name, createdCount, warnings[] }.",
+    {
+      // `spec` is a nested object. The MCP SDK silently drops fields under
+      // `z.any()` so we accept the spec as a JSON STRING and parse it
+      // server-side. Object-typed args are still flaky enough across
+      // clients that string-in is the safer contract.
+      spec: z.string().optional().describe("Deterministic design spec as a JSON string — a tree of { type: 'frame'|'text'|'rect', ... }. Stringify with JSON.stringify(...). Highest fidelity, no parsing guesswork."),
+      html: z.string().optional().describe("Raw HTML string. Mapped element-by-element: section/div/header/footer/nav/article → frame; h1-h6/p/span/a/button text → text node; img/hr → rect. Inline `style=\"...\"` attributes are parsed for common properties (background, color, font-size, padding, gap, border-radius, width, height, display:flex with flex-direction)."),
+      htmlPath: z.string().optional().describe("Path to an HTML file on disk. Read and treated as `html`. Useful for piping a built page directly into Figma."),
+      name: z.string().optional().describe("Override the root frame's name. Defaults to spec.name, '<title>', or 'Imported design'."),
+      pageId: z.string().optional().describe("Target page id. Omit to use the current page.")
+    },
+    async ({ spec, html, htmlPath, name, pageId }) => {
+      try {
+        let parsedSpec = null;
+        if (spec) {
+          try { parsedSpec = JSON.parse(spec); }
+          catch (e) { return asText({ ok: false, error: "spec is not valid JSON: " + e.message }); }
+        }
+        let resolvedHtml = html;
+        if (!parsedSpec && !html && htmlPath) {
+          const { readFile } = await import("node:fs/promises");
+          resolvedHtml = await readFile(htmlPath, "utf8");
+        }
+        if (!parsedSpec && !resolvedHtml) {
+          return asText({ ok: false, error: "Provide one of: spec, html, htmlPath." });
+        }
+        const r = await sendCommand("import-from-code", {
+          spec: parsedSpec || null,
+          html: resolvedHtml || null,
+          name: name || null,
+          pageId: pageId || null
+        }, 30000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "update_from_code",
+    "Update an existing Figma frame in place from a new spec or HTML — finds the frame by `nodeId` or by exact `name`, removes its children, and rebuilds them from `spec` / `html`. The root frame id stays stable so anything that references it survives the update. If no match found, falls back to creating a fresh frame. Returns { nodeId, name, replacedCount, warnings[] }. Use this for iterative re-imports instead of `import_from_code` to avoid duplicate frames.",
+    {
+      spec: z.string().optional().describe("Deterministic design spec as a JSON string."),
+      html: z.string().optional().describe("Raw HTML string."),
+      nodeId: z.string().optional().describe("Figma node id of the existing frame to update."),
+      name: z.string().optional().describe("Name of the existing top-level frame to update (used when nodeId not provided).")
+    },
+    async ({ spec, html, nodeId, name }) => {
+      try {
+        let parsedSpec = null;
+        if (spec) { try { parsedSpec = JSON.parse(spec); } catch (e) { return asText({ ok: false, error: "spec not valid JSON: " + e.message }); } }
+        if (!parsedSpec && !html) return asText({ ok: false, error: "Provide spec or html." });
+        const r = await sendCommand("update-from-code", { spec: parsedSpec || null, html: html || null, nodeId: nodeId || null, name: name || null }, 60000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "run_script",
+    "Escape hatch: evaluate an arbitrary JavaScript async-body inside the Figma plugin sandbox. The `figma` plugin API is in scope. Use this when no purpose-built tool exists for what you want — e.g. one-off queries, exotic node manipulations, prototyping a future tool. Body must return a JSON-serializable value (or undefined). Returns { ok, result, error? }. Trust model: bridge binds 127.0.0.1 only, same as recolor/clone_screen.\n\nExample script: `const sel = figma.currentPage.selection[0]; return { id: sel?.id, type: sel?.type, name: sel?.name };`",
+    { script: z.string().describe("JavaScript async function body. The `figma` global is available. Use `return` for the result.") },
+    async ({ script }) => {
+      try {
+        const r = await sendCommand("run-script", { script }, 30000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "delete_node",
+    "Delete a Figma node by id, a list of ids, or by exact name. Returns { deleted, errors }. Use this to clean up junk frames between imports.",
+    {
+      nodeId: z.string().optional().describe("Single node id, e.g. '6:2'."),
+      nodeIds: z.array(z.string()).optional().describe("Multiple node ids."),
+      name: z.union([z.string(), z.array(z.string())]).optional().describe("Exact frame name(s) on the current page.")
+    },
+    async ({ nodeId, nodeIds, name }) => {
+      try {
+        const r = await sendCommand("delete-node", { nodeId: nodeId || null, nodeIds: nodeIds || [], name: name || null }, 10000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   // ── Agent bundle ───────────────────────────────────────────
   server.tool(
     "get_agent_bundle",
