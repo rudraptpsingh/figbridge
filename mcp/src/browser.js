@@ -82,9 +82,10 @@ export async function urlToSpec(url, opts = {}) {
   const page = await browser.newPage();
   try {
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
-    await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
-    // Give CDN-served Tailwind a beat to compile.
-    await new Promise(r => setTimeout(r, 1000));
+    // Use domcontentloaded + a fixed settle wait. networkidle0/2 hangs on
+    // sites with persistent beacon connections (analytics, web sockets).
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise(r => setTimeout(r, opts.settleMs || 2000));
 
     // Scroll-prime so IntersectionObserver reveals fire, then rescue any
     // opacity:0 elements (pre-fade-in DOM is real and we want it).
@@ -149,7 +150,7 @@ export async function probeUrl(url, script, opts = {}) {
   const page = await browser.newPage();
   try {
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
-    await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await new Promise(r => setTimeout(r, opts.settleMs || 1000));
     return await page.evaluate(new Function(`return (async () => { ${script} })()`));
   } finally {
@@ -165,7 +166,7 @@ export async function screenshotUrl(url, opts = {}) {
   const page = await browser.newPage();
   try {
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
-    await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await new Promise(r => setTimeout(r, opts.settleMs || 1500));
     const png = await page.screenshot({ fullPage: opts.fullPage !== false, type: "png" });
     return Buffer.from(png).toString("base64");
