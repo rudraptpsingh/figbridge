@@ -928,6 +928,16 @@ async function _ifcCreateNode(spec, warnings) {
     if (spec.textTransform === "UPPER" || spec.textTransform === "LOWER" || spec.textTransform === "TITLE") {
       try { t.textCase = spec.textTransform; } catch (e) {}
     }
+    if (spec.whiteSpace === "NOWRAP") {
+      try { t.textAutoResize = "WIDTH_AND_HEIGHT"; } catch (e) {}
+    } else if (typeof spec.width === "number" && spec.width > 0) {
+      // Wrap to the rendered width so multi-line text matches the page.
+      try { t.textAutoResize = "HEIGHT"; t.resize(spec.width, t.height); } catch (e) {}
+    }
+    if (Array.isArray(spec.textShadow) && spec.textShadow.length && "effects" in t) {
+      var tfx = _ifcShadowToEffects(spec.textShadow);
+      if (tfx) t.effects = tfx;
+    }
     if (typeof spec.opacity === "number" && spec.opacity > 0 && spec.opacity < 1) {
       t.opacity = spec.opacity;
     }
@@ -1012,6 +1022,9 @@ async function _ifcCreateNode(spec, warnings) {
       fr.paddingLeft = pad.left; fr.paddingRight = pad.right;
     }
     if (spec.spacing != null) fr.itemSpacing = Number(spec.spacing) || 0;
+    if (spec.layoutWrap === "WRAP" && "layoutWrap" in fr) {
+      try { fr.layoutWrap = "WRAP"; } catch (e) {}
+    }
     // When an explicit dimension is provided, lock that axis to FIXED so the
     // resize call below sticks. Otherwise auto-layout hugs content and the
     // resize gets immediately reverted on the next layout pass.
@@ -1022,6 +1035,12 @@ async function _ifcCreateNode(spec, warnings) {
     fr.counterAxisSizingMode = counterExplicit ? "FIXED" : "AUTO";
   }
   _ifcSetSize(fr, spec.width, spec.height);
+  // Apply min/max sizing constraints — useful when downstream auto-layout
+  // resizes things. Figma supports these via minWidth/maxWidth/etc.
+  if (typeof spec.minWidth === "number" && "minWidth" in fr) try { fr.minWidth = spec.minWidth; } catch (e) {}
+  if (typeof spec.maxWidth === "number" && "maxWidth" in fr) try { fr.maxWidth = spec.maxWidth; } catch (e) {}
+  if (typeof spec.minHeight === "number" && "minHeight" in fr) try { fr.minHeight = spec.minHeight; } catch (e) {}
+  if (typeof spec.maxHeight === "number" && "maxHeight" in fr) try { fr.maxHeight = spec.maxHeight; } catch (e) {}
   var children = spec.children || [];
   var isAutoLayout = (layout === "VERTICAL" || layout === "HORIZONTAL");
   for (var i = 0; i < children.length; i++) {
