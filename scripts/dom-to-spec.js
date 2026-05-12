@@ -37,6 +37,55 @@
     return m ? Number(m[1]) : null;
   }
 
+  // Designer-friendly node names. Prefer id, then a semantic-tag label,
+  // then the first non-utility class, finally the tag. Utility classes
+  // (Tailwind-style: ".max-w-6xl", ".text-[15px]") are noisy in Figma's
+  // Layers panel.
+  const SEMANTIC_NAMES = {
+    header: 'Header', footer: 'Footer', nav: 'Nav', main: 'Main',
+    section: 'Section', article: 'Article', aside: 'Aside',
+    h1: 'Heading 1', h2: 'Heading 2', h3: 'Heading 3', h4: 'Heading 4',
+    h5: 'Heading 5', h6: 'Heading 6',
+    p: 'Paragraph', a: 'Link', button: 'Button', img: 'Image', svg: 'Icon',
+    ul: 'List', ol: 'List', li: 'List item',
+    form: 'Form', input: 'Input', textarea: 'Textarea', label: 'Label',
+    figure: 'Figure', figcaption: 'Caption', blockquote: 'Quote',
+  };
+  function looksUtility(cls) {
+    // Tailwind utility classes: prefixes, brackets, slashes, colons.
+    return /^(p|m|mt|mb|ml|mr|mx|my|w|h|min-|max-|text-|bg-|flex|grid|gap-|items-|justify-|space-|rounded|shadow|opacity|hover:|focus:|md:|lg:|sm:)/.test(cls)
+      || /\[/.test(cls) || /\//.test(cls);
+  }
+  function firstSemanticClass(className) {
+    if (typeof className !== 'string' || !className) return null;
+    const all = className.split(/\s+/).filter(Boolean);
+    for (const c of all) if (!looksUtility(c)) return c;
+    return null;
+  }
+  function nameForNode(el, tag) {
+    if (el.id) return '#' + el.id;
+    const sc = firstSemanticClass(el.className);
+    if (sc) return '.' + sc.slice(0, 32);
+    if (SEMANTIC_NAMES[tag]) return SEMANTIC_NAMES[tag];
+    return tag;
+  }
+
+  // Extract CSS custom properties (`--*`) from :root for design-system
+  // handoff. These become Figma Variables on the plugin side.
+  function collectCssVariables() {
+    const out = {};
+    const rootStyle = window.getComputedStyle(document.documentElement);
+    // getComputedStyle includes inherited + cascaded properties; walk all.
+    for (let i = 0; i < rootStyle.length; i++) {
+      const prop = rootStyle.item(i);
+      if (!prop.startsWith('--')) continue;
+      const val = rootStyle.getPropertyValue(prop).trim();
+      if (!val) continue;
+      out[prop] = val;
+    }
+    return out;
+  }
+
   function isVisible(el, cs) {
     // Important: do NOT skip elements with opacity:0. They're real DOM
     // (often pre-scroll fade-in targets) and we want their structure +
@@ -356,7 +405,7 @@
     if (!isVisible(el, cs)) return null;
     const tag = el.tagName.toLowerCase();
     const rect = el.getBoundingClientRect();
-    const name = el.id ? `#${el.id}` : (el.className && typeof el.className === 'string' ? '.' + el.className.split(/\s+/)[0] : tag);
+    const name = nameForNode(el, tag);
 
     // <img> → rect (image bytes inlined as data URL when embedImages opt is on).
     if (tag === 'img') {
@@ -650,8 +699,11 @@
     const spec = nodeForElement(root, { maxDepth, embedImages }, 0);
     if (spec) {
       spec.name = opts.name || (document.title || 'Imported page');
-      // Force the root to the viewport width for clean side-by-side layout.
       if (opts.viewport) spec.width = opts.viewport;
+      // Carry the page-level CSS custom properties so the plugin can
+      // create matching Figma Variables.
+      const cssVars = collectCssVariables();
+      if (Object.keys(cssVars).length) spec._cssVariables = cssVars;
     }
     return spec;
   };

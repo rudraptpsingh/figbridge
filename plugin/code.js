@@ -1210,6 +1210,49 @@ function _ifcPx(v) {
   return m ? Number(m[1]) : null;
 }
 
+// Ensure each `--foo: value` from spec._cssVariables exists as a Figma
+// Variable in a collection named "CSS Variables" — handed off to designers
+// for design-system editing without auto-binding fills (too lossy).
+async function _ifcSyncCssVariables(vars, warnings) {
+  if (!vars || !Object.keys(vars).length) return 0;
+  if (!figma.variables) return 0;
+  var collections = await figma.variables.getLocalVariableCollectionsAsync();
+  var col = null;
+  for (var i = 0; i < collections.length; i++) {
+    if (collections[i].name === "CSS Variables") { col = collections[i]; break; }
+  }
+  if (!col) {
+    try { col = figma.variables.createVariableCollection("CSS Variables"); }
+    catch (e) { _ifcWarn(warnings, "could not create variable collection: " + e.message); return 0; }
+  }
+  var modeId = col.modes[0].modeId;
+  var existing = await figma.variables.getLocalVariablesAsync();
+  var byName = {};
+  for (var ei = 0; ei < existing.length; ei++) byName[existing[ei].name] = existing[ei];
+  var created = 0;
+  var keys = Object.keys(vars);
+  for (var k = 0; k < keys.length; k++) {
+    var name = keys[k];
+    var val = vars[name];
+    var rgb = hexToRGB(val);
+    var v = byName[name];
+    try {
+      if (rgb) {
+        if (!v) { v = figma.variables.createVariable(name, col, "COLOR"); created++; }
+        if (v.resolvedType === "COLOR") v.setValueForMode(modeId, { r: rgb.r, g: rgb.g, b: rgb.b, a: rgb.a == null ? 1 : rgb.a });
+      } else if (/^-?[\d.]+(px|rem|em)?$/.test(String(val).trim())) {
+        if (!v) { v = figma.variables.createVariable(name, col, "FLOAT"); created++; }
+        var n = parseFloat(val);
+        if (isFinite(n) && v.resolvedType === "FLOAT") v.setValueForMode(modeId, n);
+      } else {
+        if (!v) { v = figma.variables.createVariable(name, col, "STRING"); created++; }
+        if (v.resolvedType === "STRING") v.setValueForMode(modeId, String(val));
+      }
+    } catch (e) { _ifcWarn(warnings, "var " + name + ": " + e.message); }
+  }
+  return created;
+}
+
 async function importFromCode(args) {
   var warnings = [];
   var spec = args.spec;
@@ -1217,6 +1260,11 @@ async function importFromCode(args) {
     spec = _ifcHtmlToSpec(args.html, warnings);
   }
   if (!spec) return { ok: false, error: "Provide spec or html." };
+  // Side-effect: create/update Figma Variables from any CSS custom
+  // properties carried on the spec (designer-friendly handoff).
+  if (spec._cssVariables) {
+    try { await _ifcSyncCssVariables(spec._cssVariables, warnings); } catch (e) { _ifcWarn(warnings, "cssVars: " + e.message); }
+  }
   // Resolve page
   var page = figma.currentPage;
   if (args.pageId) {
