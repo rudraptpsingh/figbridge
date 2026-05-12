@@ -184,7 +184,7 @@ export async function main() {
     "list_components",
     "List local components and component sets (with variants) in the currently open Figma file. Returns [{ nodeId, name, kind: 'COMPONENT' | 'COMPONENT_SET', variantCount?, variants? }].",
     {
-      includeVariants: z.boolean().optional().describe("If true, include the list of variant components inside each COMPONENT_SET.")
+      includeVariants: z.coerce.boolean().optional().describe("If true, include the list of variant components inside each COMPONENT_SET.")
     },
     async ({ includeVariants }) => {
       try {
@@ -270,7 +270,7 @@ export async function main() {
     "Export bulk assets from the file as base64. kind='icon' scans small vector frames + names like ic-* and exports SVG. kind='image' finds IMAGE-fill nodes and exports PNG@2x. kind='illustration' finds large vectors on 'Illustrations' pages and exports SVG. limit caps the number of assets returned (default 40).",
     {
       kind: z.enum(["icon", "image", "illustration"]).describe("Asset type to export."),
-      limit: z.number().optional().describe("Max assets to return. Default 40.")
+      limit: z.coerce.number().optional().describe("Max assets to return. Default 40.")
     },
     async ({ kind, limit }) => {
       try {
@@ -303,9 +303,9 @@ export async function main() {
     "Render a URL in headless Chrome (figbridge-managed), walk the DOM with computed styles, and create the resulting frame tree in Figma. The single highest-fidelity path from web → Figma. Returns { nodeId, name, createdCount, warnings }.",
     {
       url: z.string().describe("Page URL — http(s) or file:// — anything Chrome can load."),
-      width: z.number().optional().describe("Viewport width. Default 1280."),
+      width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
       name: z.string().optional().describe("Override the Figma frame's name. Defaults to '<title> WIDTHpx'."),
-      update: z.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false (creates new frame).")
+      update: z.coerce.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false (creates new frame).")
     },
     async ({ url, width, name, update }) => {
       try {
@@ -324,8 +324,8 @@ export async function main() {
     "Render a URL in headless Chrome and capture a PNG. If `outPath` is given, writes the PNG to disk and returns the path (cheap on agent context). Otherwise returns the base64 bytes. Use for visual diffs against Figma exports.",
     {
       url: z.string().describe("Page URL."),
-      width: z.number().optional().describe("Viewport width. Default 1280."),
-      fullPage: z.boolean().optional().describe("Capture the whole page vs just the viewport. Default true."),
+      width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
+      fullPage: z.coerce.boolean().optional().describe("Capture the whole page vs just the viewport. Default true."),
       outPath: z.string().optional().describe("Absolute filesystem path to write the PNG to. When set, response includes { path } and omits base64.")
     },
     async ({ url, width, fullPage, outPath }) => {
@@ -349,8 +349,8 @@ export async function main() {
     {
       url: z.string().describe("Live page URL."),
       nodeId: z.string().describe("Figma node id of the imported frame."),
-      width: z.number().optional().describe("Chrome viewport width. Default 1280."),
-      scale: z.number().optional().describe("Figma export scale. Default 0.5."),
+      width: z.coerce.number().optional().describe("Chrome viewport width. Default 1280."),
+      scale: z.coerce.number().optional().describe("Figma export scale. Default 0.5."),
       outDir: z.string().optional().describe("Directory to write PNGs into. Default /tmp."),
       prefix: z.string().optional().describe("Filename prefix. Default 'diff'.")
     },
@@ -371,7 +371,7 @@ export async function main() {
     {
       url: z.string(),
       script: z.string().describe("JS body, runs as async. The `document`/`window`/`getComputedStyle` globals are available. Use `return` for the result."),
-      width: z.number().optional()
+      width: z.coerce.number().optional()
     },
     async ({ url, script, width }) => {
       try {
@@ -387,7 +387,7 @@ export async function main() {
     "Export a Figma frame as PNG. With `outPath`: writes to disk, returns path. Without: returns base64. Use to pull a rendered version of an imported frame back out for visual diff.",
     {
       nodeId: z.string().describe("Figma node id, e.g. '6:1121'."),
-      scale: z.number().optional().describe("Export scale (1 = native). Default 1."),
+      scale: z.coerce.number().optional().describe("Export scale (1 = native). Default 1."),
       outPath: z.string().optional().describe("Absolute path to write PNG. When set, response includes { path } and omits base64.")
     },
     async ({ nodeId, scale, outPath }) => {
@@ -498,7 +498,7 @@ export async function main() {
     {
       nodeId: z.string().optional().describe("Specific frame to bundle. Omit to use current selection or page-level frames."),
       budget: z.enum(["small", "medium", "large"]).optional().describe("Token budget tier. small=hierarchy+tokens only, medium=+components+screenshots, large=everything. Default medium."),
-      screenshots: z.boolean().optional().describe("Include per-root-frame PNG screenshots. Default false."),
+      screenshots: z.coerce.boolean().optional().describe("Include per-root-frame PNG screenshots. Default false."),
       codePaths: z.array(z.string()).optional().describe("Optional list of code file paths (e.g. from `find src/components -name '*.tsx'`) to fuzzy-match against Figma components. Mapping is emitted in components.json + AGENTS.md.")
     },
     async ({ nodeId, budget, screenshots, codePaths }) => {

@@ -113,21 +113,35 @@ export async function urlToSpec(url, opts = {}) {
     // and replace its placeholder with a real puppeteer screenshot. Wait
     // for each iframe's content to load (DOM ready + a fixed settle) so
     // we don't capture a blank state.
-    const iframeHandles = await page.$$('iframe');
-    if (iframeHandles.length) {
+    // Iframe substitution: open each iframe's src in its OWN dedicated
+    // page and screenshot it at the iframe's rendered dimensions. Plain
+    // iframeHandle.screenshot() and page.screenshot({clip}) both come back
+    // blank for iframes because they render in separate compositing
+    // layers. Resolving to a top-level page sidesteps that entirely.
+    const iframeMeta = await page.$$eval('iframe', els =>
+      els.map(el => {
+        const r = el.getBoundingClientRect();
+        return { src: el.getAttribute('src'), width: Math.round(r.width), height: Math.round(r.height) };
+      })
+    );
+    if (iframeMeta.length) {
       const shots = {};
-      for (let i = 0; i < iframeHandles.length; i++) {
+      for (let i = 0; i < iframeMeta.length; i++) {
+        const m = iframeMeta[i];
+        if (!m.src || !m.width || !m.height) continue;
         try {
-          // contentFrame() returns the Frame inside the iframe — wait for
-          // its DOM ready so we don't capture a still-loading blank.
-          const cf = await iframeHandles[i].contentFrame();
-          if (cf) {
-            try { await cf.waitForSelector('body', { timeout: 5000 }); } catch {}
-            await new Promise(r => setTimeout(r, 1500)); // settle CSS/images
+          const absUrl = new URL(m.src, url).href;
+          const ipage = await browser.newPage();
+          try {
+            await ipage.setViewport({ width: m.width, height: m.height, deviceScaleFactor: 1 });
+            await ipage.goto(absUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
+            await new Promise(r => setTimeout(r, 1500));
+            const buf = await ipage.screenshot({ type: "png", fullPage: false });
+            shots[i] = Buffer.from(buf).toString("base64");
+          } finally {
+            try { await ipage.close(); } catch {}
           }
-          const buf = await iframeHandles[i].screenshot({ type: "png" });
-          shots[i] = Buffer.from(buf).toString("base64");
-        } catch (e) { /* tainted / cross-origin → skip */ }
+        } catch (e) { /* skip */ }
       }
       (function walk(n) {
         if (n && n.type === "rect" && typeof n._iframeIdx === "number" && shots[n._iframeIdx]) {
