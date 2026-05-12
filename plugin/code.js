@@ -1061,9 +1061,13 @@ async function _ifcCreateNode(spec, warnings) {
       var u8 = new Uint8Array(bin.length);
       for (var bi = 0; bi < bin.length; bi++) u8[bi] = bin.charCodeAt(bi);
       var img = figma.createImage(u8);
-      fr.fills = [{ type: "IMAGE", scaleMode: "FILL", imageHash: img.hash }];
+      var bgSm = spec.bgScaleMode === "FIT" || spec.bgScaleMode === "CROP" || spec.bgScaleMode === "TILE" ? spec.bgScaleMode : "FILL";
+      fr.fills = [{ type: "IMAGE", scaleMode: bgSm, imageHash: img.hash }];
       fillApplied = true;
     } catch (e) { _ifcWarn(warnings, "frame image decode failed: " + e.message); }
+  }
+  if (spec.clipsContent && "clipsContent" in fr) {
+    try { fr.clipsContent = true; } catch (e) {}
   }
   if (!fillApplied) {
     var ff = _ifcFillFromValue(spec.fill);
