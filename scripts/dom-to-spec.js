@@ -63,7 +63,9 @@
     if (cs.display.includes('flex')) {
       return cs.flexDirection && cs.flexDirection.startsWith('row') ? 'HORIZONTAL' : 'VERTICAL';
     }
-    if (cs.display.includes('grid')) return 'VERTICAL'; // collapse grid to vertical for v1
+    // For grid we don't try to recreate the grid (Figma has no equivalent);
+    // we let it fall through to NONE so the per-child absolute positions
+    // captured below preserve the visual layout exactly. Same for block.
     return 'NONE';
   }
 
@@ -210,9 +212,23 @@
 
     if (depth >= opts.maxDepth) return frame;
 
+    // Capture parent rect once so we can emit per-child relative offsets
+    // when the parent is *not* an auto-layout container. Without these,
+    // children would all land at (0,0) inside a NONE-layout frame and
+    // visually pile up on top of each other.
+    const parentRect = rect;
+    const isAutoLayout = frame.layout === 'VERTICAL' || frame.layout === 'HORIZONTAL';
+
     for (const child of el.children) {
       const cn = nodeForElement(child, opts, depth + 1);
-      if (cn) frame.children.push(cn);
+      if (!cn) continue;
+      if (!isAutoLayout) {
+        // Spec coords are relative to the parent's top-left.
+        const cr = child.getBoundingClientRect();
+        cn.x = Math.round(cr.left - parentRect.left);
+        cn.y = Math.round(cr.top - parentRect.top);
+      }
+      frame.children.push(cn);
     }
 
     // If a flex container has zero element children but has a text leaf,
