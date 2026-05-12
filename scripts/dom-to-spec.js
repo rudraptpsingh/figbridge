@@ -111,9 +111,64 @@
     return rgbToHex(cs.backgroundColor);
   }
 
+  // Emit per-corner radius as { tl, tr, br, bl } when asymmetric, single
+  // number when uniform. Pill-style buttons often have only top corners.
   function radius(cs) {
-    const v = px(cs.borderTopLeftRadius);
-    return v || null;
+    const tl = px(cs.borderTopLeftRadius) || 0;
+    const tr = px(cs.borderTopRightRadius) || 0;
+    const br = px(cs.borderBottomRightRadius) || 0;
+    const bl = px(cs.borderBottomLeftRadius) || 0;
+    if (tl === 0 && tr === 0 && br === 0 && bl === 0) return null;
+    if (tl === tr && tr === br && br === bl) return tl;
+    return { tl, tr, br, bl };
+  }
+
+  // CSS transform matrix(a, b, c, d, tx, ty) — extract translate + rotate.
+  // For simple translate/scale/rotate this round-trips to Figma cleanly.
+  function transformOf(cs) {
+    const t = cs.transform;
+    if (!t || t === 'none') return null;
+    // matrix(a, b, c, d, tx, ty)
+    const m = t.match(/^matrix\(([^)]+)\)$/);
+    if (m) {
+      const [a, b, c, d, tx, ty] = m[1].split(',').map(s => parseFloat(s.trim()));
+      const rotateRad = Math.atan2(b, a);
+      const scaleX = Math.sqrt(a * a + b * b);
+      const scaleY = Math.sqrt(c * c + d * d);
+      // Skip identity matrices
+      if (Math.abs(tx) < 0.5 && Math.abs(ty) < 0.5 && Math.abs(rotateRad) < 0.01 && Math.abs(scaleX - 1) < 0.01 && Math.abs(scaleY - 1) < 0.01) return null;
+      return {
+        translateX: Math.round(tx),
+        translateY: Math.round(ty),
+        rotation: Math.round(rotateRad * 180 / Math.PI * 100) / 100,
+        scaleX: Math.round(scaleX * 1000) / 1000,
+        scaleY: Math.round(scaleY * 1000) / 1000,
+      };
+    }
+    return null;
+  }
+
+  // backdrop-filter: blur(Npx) — common for glassy nav bars / form cards.
+  function backdropBlurOf(cs) {
+    const f = cs.backdropFilter || cs.webkitBackdropFilter;
+    if (!f || f === 'none') return null;
+    const m = f.match(/blur\(([\d.]+)px\)/);
+    return m ? parseFloat(m[1]) : null;
+  }
+
+  // CSS outline — used for focus rings / accent edges, distinct from border.
+  function outlineOf(cs) {
+    const w = px(cs.outlineWidth) || 0;
+    if (w === 0 || cs.outlineStyle === 'none') return null;
+    const color = rgbToHex(cs.outlineColor);
+    if (!color) return null;
+    return { color, width: w };
+  }
+
+  // Stacking context: prefer explicit z-index, else position-aware tiebreak.
+  function zIndexOf(cs) {
+    const z = parseInt(cs.zIndex, 10);
+    return isFinite(z) ? z : null;
   }
 
   // 1px borders are common on cards/buttons — extract width + color.
@@ -320,8 +375,11 @@
         fill: fillOf(cs),
         cornerRadius: radius(cs),
         stroke: strokeOf(cs),
+        outline: outlineOf(cs),
         shadow: shadowOf(cs),
         opacity: opacityOf(cs),
+        transform: transformOf(cs),
+        backdropBlur: backdropBlurOf(cs),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
         children: [{
@@ -349,8 +407,12 @@
       fill: fillOf(cs),
       cornerRadius: radius(cs),
       stroke: strokeOf(cs),
+      outline: outlineOf(cs),
       shadow: shadowOf(cs),
       opacity: opacityOf(cs),
+      transform: transformOf(cs),
+      backdropBlur: backdropBlurOf(cs),
+      zIndex: zIndexOf(cs),
       width: Math.round(rect.width),
       height: Math.round(rect.height),
       children: [],
@@ -379,29 +441,26 @@
     const parentRect = rect;
     const isAutoLayout = frame.layout === 'VERTICAL' || frame.layout === 'HORIZONTAL';
 
-    // CSS pseudo-elements (::before / ::after) — tons of decorative UI is
-    // done with these (dots, custom underlines, arrows, status pips). They
-    // don't appear in el.children. Synthesize a node per side when present.
+    // CSS pseudo-elements (::before / ::after). Approximate placement
+    // from computed CSS: respect position (absolute uses top/right/bottom/
+    // left), and account for translate offsets in the pseudo's transform.
     for (const side of ['::before', '::after']) {
       const ps = window.getComputedStyle(el, side);
       const content = ps.content;
-      // 'none' / 'normal' = no pseudo. Otherwise either text in quotes or url(...).
       if (!content || content === 'none' || content === 'normal') continue;
-      // Compute the pseudo's box: it'd render adjacent to the element, but
-      // its bounding rect isn't directly exposed. We approximate as a small
-      // box at the element's edge sized by font-size or width/height props.
-      const w = px(ps.width) || px(ps.minWidth) || px(ps.fontSize) || 8;
-      const h = px(ps.height) || px(ps.minHeight) || px(ps.fontSize) || 8;
       const isAfter = side === '::after';
-      // If content is text in quotes, emit as text. Else emit as rect.
-      const m = content.match(/^['"](.*)['"]$/);
+      const fontSizeNum = px(ps.fontSize) || 14;
+      const w = px(ps.width) || px(ps.minWidth) || fontSizeNum;
+      const h = px(ps.height) || px(ps.minHeight) || fontSizeNum;
+
+      const textMatch = content.match(/^['"](.*)['"]$/);
       let pseudoNode;
-      if (m && m[1]) {
+      if (textMatch && textMatch[1]) {
         pseudoNode = {
           type: 'text',
           name: name + side,
-          characters: m[1],
-          fontSize: Math.round(px(ps.fontSize) || 14),
+          characters: textMatch[1],
+          fontSize: Math.round(fontSizeNum),
           fontWeight: fontWeight(ps),
           color: rgbToHex(ps.color),
         };
@@ -413,18 +472,35 @@
           height: Math.round(h),
           fill: fillOf(ps),
           cornerRadius: radius(ps),
+          stroke: strokeOf(ps),
+          shadow: shadowOf(ps),
         };
       }
       if (!isAutoLayout) {
-        // Pseudo-elements typically anchor to the element's content box —
-        // ::before at the start, ::after at the end. Position relative to
-        // the parent's top-left so the spec is self-contained.
-        pseudoNode.x = Math.round((isAfter ? (rect.right - parentRect.left - w) : (rect.left - parentRect.left)));
-        pseudoNode.y = Math.round(rect.top - parentRect.top + (rect.height - h) / 2);
+        // Anchor: ::before at element start, ::after at element end.
+        // Account for absolute positioning offsets when set.
+        let baseX = isAfter ? rect.right - w : rect.left;
+        let baseY = rect.top + (rect.height - h) / 2;
+        if (ps.position === 'absolute') {
+          // top/left override the anchor; right/bottom go the other way.
+          const top = px(ps.top), left = px(ps.left), right = px(ps.right), bottom = px(ps.bottom);
+          if (top != null) baseY = rect.top + top;
+          else if (bottom != null) baseY = rect.bottom - bottom - h;
+          if (left != null) baseX = rect.left + left;
+          else if (right != null) baseX = rect.right - right - w;
+        }
+        // Apply transform translate (the matrix tx/ty).
+        const tr = transformOf(ps);
+        if (tr) { baseX += tr.translateX || 0; baseY += tr.translateY || 0; }
+        pseudoNode.x = Math.round(baseX - parentRect.left);
+        pseudoNode.y = Math.round(baseY - parentRect.top);
       }
       frame.children.push(pseudoNode);
     }
 
+    // Build the child list, capturing each child's computed z-index for
+    // the final ordering pass (so overlay elements render on top).
+    const draft = [];
     for (const child of el.children) {
       const cn = nodeForElement(child, opts, depth + 1);
       if (!cn) continue;
@@ -433,8 +509,17 @@
         cn.x = Math.round(cr.left - parentRect.left);
         cn.y = Math.round(cr.top - parentRect.top);
       }
-      frame.children.push(cn);
+      const childCs = window.getComputedStyle(child);
+      const zi = parseInt(childCs.zIndex, 10);
+      draft.push({ node: cn, z: isFinite(zi) ? zi : 0, idx: draft.length });
     }
+    // Stable sort: by z ascending (low z first → rendered behind), then by
+    // DOM order. Figma appends-on-top, so this matches the browser's
+    // painter's order for the simple cases.
+    if (!isAutoLayout && draft.length > 1) {
+      draft.sort((a, b) => (a.z - b.z) || (a.idx - b.idx));
+    }
+    for (const d of draft) frame.children.push(d.node);
 
     // If a flex container has zero element children but has a text leaf,
     // emit a text node too (some sites stuff text directly into a flex row).

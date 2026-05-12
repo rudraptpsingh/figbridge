@@ -821,19 +821,49 @@ function _ifcStrokeToFills(stroke) {
   return [{ type: "SOLID", color: { r: rgb.r, g: rgb.g, b: rgb.b }, opacity: rgb.a == null ? 1 : rgb.a }];
 }
 
-// Apply common visual props (stroke, shadow, opacity) to any node that
-// supports them. Safe — checks each property exists before assigning.
+// Apply common visual props to any node that supports them. Safe — checks
+// each property exists before assigning.
 function _ifcApplyCommonProps(node, spec) {
+  // Per-corner radius { tl, tr, br, bl } takes priority over uniform radius.
+  if (spec.cornerRadius && typeof spec.cornerRadius === "object" && "topLeftRadius" in node) {
+    node.topLeftRadius     = Number(spec.cornerRadius.tl) || 0;
+    node.topRightRadius    = Number(spec.cornerRadius.tr) || 0;
+    node.bottomRightRadius = Number(spec.cornerRadius.br) || 0;
+    node.bottomLeftRadius  = Number(spec.cornerRadius.bl) || 0;
+  }
   if (spec.stroke && "strokes" in node) {
     var sFills = _ifcStrokeToFills(spec.stroke);
     if (sFills) { node.strokes = sFills; node.strokeWeight = Number(spec.stroke.width) || 1; }
   }
-  if (spec.shadow && "effects" in node) {
-    var fx = _ifcShadowToEffects(spec.shadow);
-    if (fx) node.effects = fx;
+  // Outline → outer stroke. Skipped when a border is already set (Figma
+  // doesn't natively support both).
+  if (!spec.stroke && spec.outline && "strokes" in node) {
+    var oFills = _ifcStrokeToFills(spec.outline);
+    if (oFills) {
+      node.strokes = oFills;
+      node.strokeWeight = Number(spec.outline.width) || 1;
+      try { node.strokeAlign = "OUTSIDE"; } catch (e) {}
+    }
   }
+  // Combine drop-shadow + (optional) backdrop-blur into one effects list.
+  var fx = spec.shadow ? (_ifcShadowToEffects(spec.shadow) || []) : [];
+  if (typeof spec.backdropBlur === "number" && spec.backdropBlur > 0) {
+    fx.push({ type: "BACKGROUND_BLUR", radius: Number(spec.backdropBlur), visible: true, blendMode: "NORMAL" });
+  }
+  if (fx.length && "effects" in node) node.effects = fx;
+
   if (typeof spec.opacity === "number" && spec.opacity > 0 && spec.opacity < 1 && "opacity" in node) {
     node.opacity = spec.opacity;
+  }
+  // Transform: Figma supports rotation directly. translate is applied as a
+  // delta on x/y. Scale is hard to round-trip cleanly, so we skip when not
+  // identity but log a warning.
+  if (spec.transform) {
+    if (typeof spec.transform.translateX === "number" && "x" in node) node.x += spec.transform.translateX;
+    if (typeof spec.transform.translateY === "number" && "y" in node) node.y += spec.transform.translateY;
+    if (typeof spec.transform.rotation === "number" && Math.abs(spec.transform.rotation) > 0.01 && "rotation" in node) {
+      try { node.rotation = spec.transform.rotation; } catch (e) {}
+    }
   }
 }
 
