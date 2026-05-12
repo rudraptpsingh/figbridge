@@ -865,10 +865,20 @@ async function _ifcCreateNode(spec, warnings) {
   }
   _ifcSetSize(fr, spec.width, spec.height);
   var children = spec.children || [];
+  var isAutoLayout = (layout === "VERTICAL" || layout === "HORIZONTAL");
   for (var i = 0; i < children.length; i++) {
     try {
       var child = await _ifcCreateNode(children[i], warnings);
-      if (child) fr.appendChild(child);
+      if (!child) continue;
+      fr.appendChild(child);
+      // For non-auto-layout parents the extractor emits per-child x/y
+      // (relative to the parent). Without these every child would land at
+      // (0,0) and the page would visually collapse into the top-left.
+      if (!isAutoLayout && "x" in child) {
+        var cs = children[i];
+        if (cs && typeof cs.x === "number") child.x = cs.x;
+        if (cs && typeof cs.y === "number") child.y = cs.y;
+      }
     } catch (e) { _ifcWarn(warnings, "child[" + i + "] failed: " + (e && e.message || e)); }
   }
   return fr;
