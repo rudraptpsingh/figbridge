@@ -793,7 +793,10 @@
       layout: pickLayout(cs),
       layoutWrap: flexWrapOf(cs),
       padding: padOf(cs),
-      spacing: px(cs.gap) || px(cs.rowGap) || 0,
+      // Figma auto-layout uses itemSpacing (primary axis) + counterAxisSpacing
+      // (secondary axis when wrapping). Pick the right CSS value for each.
+      spacing: px(cs.columnGap) || px(cs.gap) || 0,
+      counterAxisSpacing: px(cs.rowGap) || px(cs.gap) || 0,
       fill: fillOf(cs),
       cornerRadius: radius(cs),
       stroke: strokeOf(cs),

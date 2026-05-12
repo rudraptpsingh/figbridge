@@ -306,15 +306,14 @@ export async function main() {
       width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
       name: z.string().optional().describe("Override the Figma frame's name. Defaults to '<title> WIDTHpx'."),
       update: z.coerce.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false."),
-      dryRun: z.coerce.boolean().optional().describe("If true, runs the full extraction but skips sending to Figma. Returns spec metadata + telemetry only. Useful for verifying spec content without touching the Figma file.")
+      dryRun: z.coerce.boolean().optional().describe("If true, runs the full extraction but skips sending to Figma. Returns spec metadata + telemetry only."),
+      colorScheme: z.enum(["light", "dark"]).optional().describe("Force prefers-color-scheme. Sites that auto-switch render in this theme. Leave unset for system default.")
     },
-    async ({ url, width, name, update, dryRun }) => {
+    async ({ url, width, name, update, dryRun, colorScheme }) => {
       try {
-        // Route through /command so the dryRun + telemetry logic stays
-        // in one place (bridge.js handler).
         const r = await fetch(`http://127.0.0.1:${port}/command`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun }, timeoutMs: 300000 })
+          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun, colorScheme: colorScheme || null }, timeoutMs: 300000 })
         });
         return asText(await r.json());
       } catch (e) { return asText({ ok: false, error: e.message }); }
