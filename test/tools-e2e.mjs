@@ -37,7 +37,11 @@ function fakePlugin() {
     "agent-bundle":    () => ({ ok: true, pageName: "P", fileCount: 3, files: [{ path: "DESIGN.md", bytes: 10 }] }),
     "list-pages":      () => ({ ok: true, count: 2, pages: [{ id: "0:1", name: "Screens", frameCount: 5, isCurrent: true }, { id: "0:2", name: "Components", frameCount: 3, isCurrent: false }] }),
     "list-frames":     () => ({ ok: true, pageId: "0:1", pageName: "Screens", count: 2, frames: [{ id: "1:2", name: "Home", type: "FRAME", width: 390, height: 844, hasChildren: true }, { id: "1:3", name: "Settings", type: "FRAME", width: 390, height: 844, hasChildren: true }] }),
-    "export-all":      () => ({ ok: true, pageCount: 1, pages: [{ pageId: "0:1", pageName: "Screens", frameCount: 1, nodeNames: ["Home"], html: "<section>home</section>", css: ".home{}", tailwindHtml: "", tokens: {}, cssVars: "" }] })
+    "export-all":      () => ({ ok: true, pageCount: 1, pages: [{ pageId: "0:1", pageName: "Screens", frameCount: 1, nodeNames: ["Home"], html: "<section>home</section>", css: ".home{}", tailwindHtml: "", tokens: {}, cssVars: "" }] }),
+    "import-from-code": (a) => ({ ok: true, nodeId: "9:99", name: (a && a.name) || ((a && a.spec && a.spec.name) || "Imported design"), createdCount: 7, warnings: [] }),
+    "update-from-code": (a) => ({ ok: true, nodeId: "9:99", name: (a && a.name) || "Updated", replacedCount: 5, warnings: [] }),
+    "delete-node":      (a) => ({ ok: true, deleted: [].concat(a && a.nodeId ? [a.nodeId] : [], a && a.nodeIds ? a.nodeIds : []), errors: [] }),
+    "run-script":       (a) => ({ ok: true, result: { ran: true, scriptLength: (a && a.script || "").length } })
   };
 
   const es = new EventSource(`${BASE}/events`);
@@ -175,7 +179,13 @@ async function main() {
     ["get_agent_bundle", { budget: "small" },                  /DESIGN|files|fileCount/ ],
     ["list_pages",       {},                                   /Screens|Components/ ],
     ["list_frames",      {},                                   /Home|Settings/ ],
-    ["export_all_pages", {},                                   /<section>home<\/section>|Screens/ ]
+    ["export_all_pages", {},                                   /<section>home<\/section>|Screens/ ],
+    ["import_from_code", { spec: JSON.stringify({ type: "frame", name: "Hero", layout: "VERTICAL", children: [{ type: "text", characters: "Hi" }] }) }, /9:99|Hero|createdCount/ ],
+    ["import_from_code", { html: "<html><body><section><h1>Hi</h1></section></body></html>" }, /9:99|createdCount/ ],
+    ["update_from_code", { spec: JSON.stringify({ type: "frame", name: "Hero", children: [] }), name: "Hero" }, /9:99|replacedCount/ ],
+    ["delete_node",      { nodeIds: ["1:2", "1:3"] }, /deleted|1:2/ ],
+    ["delete_node",      { nodeId: "1:5" }, /deleted|1:5/ ],
+    ["run_script",       { script: "return { hello: 1 };" }, /ran|scriptLength/ ]
   ];
 
   for (const [name, args, re] of cases) {
@@ -198,7 +208,7 @@ async function main() {
     ok(`${name} → read-side response matched ${re}`);
   }
 
-  log("ALL 21 MCP TOOLS VALIDATED END-TO-END");
+  log("ALL MCP TOOLS VALIDATED END-TO-END (incl. import_from_code)");
   es.close();
   child.kill();
   process.exit(0);

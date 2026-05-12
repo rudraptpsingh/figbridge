@@ -106,6 +106,24 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
       return;
     }
 
+    // External command injection — POST /command { action, args, timeoutMs? }
+    // Lets any local script drive the plugin without going through MCP.
+    // Same trust model as the rest of the bridge: 127.0.0.1 only.
+    if (req.method === "POST" && req.url === "/command") {
+      let chunks = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", async () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+          if (!body.action) return send(res, 400, { ok: false, error: "action required" });
+          const result = await sendCommand(body.action, body.args || {}, body.timeoutMs || 15000);
+          send(res, 200, result);
+        } catch (e) { send(res, 502, { ok: false, error: e.message }); }
+      });
+      req.on("error", (e) => send(res, 500, { ok: false, error: e.message }));
+      return;
+    }
+
     // Plugin reports a command result
     const m = req.url && req.url.match(/^\/command\/([^/]+)\/result$/);
     if (req.method === "POST" && m) {
