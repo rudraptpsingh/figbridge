@@ -63,10 +63,11 @@
   function isInlineText(el) {
     const tag = el.tagName.toLowerCase();
     if (!['h1','h2','h3','h4','h5','h6','p','a','button','label','strong','em','span','blockquote'].includes(tag)) return false;
-    // Walk: anything block-level or media kills the textification.
-    for (const n of el.querySelectorAll('img,svg,video,canvas,iframe,picture,hr')) return false;
+    // Only true blockers: nested block-level wrappers, img, video, iframe,
+    // canvas, picture. SVGs inside headings are typically decorative
+    // (underline accents, dot marks) — getting the text in matters more.
+    for (const n of el.querySelectorAll('img,video,canvas,iframe,picture,hr')) return false;
     for (const n of el.querySelectorAll('section,header,footer,article,aside,main,div')) {
-      // Allow shallow inline-wrapper divs but bail on anything deeper.
       if (n.children.length > 0) return false;
     }
     return el.textContent && el.textContent.trim().length > 0;
