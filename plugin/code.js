@@ -925,8 +925,34 @@ async function _ifcCreateNode(spec, warnings) {
     if (spec.textDecoration === "UNDERLINE" || spec.textDecoration === "STRIKETHROUGH") {
       try { t.textDecoration = spec.textDecoration; } catch (e) {}
     }
+    if (spec.textTransform === "UPPER" || spec.textTransform === "LOWER" || spec.textTransform === "TITLE") {
+      try { t.textCase = spec.textTransform; } catch (e) {}
+    }
     if (typeof spec.opacity === "number" && spec.opacity > 0 && spec.opacity < 1) {
       t.opacity = spec.opacity;
+    }
+    // Inline-span style ranges: setRange*() for any segment whose computed
+    // style differs from the parent. Each range needs the font loaded.
+    if (Array.isArray(spec.ranges) && spec.ranges.length) {
+      var charLen = t.characters.length;
+      for (var ri = 0; ri < spec.ranges.length; ri++) {
+        var rg = spec.ranges[ri];
+        var s = Math.max(0, Math.min(rg.start || 0, charLen));
+        var e = Math.max(s, Math.min(rg.end || 0, charLen));
+        if (s >= e) continue;
+        if (rg.color) {
+          var rgb = hexToRGB(rg.color);
+          if (rgb) try { t.setRangeFills(s, e, [{ type: "SOLID", color: { r: rgb.r, g: rgb.g, b: rgb.b }, opacity: rgb.a == null ? 1 : rgb.a }]); } catch (er) {}
+        }
+        if (typeof rg.fontSize === "number") try { t.setRangeFontSize(s, e, rg.fontSize); } catch (er) {}
+        if (rg.fontWeight) {
+          var fn = { family: (spec.fontFamily || "Inter"), style: _ifcFontStyle(rg.fontWeight) };
+          try { await figma.loadFontAsync(fn); t.setRangeFontName(s, e, fn); } catch (er) {}
+        }
+        if (rg.textDecoration === "UNDERLINE" || rg.textDecoration === "STRIKETHROUGH") {
+          try { t.setRangeTextDecoration(s, e, rg.textDecoration); } catch (er) {}
+        }
+      }
     }
     if (spec.name) t.name = spec.name;
     return t;

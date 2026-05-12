@@ -255,6 +255,65 @@
     return null;
   }
 
+  function textTransformOf(cs) {
+    const t = cs.textTransform;
+    if (t === 'uppercase') return 'UPPER';
+    if (t === 'lowercase') return 'LOWER';
+    if (t === 'capitalize') return 'TITLE';
+    return null;
+  }
+
+  // Walk the text-leaf-or-inline element and collect [start, end) ranges
+  // for each text-node child whose computed style differs from the parent.
+  // Emitted per-range overrides drive the plugin's setRange*() APIs.
+  function collectStyleRanges(el, parentCs) {
+    const out = [];
+    const parentColor = rgbToHex(parentCs.color);
+    const parentSize = Math.round(px(parentCs.fontSize) || 16);
+    const parentWeight = parseInt(parentCs.fontWeight, 10) || 400;
+    const parentDecoration = textDecorationOf(parentCs);
+    let cursor = 0;
+    function visit(node, contextEl) {
+      if (node.nodeType === 3) { // text
+        const len = String(node.textContent).replace(/\s+/g, ' ').trim().length;
+        if (len === 0) return;
+        const cs = window.getComputedStyle(contextEl);
+        const color = rgbToHex(cs.color);
+        const size = Math.round(px(cs.fontSize) || 16);
+        const weight = parseInt(cs.fontWeight, 10) || 400;
+        const decoration = textDecorationOf(cs);
+        const differs = (color && color !== parentColor) || size !== parentSize || weight !== parentWeight || decoration !== parentDecoration;
+        if (differs) {
+          out.push({
+            start: cursor,
+            end: cursor + len,
+            color: color !== parentColor ? color : undefined,
+            fontSize: size !== parentSize ? size : undefined,
+            fontWeight: weight !== parentWeight ? fontWeightLabel(weight) : undefined,
+            textDecoration: decoration !== parentDecoration ? decoration : undefined,
+          });
+        }
+        cursor += len + 1; // +1 for the implicit space the joiner adds between nodes
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      for (const c of node.childNodes) visit(c, node.nodeType === 1 ? node : contextEl);
+    }
+    // Reset cursor by recomputing from the canonical getTextValue() length
+    // to keep indices stable.
+    cursor = 0;
+    for (const c of el.childNodes) visit(c, el);
+    return out;
+  }
+
+  function fontWeightLabel(n) {
+    if (n >= 700) return 'Bold';
+    if (n >= 600) return 'Semi Bold';
+    if (n >= 500) return 'Medium';
+    if (n <= 300) return 'Light';
+    return 'Regular';
+  }
+
   function fontWeight(cs) {
     const w = parseInt(cs.fontWeight, 10);
     if (!w) return null;
@@ -349,6 +408,7 @@
     // inline-text path catches `<h1>Sort. <span>Tag.</span> Deliver.</h1>`
     // where the leading direct-text-node would otherwise be dropped.
     if ((hasOnlyTextChildren(el) || isInlineText(el)) && !['button', 'a'].includes(tag)) {
+      const ranges = collectStyleRanges(el, cs);
       return {
         type: 'text',
         name: name,
@@ -360,8 +420,12 @@
         letterSpacing: letterSpacingOf(cs),
         textAlign: textAlignOf(cs),
         textDecoration: textDecorationOf(cs),
+        textTransform: textTransformOf(cs),
         color: rgbToHex(cs.color),
         opacity: opacityOf(cs),
+        // Per-range overrides when inline spans have distinct color/weight/size.
+        // The plugin applies these via setRange* APIs on the text node.
+        ranges: ranges.length ? ranges : undefined,
       };
     }
 
