@@ -366,6 +366,21 @@ export async function main() {
   );
 
   server.tool(
+    "fingerprint_url",
+    "Audit a URL's CSS-feature usage in one call — returns counts of flexbox/grid/gradients/shadows/filters/blends/transforms/pseudo-elements/iframes/etc, plus tag mix and color/font palette. Run BEFORE bigger fidelity pushes to know where the actual coverage gaps are. Returns { totalElements, topTags, displays, positions, features, colors[], fonts[] }.",
+    {
+      url: z.string(),
+      width: z.coerce.number().optional()
+    },
+    async ({ url, width }) => {
+      try {
+        const { fingerprintUrl } = await import("./browser.js");
+        return asText({ ok: true, ...(await fingerprintUrl(url, { width: width || 1280 })) });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "probe_url",
     "Render a URL in headless Chrome and run an arbitrary JS snippet inside the page. Use to inspect the live DOM / computed styles when planning an extraction. Replaces external chrome-devtools-mcp.evaluate_script. Snippet is the async-function body; use `return` for the result. Returns { ok, result }.",
     {
