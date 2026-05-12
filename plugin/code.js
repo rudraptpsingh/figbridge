@@ -1141,9 +1141,11 @@ async function _ifcCreateNode(spec, warnings) {
         if (cs2 && typeof cs2.x === "number") child.x = cs2.x;
         if (cs2 && typeof cs2.y === "number") child.y = cs2.y;
       }
-      // Carry the componentization group id so a post-pass can identify
-      // siblings to merge into Component + Instances.
-      if (children[i] && children[i]._componentGroupId) child._cgid = children[i]._componentGroupId;
+      // Carry componentization group id in a sidecar map (Figma nodes
+      // are non-extensible so we can't add ad-hoc properties).
+      if (children[i] && children[i]._componentGroupId) {
+        _ifcCgidByNodeId[child.id] = children[i]._componentGroupId;
+      }
     } catch (e) { _ifcWarn(warnings, "child[" + i + "] failed: " + (e && e.message || e)); }
   }
   return fr;
@@ -1363,21 +1365,19 @@ async function _ifcSyncColorStyles(histogram, warnings) {
   return created;
 }
 
-// Post-import componentization. Walk the tree, collect every node tagged
-// _componentGroupId, group them, then for each group:
-//   1. Take the first member's underlying Figma node
-//   2. Convert it to a Component (createComponentFromNode preserves layout)
-//   3. Replace each remaining group member with an Instance of that component
-// Cancellable — runs in try/catch so a partial failure doesn't abort the
-// whole import. Returns count of components created.
+// Tracks node.id → componentGroupId without mutating Figma nodes (which
+// are non-extensible in newer plugin APIs). Populated during creation
+// inside _ifcCreateNode, consumed by _ifcComponentize.
+var _ifcCgidByNodeId = {};
+
 async function _ifcComponentize(rootNode, warnings) {
   if (!rootNode || !figma.createComponentFromNode) return 0;
-  // Walk to find group leaders. We store a sidecar map of nodeId→groupId
-  // on the spec walker side; here we re-extract by name suffix _SLOT_ to
-  // keep this self-contained (set in _ifcCreateNode below).
+  // Walk to find group leaders by looking up each node's id in the
+  // sidecar map (set when the node was created).
   var groups = {};
   function walk(n) {
-    if (n._cgid) (groups[n._cgid] = groups[n._cgid] || []).push(n);
+    var gid = _ifcCgidByNodeId[n.id];
+    if (gid) (groups[gid] = groups[gid] || []).push(n);
     if ("children" in n && n.children) for (var i = 0; i < n.children.length; i++) walk(n.children[i]);
   }
   walk(rootNode);

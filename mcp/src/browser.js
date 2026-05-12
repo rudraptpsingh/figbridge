@@ -142,16 +142,13 @@ export async function urlToSpec(url, opts = {}) {
       if (!m.src || !m.width || !m.height) return [i, null];
       try {
         const absUrl = new URL(m.src, url).href;
-        const ipage = await browser.newPage();
-        try {
-          await ipage.setViewport({ width: m.width, height: m.height, deviceScaleFactor: 1 });
-          await ipage.goto(absUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
-          await new Promise(r => setTimeout(r, 1500));
-          const buf = await ipage.screenshot({ type: "png", fullPage: false });
-          return [i, Buffer.from(buf).toString("base64")];
-        } finally {
-          try { await ipage.close(); } catch {}
-        }
+        // Delegate to the known-working screenshotUrl path. The previous
+        // hand-rolled iframe screenshot loop was returning 1×1 transparent
+        // pixels — probably because the page had not finished JS-rendering
+        // before the screenshot fired. screenshotUrl uses a longer settle
+        // and the proven full-page capture path.
+        const b64 = await screenshotUrl(absUrl, { width: m.width, height: m.height, fullPage: false, settleMs: 2500 });
+        return [i, b64];
       } catch (e) { return [i, null]; }
     });
     const bgFetchPromises = bgUrls.map(async (u) => {
