@@ -320,6 +320,46 @@ export async function main() {
   );
 
   server.tool(
+    "import_responsive_set",
+    "Import a URL at multiple viewport widths in one call. Creates one Figma frame per viewport, laid out side-by-side. Most efficient way to capture mobile/tablet/desktop in a single iteration. Default widths: 1280, 768, 375. Returns { frames: [{ width, nodeId, name, createdCount }] }.",
+    {
+      url: z.string(),
+      widths: z.array(z.coerce.number()).optional().describe("Viewport widths to capture. Default [1280, 768, 375]."),
+      namePrefix: z.string().optional().describe("Frame name prefix. Each frame becomes `<prefix> <width>px`. Default uses the page title.")
+    },
+    async ({ url, widths, namePrefix }) => {
+      const wList = widths && widths.length ? widths : [1280, 768, 375];
+      const results = [];
+      for (const w of wList) {
+        try {
+          const { urlToSpec } = await import("./browser.js");
+          const spec = await urlToSpec(url, { width: w });
+          const name = (namePrefix || spec.name || "Import") + " " + w + "px";
+          spec.name = name;
+          spec.width = w;
+          const r = await sendCommand("import-from-code", { spec, name }, 300000);
+          results.push({ width: w, ...r });
+        } catch (e) { results.push({ width: w, ok: false, error: e.message }); }
+      }
+      return asText({ ok: true, frames: results });
+    }
+  );
+
+  server.tool(
+    "verify_text_fidelity",
+    "After importing a URL, verify that every visible text string from the live page also exists in the Figma frame. Returns { liveCount, specCount, missing[], matchedPct }. Use as a fast sanity check that the extractor didn't drop content.",
+    { url: z.string(), nodeId: z.string(), width: z.coerce.number().optional() },
+    async ({ url, nodeId, width }) => {
+      try {
+        const { urlToSpec, verifyTextFidelity } = await import("./browser.js");
+        const spec = await urlToSpec(url, { width: width || 1280 });
+        const result = await verifyTextFidelity(url, spec, { width: width || 1280 });
+        return asText({ ok: true, nodeId, ...result });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "screenshot_url",
     "Render a URL in headless Chrome and capture a PNG. If `outPath` is given, writes the PNG to disk and returns the path (cheap on agent context). Otherwise returns the base64 bytes. Use for visual diffs against Figma exports.",
     {

@@ -302,6 +302,56 @@ export async function fingerprintUrl(url, opts = {}) {
   }
 }
 
+/**
+ * Verify that every visible text string from the live page also exists in
+ * a freshly-extracted spec. Returns { matched, missing[], extra[] } — a
+ * fast-feedback signal that the extractor didn't drop content.
+ */
+export async function verifyTextFidelity(url, spec, opts = {}) {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  let liveText = new Set();
+  try {
+    await page.setViewport({ width: opts.width || 1280, height: opts.height || 900, deviceScaleFactor: 1 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise(r => setTimeout(r, opts.settleMs || 1500));
+    liveText = new Set(await page.evaluate(() => {
+      const out = new Set();
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let n;
+      while ((n = walker.nextNode())) {
+        const t = (n.textContent || '').replace(/\s+/g, ' ').trim();
+        if (t.length >= 3) out.add(t);
+      }
+      return Array.from(out);
+    }));
+  } finally {
+    try { await page.close(); } catch {}
+  }
+  const specText = new Set();
+  (function walk(n) {
+    if (n && n.type === 'text' && n.characters) {
+      const t = n.characters.replace(/\s+/g, ' ').trim();
+      if (t.length >= 3) specText.add(t);
+    }
+    if (n && n.children) for (const c of n.children) walk(c);
+  })(spec);
+  const missing = [];
+  for (const t of liveText) {
+    if (specText.has(t)) continue;
+    // Allow partial: if any specText contains this t, ok.
+    let found = false;
+    for (const s of specText) if (s.includes(t) || t.includes(s)) { found = true; break; }
+    if (!found) missing.push(t);
+  }
+  return {
+    liveCount: liveText.size,
+    specCount: specText.size,
+    missing: missing.slice(0, 20),
+    matchedPct: Math.round((1 - missing.length / Math.max(liveText.size, 1)) * 100),
+  };
+}
+
 /** Render URL and return a base64 PNG screenshot (full page). */
 export async function screenshotUrl(url, opts = {}) {
   const width = opts.width || 1280;
