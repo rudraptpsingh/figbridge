@@ -263,16 +263,51 @@
     return { top: t, right: r, bottom: b, left: l };
   }
 
-  // Pick the best fill: prefer linear-gradient if backgroundImage has one,
-  // otherwise the solid backgroundColor. (Radial gradients are recognized
-  // and noted in _bgImage for a future plugin pass.)
+  // Build a Figma fill stack (bottom to top). Supports multi-layer
+  // backgrounds: e.g. background: linear-gradient(...), url(...), #color.
+  // The plugin will apply this as Figma's fills array (multiple paints).
+  // Returns either a single CSS string (back-compat) OR an array of
+  // gradient/solid/image descriptors. The plugin handles both shapes.
   function fillOf(cs) {
     const bgImage = cs.backgroundImage;
-    if (bgImage && bgImage !== 'none') {
-      const linear = bgImage.match(/^linear-gradient\([^)]*(?:\([^)]*\)[^)]*)*\)/i);
-      if (linear) return linear[0];   // pass raw CSS string; plugin parses
+    const bgColor = rgbToHex(cs.backgroundColor);
+    if (!bgImage || bgImage === 'none') return bgColor;
+    // Tokenize the layered background-image. Each layer is gradient(...) or url(...).
+    const layers = splitTopLevel(bgImage, ',');
+    if (layers.length === 1) {
+      // Single-layer fast path — keep the legacy string shape.
+      const l = layers[0].trim();
+      if (/^linear-gradient\(/i.test(l)) return l;
+      // url(...) is captured via _bgUrl on the frame; fall back to color.
+      if (/^url\(/i.test(l)) return bgColor;
+      return bgColor;
     }
-    return rgbToHex(cs.backgroundColor);
+    // Multi-layer: emit a stack. Bottom (solid bg color) → top (each layer).
+    const stack = [];
+    if (bgColor) stack.push({ kind: 'solid', color: bgColor });
+    // CSS paints layers in document order, FIRST layer is on TOP. Figma
+    // renders fills array in increasing index order — last index on top.
+    // So reverse: last CSS layer = first Figma fill = bottom.
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const l = layers[i].trim();
+      if (/^linear-gradient\(/i.test(l)) stack.push({ kind: 'linear-gradient', value: l });
+      else if (/^url\(/i.test(l)) {
+        const m = l.match(/url\(['"]?([^'")]+)['"]?\)/);
+        if (m) stack.push({ kind: 'image', url: m[1] });
+      }
+    }
+    return stack;
+  }
+
+  function splitTopLevel(s, sep) {
+    const out = []; let depth = 0; let buf = '';
+    for (const ch of s) {
+      if (ch === '(') depth++; else if (ch === ')') depth--;
+      if (ch === sep && depth === 0) { out.push(buf); buf = ''; }
+      else buf += ch;
+    }
+    if (buf) out.push(buf);
+    return out;
   }
 
   // Emit per-corner radius as { tl, tr, br, bl } when asymmetric, single
@@ -800,11 +835,34 @@
     if (spec) {
       spec.name = opts.name || (document.title || 'Imported page');
       if (opts.viewport) spec.width = opts.viewport;
-      // Carry the page-level CSS custom properties so the plugin can
-      // create matching Figma Variables.
       const cssVars = collectCssVariables();
       if (Object.keys(cssVars).length) spec._cssVariables = cssVars;
+      // Color histogram across the whole spec — top-N go into Figma Color
+      // Styles for design-system handoff.
+      spec._colorHistogram = collectColorHistogram(spec);
     }
     return spec;
   };
+
+  // Walk the finished spec, count every color used as fill/stroke/text,
+  // return [{ hex, count }] sorted by count desc.
+  function collectColorHistogram(root) {
+    const counts = {};
+    function bump(c) { if (!c) return; const h = String(c).toLowerCase(); counts[h] = (counts[h] || 0) + 1; }
+    function visit(n) {
+      if (!n) return;
+      if (typeof n.fill === 'string') bump(n.fill);
+      if (Array.isArray(n.fill)) for (const l of n.fill) if (l && l.kind === 'solid') bump(l.color);
+      if (n.color) bump(n.color);
+      if (n.stroke && n.stroke.color) bump(n.stroke.color);
+      if (n.outline && n.outline.color) bump(n.outline.color);
+      if (n.children) for (const c of n.children) visit(c);
+    }
+    visit(root);
+    return Object.entries(counts)
+      .map(([hex, count]) => ({ hex, count }))
+      .filter(c => c.count >= 3 && /^#[0-9a-f]{6}$/i.test(c.hex))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
+  }
 })();

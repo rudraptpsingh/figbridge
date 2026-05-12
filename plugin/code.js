@@ -702,8 +702,24 @@ function _ifcWarn(warnings, msg) { warnings.push(msg); }
 
 function _ifcFillFromValue(val) {
   if (!val) return null;
+  // Multi-layer fill stack — bottom layer at index 0.
+  if (Array.isArray(val)) {
+    var paints = [];
+    for (var i = 0; i < val.length; i++) {
+      var layer = val[i];
+      if (!layer || typeof layer !== "object") continue;
+      if (layer.kind === "solid" && layer.color) {
+        var rgb1 = hexToRGB(layer.color);
+        if (rgb1) paints.push({ type: "SOLID", color: { r: rgb1.r, g: rgb1.g, b: rgb1.b }, opacity: rgb1.a == null ? 1 : rgb1.a });
+      } else if (layer.kind === "linear-gradient" && layer.value) {
+        var g = _ifcParseLinearGradient(layer.value);
+        if (g) paints.push(g);
+      }
+      // image layers are handled separately via _imageBytes (server-side fetched).
+    }
+    return paints.length ? paints : null;
+  }
   if (typeof val === "string") {
-    // Linear gradient: linear-gradient([angle,] color stop, color stop, ...)
     if (/^linear-gradient\(/i.test(val)) {
       var grad = _ifcParseLinearGradient(val);
       if (grad) return [grad];
@@ -1296,6 +1312,28 @@ async function _ifcSyncCssVariables(vars, warnings) {
   return created;
 }
 
+// Top-N colors used in the spec → Figma Paint Styles. Names are derived
+// from the hex; existing styles with the same name get updated (not
+// duplicated). Doesn't auto-bind fills to styles (matching is fuzzy and
+// breaks customizations) — designers can do that manually in Figma.
+async function _ifcSyncColorStyles(histogram, warnings) {
+  if (!figma.getLocalPaintStylesAsync) return 0;
+  var existing = await figma.getLocalPaintStylesAsync();
+  var byName = {};
+  for (var ei = 0; ei < existing.length; ei++) byName[existing[ei].name] = existing[ei];
+  var created = 0;
+  for (var i = 0; i < histogram.length; i++) {
+    var h = histogram[i];
+    var rgb = hexToRGB(h.hex);
+    if (!rgb) continue;
+    var name = "imported/" + h.hex.toUpperCase();
+    var style = byName[name];
+    if (!style) { style = figma.createPaintStyle(); style.name = name; created++; }
+    style.paints = [{ type: "SOLID", color: { r: rgb.r, g: rgb.g, b: rgb.b }, opacity: rgb.a == null ? 1 : rgb.a }];
+  }
+  return created;
+}
+
 async function importFromCode(args) {
   var warnings = [];
   var spec = args.spec;
@@ -1307,6 +1345,11 @@ async function importFromCode(args) {
   // properties carried on the spec (designer-friendly handoff).
   if (spec._cssVariables) {
     try { await _ifcSyncCssVariables(spec._cssVariables, warnings); } catch (e) { _ifcWarn(warnings, "cssVars: " + e.message); }
+  }
+  // Frequently-used colors → Figma Paint Styles. Designers can edit one
+  // swatch and propagate updates without re-importing.
+  if (Array.isArray(spec._colorHistogram) && spec._colorHistogram.length) {
+    try { await _ifcSyncColorStyles(spec._colorHistogram, warnings); } catch (e) { _ifcWarn(warnings, "colorStyles: " + e.message); }
   }
   // Resolve page
   var page = figma.currentPage;
