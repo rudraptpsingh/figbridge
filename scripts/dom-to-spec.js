@@ -222,6 +222,31 @@
   }
 
   // CSS aspect-ratio: 16/9 etc — capture for image/box sizing.
+  // background-position / background-size affect how an image fill is
+  // cropped/scaled inside its container. Mapped on the plugin side to
+  // Figma's image-fill matrix.
+  function bgScaleOf(cs) {
+    const size = cs.backgroundSize;
+    if (size === 'cover') return 'FILL';
+    if (size === 'contain') return 'FIT';
+    return null;
+  }
+  function bgPosOf(cs) {
+    const pos = cs.backgroundPosition;
+    if (!pos || pos === '50% 50%' || pos === 'center') return null;
+    // Return as {x, y} 0-1 normalized for the plugin.
+    const m = pos.match(/(-?[\d.]+)%\s+(-?[\d.]+)%/);
+    if (m) return { x: parseFloat(m[1]) / 100, y: parseFloat(m[2]) / 100 };
+    return null;
+  }
+
+  // overflow: hidden / clip → mark frame as clip-content. Children outside
+  // the parent rect are clipped in Figma like in the browser.
+  function clipsContent(cs) {
+    return cs.overflow === 'hidden' || cs.overflowX === 'hidden' || cs.overflowY === 'hidden'
+        || cs.overflow === 'clip' || cs.overflowX === 'clip' || cs.overflowY === 'clip';
+  }
+
   function aspectRatioOf(cs) {
     const v = cs.aspectRatio;
     if (!v || v === 'auto') return null;
@@ -718,6 +743,9 @@
       filterEffects: filterEffectsOf(cs),
       blendMode: blendModeOf(cs),
       aspectRatio: aspectRatioOf(cs),
+      bgScaleMode: bgScaleOf(cs),
+      bgPosition: bgPosOf(cs),
+      clipsContent: clipsContent(cs),
       zIndex: zIndexOf(cs),
       width: Math.round(rect.width),
       height: Math.round(rect.height),
