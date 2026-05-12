@@ -68,6 +68,28 @@
     for (const c of all) if (!looksUtility(c)) return c;
     return null;
   }
+  // Structural signature used for component detection. Two sibling DOM
+  // elements with the same signature are treated as repetitions of the
+  // same component (e.g. 5 workflow rows, 4 footer columns, 6 FAQ items).
+  // Conservative: requires matching tag + first non-utility class + same
+  // child-tag count vector. Tighter than the browser's :nth-of-type but
+  // looser than full DOM-tree-hash; lets us componentize meaningful
+  // repetitions without grouping unrelated siblings.
+  function childSignature(el) {
+    if (!(el instanceof Element)) return null;
+    const tag = el.tagName.toLowerCase();
+    const cls = firstSemanticClass(el.className);
+    if (!cls) return null; // No semantic class → don't group (safer default).
+    // Count children by tag for a coarse-but-effective structural match.
+    const tagCounts = {};
+    for (const c of el.children) {
+      const t = c.tagName.toLowerCase();
+      tagCounts[t] = (tagCounts[t] || 0) + 1;
+    }
+    const tagFingerprint = Object.keys(tagCounts).sort().map(t => t + tagCounts[t]).join(',');
+    return tag + '|' + cls + '|' + tagFingerprint;
+  }
+
   function nameForNode(el, tag) {
     if (el.id) return '#' + el.id;
     const sc = firstSemanticClass(el.className);
@@ -889,13 +911,27 @@
       }
       const childCs = window.getComputedStyle(child);
       const zi = parseInt(childCs.zIndex, 10);
-      draft.push({ node: cn, z: isFinite(zi) ? zi : 0, idx: draft.length });
+      // Compute a structural signature for componentization: tag +
+      // first-non-utility-class + visible-text-template. Siblings with
+      // matching signatures are candidates for a Figma Component +
+      // Instances pair.
+      const sig = childSignature(child);
+      draft.push({ node: cn, z: isFinite(zi) ? zi : 0, idx: draft.length, sig });
     }
-    // Stable sort: by z ascending (low z first → rendered behind), then by
-    // DOM order. Figma appends-on-top, so this matches the browser's
-    // painter's order for the simple cases.
+    // Stable sort.
     if (!isAutoLayout && draft.length > 1) {
       draft.sort((a, b) => (a.z - b.z) || (a.idx - b.idx));
+    }
+    // Componentization: bucket children by signature. Groups with >= 2
+    // members get a shared _componentGroupId; the plugin converts the
+    // first member to a component and the others to instances.
+    const groups = {};
+    for (const d of draft) if (d.sig) { (groups[d.sig] = groups[d.sig] || []).push(d); }
+    let nextGroupId = 0;
+    for (const sig of Object.keys(groups)) {
+      if (groups[sig].length < 2) continue;
+      const gid = (frame.name || 'group') + '/g' + (nextGroupId++);
+      for (const d of groups[sig]) d.node._componentGroupId = gid;
     }
     for (const d of draft) frame.children.push(d.node);
 
