@@ -68,6 +68,48 @@ export async function shutdown() {
 }
 
 /**
+ * Read source-of-truth files (HTML/CSS/JSON design tokens) from a local
+ * directory to enrich the extracted spec. The agent's GitHub repo for
+ * the site being imported is the ideal sourceDir — figbridge gets both
+ * the rendered output AND the authored intent.
+ *
+ * Returns:
+ *   - tokens: parsed tokens.json / design-tokens.json if present
+ *   - cssVars: extracted from any .css with :root { --foo: bar }
+ *   - fileList: top-level filenames for diagnostics
+ */
+async function readSourceContext(sourceDir) {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const out = { sourceDir, tokens: null, cssVars: {}, fileList: [] };
+  try {
+    out.fileList = (await fs.readdir(sourceDir)).slice(0, 40);
+  } catch { return out; }
+  // Tokens file (if any)
+  for (const candidate of ["tokens.json", "design-tokens.json", "tokens/index.json"]) {
+    try {
+      const buf = await fs.readFile(path.join(sourceDir, candidate), "utf8");
+      out.tokens = JSON.parse(buf);
+      break;
+    } catch {}
+  }
+  // CSS vars from any top-level .css file (greedy regex; good enough)
+  for (const name of out.fileList) {
+    if (!name.endsWith(".css")) continue;
+    try {
+      const css = await fs.readFile(path.join(sourceDir, name), "utf8");
+      const rootMatch = css.match(/:root\s*\{([\s\S]*?)\}/);
+      if (rootMatch) {
+        for (const m of rootMatch[1].matchAll(/--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g)) {
+          out.cssVars["--" + m[1]] = m[2].trim();
+        }
+      }
+    } catch {}
+  }
+  return out;
+}
+
+/**
  * Render a URL in headless Chrome, scroll-prime to fire IntersectionObserver
  * reveals, hoist any opacity:0 elements (pre-fade-in DOM), then walk the
  * DOM with the canonical extractor. Returns the figbridge spec.
@@ -177,6 +219,20 @@ export async function urlToSpec(url, opts = {}) {
       }
       if (n && n.children) for (const c of n.children) walk(c);
     })(spec);
+
+    // Source-aware enrichment: if the agent passes a sourceDir (the
+    // GitHub repo serving the URL), read tokens.json / :root css vars
+    // and merge into the spec so the Figma file gets the authored
+    // design-system intent, not just computed values.
+    if (opts.sourceDir) {
+      try {
+        const ctx = await readSourceContext(opts.sourceDir);
+        if (ctx.cssVars && Object.keys(ctx.cssVars).length) {
+          spec._cssVariables = Object.assign({}, spec._cssVariables || {}, ctx.cssVars);
+        }
+        if (ctx.tokens) spec._sourceTokens = ctx.tokens;
+      } catch (e) { /* non-fatal */ }
+    }
     return spec;
   } finally {
     try { await page.close(); } catch {}

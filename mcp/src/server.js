@@ -307,13 +307,14 @@ export async function main() {
       name: z.string().optional().describe("Override the Figma frame's name. Defaults to '<title> WIDTHpx'."),
       update: z.coerce.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false."),
       dryRun: z.coerce.boolean().optional().describe("If true, runs the full extraction but skips sending to Figma. Returns spec metadata + telemetry only."),
-      colorScheme: z.enum(["light", "dark"]).optional().describe("Force prefers-color-scheme. Sites that auto-switch render in this theme. Leave unset for system default.")
+      colorScheme: z.enum(["light", "dark"]).optional().describe("Force prefers-color-scheme."),
+      sourceDir: z.string().optional().describe("Absolute path to the local source directory backing this URL (e.g. the docs/ folder of the GitHub repo). When provided, figbridge reads tokens.json + :root CSS variables from there and enriches the spec with authored design-system tokens — not just computed values. Source-aware extraction.")
     },
-    async ({ url, width, name, update, dryRun, colorScheme }) => {
+    async ({ url, width, name, update, dryRun, colorScheme, sourceDir }) => {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/command`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun, colorScheme: colorScheme || null }, timeoutMs: 300000 })
+          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun, colorScheme: colorScheme || null, sourceDir: sourceDir || null }, timeoutMs: 300000 })
         });
         return asText(await r.json());
       } catch (e) { return asText({ ok: false, error: e.message }); }
