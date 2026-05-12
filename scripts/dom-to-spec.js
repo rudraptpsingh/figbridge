@@ -213,6 +213,24 @@
     return (cs.whiteSpace === 'nowrap' || cs.whiteSpace === 'pre') ? 'NOWRAP' : null;
   }
 
+  // Multi-line text truncation: -webkit-line-clamp limits visible lines.
+  // We capture the line count so the plugin can resize the text node to
+  // (lineHeight * count) and clip overflow.
+  function lineClampOf(cs) {
+    const n = parseInt(cs.webkitLineClamp || cs.lineClamp, 10);
+    return isFinite(n) && n > 0 ? n : null;
+  }
+
+  // CSS aspect-ratio: 16/9 etc — capture for image/box sizing.
+  function aspectRatioOf(cs) {
+    const v = cs.aspectRatio;
+    if (!v || v === 'auto') return null;
+    const m = v.match(/^([\d.]+)\s*\/\s*([\d.]+)/);
+    if (m) return parseFloat(m[1]) / parseFloat(m[2]);
+    const n = parseFloat(v);
+    return isFinite(n) ? n : null;
+  }
+
   function minMaxOf(cs) {
     const out = {};
     const mw = px(cs.minWidth), MW = px(cs.maxWidth);
@@ -577,6 +595,7 @@
         textTransform: textTransformOf(cs),
         whiteSpace: whiteSpaceOf(cs),
         textShadow: textShadowOf(cs),
+        lineClamp: lineClampOf(cs),
         color: rgbToHex(cs.color),
         opacity: opacityOf(cs),
         width: Math.round(rect.width),
@@ -636,6 +655,7 @@
       backdropBlur: backdropBlurOf(cs),
       filterEffects: filterEffectsOf(cs),
       blendMode: blendModeOf(cs),
+      aspectRatio: aspectRatioOf(cs),
       zIndex: zIndexOf(cs),
       width: Math.round(rect.width),
       height: Math.round(rect.height),
