@@ -586,16 +586,43 @@
     // <svg> → carry the outerHTML so the plugin can do
     // figma.createNodeFromSvg() and produce real vector layers.
     if (tag === 'svg') {
-      // Set fill on the svg element if missing so currentColor renders.
-      // We capture the source as-is; the plugin will pre-pass currentColor.
-      const node = {
+      // Resolve <use href="#id"> references inline so the SVG is
+      // self-contained when the plugin parses it. (Outside the parent
+      // <svg> scope the symbol wouldn't be found.)
+      let svgSrc = el.outerHTML;
+      const symbolMap = {};
+      document.querySelectorAll('symbol[id], defs > [id]').forEach(s => { symbolMap[s.id] = s.outerHTML; });
+      svgSrc = svgSrc.replace(/<use\s[^>]*?(?:xlink:)?href=['"]#([^'"]+)['"][^>]*\/?>/g, (m, id) => {
+        return symbolMap[id] ? symbolMap[id].replace(/^<symbol/, '<g').replace(/<\/symbol>$/, '</g>') : m;
+      });
+      // Ensure the SVG has explicit width/height attributes — Figma's
+      // createNodeFromSvg sometimes pegs to viewBox without these.
+      const r = el.getBoundingClientRect();
+      if (!/<svg[^>]+\bwidth=/.test(svgSrc)) svgSrc = svgSrc.replace(/<svg/, `<svg width="${Math.round(r.width)}" height="${Math.round(r.height)}"`);
+      return {
         type: 'svg',
         name: name + ':svg',
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-        _svg: el.outerHTML,
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+        _svg: svgSrc,
         _color: rgbToHex(cs.color),
       };
+    }
+    // <video> → rect with poster image if present, else a placeholder.
+    if (tag === 'video') {
+      const poster = el.getAttribute('poster');
+      const r = el.getBoundingClientRect();
+      const node = {
+        type: 'rect',
+        name: name + ':video',
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+        fill: rgbToHex(cs.backgroundColor) || '#0a0a0a',
+        cornerRadius: radius(cs),
+      };
+      if (poster) {
+        try { node._bgUrl = (new URL(poster, document.baseURI)).href; } catch (e) {}
+      }
       return node;
     }
     // <hr> → thin colored line

@@ -141,9 +141,30 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
             if (body.action === "import-url") {
               const spec = await urlToSpec(args.url, { width: args.width || 1280, name: args.name || null });
               if (args.name) spec.name = args.name;
+              // Telemetry: count nodes + features so the response gives
+              // visibility into what was captured.
+              const telemetry = { nodes: 0, gradients: 0, perSidePadding: 0, xy: 0, shadows: 0, borders: 0, svgs: 0, images: 0, ranges: 0, transforms: 0, blends: 0 };
+              (function tally(n) {
+                if (!n) return;
+                telemetry.nodes++;
+                if (typeof n.fill === 'string' && n.fill.startsWith('linear-gradient')) telemetry.gradients++;
+                if (Array.isArray(n.fill)) for (const l of n.fill) if (l.kind === 'linear-gradient') telemetry.gradients++;
+                if (n.padding && typeof n.padding === 'object') telemetry.perSidePadding++;
+                if (typeof n.x === 'number') telemetry.xy++;
+                if (n.shadow) telemetry.shadows++;
+                if (n.stroke) telemetry.borders++;
+                if (n.type === 'svg') telemetry.svgs++;
+                if (n._imageBytes) telemetry.images++;
+                if (Array.isArray(n.ranges) && n.ranges.length) telemetry.ranges++;
+                if (n.transform) telemetry.transforms++;
+                if (n.blendMode) telemetry.blends++;
+                if (n.children) for (const c of n.children) tally(c);
+              })(spec);
+              // Dry-run: return the telemetry without sending to plugin.
+              if (args.dryRun) return send(res, 200, { ok: true, dryRun: true, spec: { name: spec.name, width: spec.width, height: spec.height }, telemetry });
               const action = args.update ? "update-from-code" : "import-from-code";
               const r = await sendCommand(action, { spec, name: spec.name || args.name || null }, args.timeoutMs || 300000);
-              return send(res, 200, r);
+              return send(res, 200, { ...r, telemetry });
             }
             if (body.action === "screenshot-url") {
               const b64 = await screenshotUrl(args.url, { width: args.width || 1280, fullPage: args.fullPage !== false });
