@@ -288,6 +288,24 @@ export async function fingerprintUrl(url, opts = {}) {
       features.svgs    = document.querySelectorAll('svg').length;
       features.imgs    = document.querySelectorAll('img').length;
       features.videos  = document.querySelectorAll('video').length;
+      // @media breakpoint discovery: scan every loaded stylesheet for
+      // @media rules with min-width / max-width and surface the px values.
+      // Tells the agent "you should capture this site at widths X, Y, Z".
+      const breakpoints = new Set();
+      try {
+        for (const sheet of document.styleSheets) {
+          let rules;
+          try { rules = sheet.cssRules; } catch (e) { continue; } // CORS
+          if (!rules) continue;
+          for (const rule of rules) {
+            if (rule.type === CSSRule.MEDIA_RULE) {
+              const t = rule.conditionText || rule.media.mediaText || '';
+              for (const m of t.matchAll(/(min|max)-width:\s*(\d+)px/g)) breakpoints.add(parseInt(m[2], 10));
+            }
+          }
+        }
+      } catch (e) {}
+      const bps = Array.from(breakpoints).sort((a, b) => a - b);
       // Top N tags
       const topTags = Object.entries(tags).sort((a,b) => b[1]-a[1]).slice(0, 12);
       return {
@@ -298,6 +316,7 @@ export async function fingerprintUrl(url, opts = {}) {
         displays,
         positions,
         features,
+        breakpoints: bps,
         colors: Array.from(colors).slice(0, 30),
         fonts: Array.from(fonts),
       };

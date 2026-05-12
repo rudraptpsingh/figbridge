@@ -769,6 +769,63 @@
       };
       return frame;
     }
+    // <table> → VERTICAL frame of HORIZONTAL row-frames. Better than the
+    // default "huge nested frame mess" — tables render as proper grids
+    // in Figma.
+    if (tag === 'table') {
+      const rTbl = el.getBoundingClientRect();
+      const rows = [];
+      for (const tr of el.querySelectorAll(':scope > tbody > tr, :scope > thead > tr, :scope > tr')) {
+        const cells = [];
+        const rRow = tr.getBoundingClientRect();
+        for (const td of tr.querySelectorAll('th, td')) {
+          const cs2 = getComputedStyle(td);
+          const rCell = td.getBoundingClientRect();
+          cells.push({
+            type: 'frame', name: td.tagName.toLowerCase(),
+            layout: 'HORIZONTAL', padding: padOf(cs2),
+            fill: fillOf(cs2), stroke: strokeOf(cs2),
+            width: Math.round(rCell.width), height: Math.round(rCell.height),
+            children: [{
+              type: 'text', characters: td.textContent.trim().slice(0, 200),
+              fontSize: Math.round(px(cs2.fontSize) || 14),
+              fontWeight: fontWeight(cs2), fontFamily: fontFamilyOf(cs2),
+              color: rgbToHex(cs2.color),
+            }],
+          });
+        }
+        rows.push({
+          type: 'frame', name: 'tr', layout: 'HORIZONTAL',
+          width: Math.round(rRow.width), height: Math.round(rRow.height),
+          children: cells,
+        });
+      }
+      return {
+        type: 'frame', name: 'table', layout: 'VERTICAL',
+        fill: fillOf(cs), stroke: strokeOf(cs), cornerRadius: radius(cs),
+        width: Math.round(rTbl.width), height: Math.round(rTbl.height),
+        children: rows,
+      };
+    }
+    // <details> / <summary>: render in current open/closed state.
+    if (tag === 'details') {
+      const rDet = el.getBoundingClientRect();
+      const isOpen = el.open || el.hasAttribute('open');
+      const frame = {
+        type: 'frame', name: 'details' + (isOpen ? ':open' : ':closed'),
+        layout: 'VERTICAL', padding: padOf(cs), spacing: px(cs.gap) || 0,
+        fill: fillOf(cs), stroke: strokeOf(cs), cornerRadius: radius(cs),
+        width: Math.round(rDet.width), height: Math.round(rDet.height),
+        children: [],
+      };
+      for (const c of el.children) {
+        if (c.tagName === 'SUMMARY' || isOpen) {
+          const cn = nodeForElement(c, opts, depth + 1);
+          if (cn) frame.children.push(cn);
+        }
+      }
+      return frame;
+    }
     // <video> → rect with poster image if present, else a placeholder.
     if (tag === 'video') {
       const poster = el.getAttribute('poster');
