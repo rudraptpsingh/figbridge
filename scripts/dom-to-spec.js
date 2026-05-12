@@ -21,6 +21,47 @@
 // Returns: a single root frame spec, with deeply nested children.
 
 (function () {
+  // Build reverse map: hex color → CSS variable name. Lets us bind
+  // SOLID fills to a Figma Variable instead of hardcoding the value —
+  // designers can edit one token and propagate. Built lazily on first
+  // call so we only pay for it once per import.
+  let _cssVarByHex = null;
+  function buildCssVarMap() {
+    if (_cssVarByHex) return _cssVarByHex;
+    _cssVarByHex = {};
+    const rootStyle = window.getComputedStyle(document.documentElement);
+    for (let i = 0; i < rootStyle.length; i++) {
+      const prop = rootStyle.item(i);
+      if (!prop.startsWith('--')) continue;
+      const raw = rootStyle.getPropertyValue(prop).trim();
+      // Resolve colors via a probe element so hsl/oklch normalize.
+      let resolved = null;
+      try {
+        const probe = document.createElement('span');
+        probe.style.display = 'none';
+        probe.style.color = raw;
+        document.body.appendChild(probe);
+        resolved = getComputedStyle(probe).color;
+        document.body.removeChild(probe);
+      } catch (e) {}
+      const hex = (resolved && _rgbToHexRaw(resolved)) || _rgbToHexRaw(raw);
+      if (hex) _cssVarByHex[hex.toLowerCase()] = prop;
+    }
+    return _cssVarByHex;
+  }
+  function _rgbToHexRaw(rgb) {
+    if (!rgb) return null;
+    const m = rgb.match(/rgba?\(\s*([\d.]+)\s*,?\s*([\d.]+)\s*,?\s*([\d.]+)/);
+    if (!m) return null;
+    const hx = (n) => Math.round(parseFloat(n)).toString(16).padStart(2, '0');
+    return '#' + hx(m[1]) + hx(m[2]) + hx(m[3]);
+  }
+  // Returns the CSS variable that maps to `hex`, or null.
+  function tokenForHex(hex) {
+    if (!hex) return null;
+    return buildCssVarMap()[hex.toLowerCase()] || null;
+  }
+
   function rgbToHex(rgb) {
     if (!rgb || rgb === 'transparent' || rgb === 'rgba(0, 0, 0, 0)') return null;
     // getComputedStyle() resolves modern color formats (hsla, oklch, lab,
@@ -315,11 +356,15 @@
     return null;
   }
 
-  // overflow: hidden / clip → mark frame as clip-content. Children outside
-  // the parent rect are clipped in Figma like in the browser.
+  // overflow: hidden / clip. CSS allows single-axis hidden (common for
+  // horizontal-scroll prevention) but Figma's clipsContent is binary —
+  // clips on both axes. Only set when BOTH axes are hidden, OR when the
+  // shorthand `overflow` is hidden/clip (which implies both axes).
   function clipsContent(cs) {
-    return cs.overflow === 'hidden' || cs.overflowX === 'hidden' || cs.overflowY === 'hidden'
-        || cs.overflow === 'clip' || cs.overflowX === 'clip' || cs.overflowY === 'clip';
+    if (cs.overflow === 'hidden' || cs.overflow === 'clip') return true;
+    const xHidden = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
+    const yHidden = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
+    return xHidden && yHidden;
   }
 
   function aspectRatioOf(cs) {
@@ -363,15 +408,19 @@
     return { top: t, right: r, bottom: b, left: l };
   }
 
-  // Build a Figma fill stack (bottom to top). Supports multi-layer
-  // backgrounds: e.g. background: linear-gradient(...), url(...), #color.
-  // The plugin will apply this as Figma's fills array (multiple paints).
-  // Returns either a single CSS string (back-compat) OR an array of
-  // gradient/solid/image descriptors. The plugin handles both shapes.
+  // Build a Figma fill stack. When the resolved bg color matches a known
+  // --var, emit { kind: 'solid', color, token } so the plugin can bind
+  // the paint to that Figma Variable. Designers edit one var, every
+  // bound paint updates.
   function fillOf(cs) {
     const bgImage = cs.backgroundImage;
     const bgColor = rgbToHex(cs.backgroundColor);
-    if (!bgImage || bgImage === 'none') return bgColor;
+    if (!bgImage || bgImage === 'none') {
+      if (!bgColor) return null;
+      const tok = tokenForHex(bgColor);
+      // Emit token-aware shape when a match found; else legacy string.
+      return tok ? [{ kind: 'solid', color: bgColor, token: tok }] : bgColor;
+    }
     // Tokenize the layered background-image. Each layer is gradient(...) or url(...).
     const layers = splitTopLevel(bgImage, ',');
     if (layers.length === 1) {
@@ -665,13 +714,28 @@
       }
       return node;
     }
-    // <iframe> → rect with index tag so the server-side orchestrator
-    // can fill it in with a puppeteer-captured screenshot of that iframe.
+    // <iframe>: if same-origin we UNFOLD the iframe's DOM into native
+    // Figma frames here. Way more useful than a flat screenshot: the
+    // demo deck becomes real editable layers (text, fills, borders) in
+    // Figma. Falls back to screenshot substitution when cross-origin.
     if (tag === 'iframe') {
-      // Compute the iframe's index in document order; matches what the
-      // server's page.$$('iframe') will return.
-      const all = Array.from(document.querySelectorAll('iframe'));
-      const idx = all.indexOf(el);
+      let innerBody = null;
+      try { innerBody = el.contentDocument && el.contentDocument.body; } catch (e) {}
+      if (innerBody && innerBody.children.length) {
+        // Recurse into the iframe's body. We carry the iframe's outer
+        // position so its children align in the parent page coordinates.
+        const innerSpec = nodeForElement(innerBody, opts, depth + 1);
+        if (innerSpec) {
+          innerSpec.name = name + ':iframe(' + (el.getAttribute('src') || '?') + ')';
+          innerSpec.width = Math.round(rect.width);
+          innerSpec.height = Math.round(rect.height);
+          // Override the body fill with the iframe's CSS bg if set.
+          if (rgbToHex(cs.backgroundColor)) innerSpec.fill = rgbToHex(cs.backgroundColor);
+          return innerSpec;
+        }
+      }
+      // Fallback: cross-origin, mark for puppeteer screenshot.
+      const allFrames = Array.from(document.querySelectorAll('iframe'));
       return {
         type: 'rect',
         name: name + ':iframe',
@@ -679,7 +743,7 @@
         height: Math.round(rect.height),
         fill: rgbToHex(cs.backgroundColor) || '#e2e8f0',
         cornerRadius: radius(cs),
-        _iframeIdx: idx,
+        _iframeIdx: allFrames.indexOf(el),
         _src: el.getAttribute('src') || null,
       };
     }
