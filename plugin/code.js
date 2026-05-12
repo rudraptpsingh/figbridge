@@ -833,7 +833,13 @@ function _ifcApplyCommonProps(node, spec) {
   }
   if (spec.stroke && "strokes" in node) {
     var sFills = _ifcStrokeToFills(spec.stroke);
-    if (sFills) { node.strokes = sFills; node.strokeWeight = Number(spec.stroke.width) || 1; }
+    if (sFills) {
+      node.strokes = sFills;
+      node.strokeWeight = Number(spec.stroke.width) || 1;
+      if (Array.isArray(spec.stroke.dashPattern) && "dashPattern" in node) {
+        try { node.dashPattern = spec.stroke.dashPattern; } catch (e) {}
+      }
+    }
   }
   // Outline → outer stroke. Skipped when a border is already set (Figma
   // doesn't natively support both).
@@ -926,11 +932,23 @@ async function _ifcCreateNode(spec, warnings) {
   }
   if (type === "text") {
     var t = figma.createText();
-    var fontName = { family: (spec.fontFamily || "Inter"), style: _ifcFontStyle(spec.fontWeight) };
-    try { await figma.loadFontAsync(fontName); }
-    catch (e) {
+    // Try the requested family + style. If that fails, try the family
+    // with Regular. If that fails, fall back to Inter at the original
+    // style. If THAT fails, Inter Regular.
+    var attempts = [
+      { family: (spec.fontFamily || "Inter"), style: _ifcFontStyle(spec.fontWeight) },
+      { family: (spec.fontFamily || "Inter"), style: "Regular" },
+      { family: "Inter", style: _ifcFontStyle(spec.fontWeight) },
+      { family: "Inter", style: "Regular" },
+    ];
+    var fontName = null;
+    for (var fi = 0; fi < attempts.length; fi++) {
+      try { await figma.loadFontAsync(attempts[fi]); fontName = attempts[fi]; break; }
+      catch (e) {}
+    }
+    if (!fontName) {
+      _ifcWarn(warnings, "all font loads failed for " + (spec.fontFamily || "Inter"));
       fontName = { family: "Inter", style: "Regular" };
-      try { await figma.loadFontAsync(fontName); } catch (e2) { _ifcWarn(warnings, "font load failed: " + e2.message); }
     }
     t.fontName = fontName;
     if (spec.fontSize) t.fontSize = Number(spec.fontSize) || 16;

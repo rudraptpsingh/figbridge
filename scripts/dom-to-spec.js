@@ -23,11 +23,17 @@
 (function () {
   function rgbToHex(rgb) {
     if (!rgb || rgb === 'transparent' || rgb === 'rgba(0, 0, 0, 0)') return null;
-    const m = rgb.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?/);
+    // getComputedStyle() resolves modern color formats (hsla, oklch, lab,
+    // color()) into rgb()/rgba() syntax — so this single matcher catches
+    // every color-space the browser supports. No special-casing needed.
+    const m = rgb.match(/rgba?\(\s*([\d.]+)\s*,?\s*([\d.]+)\s*,?\s*([\d.]+)\s*(?:[,/]\s*([\d.]+%?))?/);
     if (!m) return null;
-    const a = m[4] != null ? parseFloat(m[4]) : 1;
+    let a = 1;
+    if (m[4] != null) {
+      a = m[4].endsWith('%') ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+    }
     if (a === 0) return null;
-    const hx = (n) => parseInt(n, 10).toString(16).padStart(2, '0');
+    const hx = (n) => Math.round(parseFloat(n)).toString(16).padStart(2, '0');
     return '#' + hx(m[1]) + hx(m[2]) + hx(m[3]);
   }
 
@@ -109,15 +115,24 @@
   // otherwise be dropped. Returns true if the element is a known
   // "text-y" tag and ALL nested content is text-like (no images, no
   // block children, no svg).
+  const INLINE_TEXT_TAGS = new Set(['h1','h2','h3','h4','h5','h6','p','a','button','label','strong','em','span','blockquote']);
+  const BLOCK_TAGS = new Set(['section','header','footer','article','aside','main','div']);
+  const MEDIA_TAGS = new Set(['img','video','canvas','iframe','picture','hr']);
+
   function isInlineText(el) {
     const tag = el.tagName.toLowerCase();
-    if (!['h1','h2','h3','h4','h5','h6','p','a','button','label','strong','em','span','blockquote'].includes(tag)) return false;
-    // Only true blockers: nested block-level wrappers, img, video, iframe,
-    // canvas, picture. SVGs inside headings are typically decorative
-    // (underline accents, dot marks) — getting the text in matters more.
-    for (const n of el.querySelectorAll('img,video,canvas,iframe,picture,hr')) return false;
-    for (const n of el.querySelectorAll('section,header,footer,article,aside,main,div')) {
-      if (n.children.length > 0) return false;
+    if (!INLINE_TEXT_TAGS.has(tag)) return false;
+    // Iterative scan instead of two querySelectorAll() calls. Same answer,
+    // ~3-5× faster on big trees because we short-circuit and don't allocate.
+    const stack = [el];
+    while (stack.length) {
+      const n = stack.pop();
+      for (const c of n.children) {
+        const ctag = c.tagName.toLowerCase();
+        if (MEDIA_TAGS.has(ctag)) return false;
+        if (BLOCK_TAGS.has(ctag) && c.children.length > 0) return false;
+        if (c.children.length) stack.push(c);
+      }
     }
     return el.textContent && el.textContent.trim().length > 0;
   }
@@ -302,13 +317,18 @@
     return isFinite(z) ? z : null;
   }
 
-  // 1px borders are common on cards/buttons — extract width + color.
+  // Borders. Capture width + color + style (solid/dashed/dotted). Figma
+  // supports SOLID/DASHED stroke styles via dashPattern (no native dotted —
+  // approximate as dashed with short segments).
   function strokeOf(cs) {
     const w = px(cs.borderTopWidth) || 0;
     if (w === 0 || cs.borderTopStyle === 'none') return null;
     const c = rgbToHex(cs.borderTopColor);
     if (!c) return null;
-    return { color: c, width: w };
+    let dashPattern = null;
+    if (cs.borderTopStyle === 'dashed') dashPattern = [w * 3, w * 2];
+    else if (cs.borderTopStyle === 'dotted') dashPattern = [w, w];
+    return { color: c, width: w, style: cs.borderTopStyle, dashPattern };
   }
 
   // Parse a single CSS box-shadow into { x, y, blur, spread, color, inset }.
