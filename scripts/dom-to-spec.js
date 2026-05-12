@@ -187,6 +187,19 @@
     return (isFinite(v) && v < 1) ? v : null;
   }
 
+  function letterSpacingOf(cs) {
+    const v = parseFloat(cs.letterSpacing);
+    if (!isFinite(v) || v === 0) return null;
+    return v;
+  }
+
+  function textDecorationOf(cs) {
+    const line = cs.textDecorationLine || cs.textDecoration || '';
+    if (line.includes('underline')) return 'UNDERLINE';
+    if (line.includes('line-through')) return 'STRIKETHROUGH';
+    return null;
+  }
+
   function fontWeight(cs) {
     const w = parseInt(cs.fontWeight, 10);
     if (!w) return null;
@@ -289,7 +302,9 @@
         fontWeight: fontWeight(cs),
         fontFamily: fontFamilyOf(cs),
         lineHeight: lineHeightOf(cs),
+        letterSpacing: letterSpacingOf(cs),
         textAlign: textAlignOf(cs),
+        textDecoration: textDecorationOf(cs),
         color: rgbToHex(cs.color),
         opacity: opacityOf(cs),
       };
@@ -341,9 +356,19 @@
       children: [],
     };
 
-    // Background-image (e.g. hero gradient) — note it; we'll embed in v2.
+    // Background-image — capture url(...) targets so the server can fetch
+    // + inline them. Also keep the raw CSS for any layered gradient that
+    // the fillOf() helper didn't extract as the primary fill.
     const bgImage = cs.backgroundImage;
-    if (bgImage && bgImage !== 'none') frame._bgImage = bgImage;
+    if (bgImage && bgImage !== 'none') {
+      frame._bgImage = bgImage;
+      const urlMatch = bgImage.match(/url\(['"]?([^'")]+)['"]?\)/);
+      if (urlMatch) {
+        const u = urlMatch[1];
+        // Resolve to absolute URL for the server to fetch.
+        frame._bgUrl = (new URL(u, document.baseURI)).href;
+      }
+    }
 
     if (depth >= opts.maxDepth) return frame;
 
@@ -354,11 +379,56 @@
     const parentRect = rect;
     const isAutoLayout = frame.layout === 'VERTICAL' || frame.layout === 'HORIZONTAL';
 
+    // CSS pseudo-elements (::before / ::after) — tons of decorative UI is
+    // done with these (dots, custom underlines, arrows, status pips). They
+    // don't appear in el.children. Synthesize a node per side when present.
+    for (const side of ['::before', '::after']) {
+      const ps = window.getComputedStyle(el, side);
+      const content = ps.content;
+      // 'none' / 'normal' = no pseudo. Otherwise either text in quotes or url(...).
+      if (!content || content === 'none' || content === 'normal') continue;
+      // Compute the pseudo's box: it'd render adjacent to the element, but
+      // its bounding rect isn't directly exposed. We approximate as a small
+      // box at the element's edge sized by font-size or width/height props.
+      const w = px(ps.width) || px(ps.minWidth) || px(ps.fontSize) || 8;
+      const h = px(ps.height) || px(ps.minHeight) || px(ps.fontSize) || 8;
+      const isAfter = side === '::after';
+      // If content is text in quotes, emit as text. Else emit as rect.
+      const m = content.match(/^['"](.*)['"]$/);
+      let pseudoNode;
+      if (m && m[1]) {
+        pseudoNode = {
+          type: 'text',
+          name: name + side,
+          characters: m[1],
+          fontSize: Math.round(px(ps.fontSize) || 14),
+          fontWeight: fontWeight(ps),
+          color: rgbToHex(ps.color),
+        };
+      } else {
+        pseudoNode = {
+          type: 'rect',
+          name: name + side,
+          width: Math.round(w),
+          height: Math.round(h),
+          fill: fillOf(ps),
+          cornerRadius: radius(ps),
+        };
+      }
+      if (!isAutoLayout) {
+        // Pseudo-elements typically anchor to the element's content box —
+        // ::before at the start, ::after at the end. Position relative to
+        // the parent's top-left so the spec is self-contained.
+        pseudoNode.x = Math.round((isAfter ? (rect.right - parentRect.left - w) : (rect.left - parentRect.left)));
+        pseudoNode.y = Math.round(rect.top - parentRect.top + (rect.height - h) / 2);
+      }
+      frame.children.push(pseudoNode);
+    }
+
     for (const child of el.children) {
       const cn = nodeForElement(child, opts, depth + 1);
       if (!cn) continue;
       if (!isAutoLayout) {
-        // Spec coords are relative to the parent's top-left.
         const cr = child.getBoundingClientRect();
         cn.x = Math.round(cr.left - parentRect.left);
         cn.y = Math.round(cr.top - parentRect.top);

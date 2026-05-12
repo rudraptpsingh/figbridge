@@ -889,6 +889,12 @@ async function _ifcCreateNode(spec, warnings) {
     if (typeof spec.lineHeight === "number" && spec.lineHeight > 0) {
       try { t.lineHeight = { value: spec.lineHeight, unit: "PIXELS" }; } catch (e) {}
     }
+    if (typeof spec.letterSpacing === "number" && spec.letterSpacing !== 0) {
+      try { t.letterSpacing = { value: spec.letterSpacing, unit: "PIXELS" }; } catch (e) {}
+    }
+    if (spec.textDecoration === "UNDERLINE" || spec.textDecoration === "STRIKETHROUGH") {
+      try { t.textDecoration = spec.textDecoration; } catch (e) {}
+    }
     if (typeof spec.opacity === "number" && spec.opacity > 0 && spec.opacity < 1) {
       t.opacity = spec.opacity;
     }
@@ -920,8 +926,24 @@ async function _ifcCreateNode(spec, warnings) {
   // frame (default)
   var fr = figma.createFrame();
   if (spec.name) fr.name = spec.name;
-  var ff = _ifcFillFromValue(spec.fill);
-  if (ff) fr.fills = ff; else fr.fills = [];
+  // Background-image url() takes priority over solid/gradient if present
+  // and was server-side-fetched into _imageBytes.
+  var fillApplied = false;
+  if (spec._imageBytes) {
+    try {
+      var raw = spec._imageBytes.replace(/^data:[^;]+;base64,/, "");
+      var bin = atob(raw);
+      var u8 = new Uint8Array(bin.length);
+      for (var bi = 0; bi < bin.length; bi++) u8[bi] = bin.charCodeAt(bi);
+      var img = figma.createImage(u8);
+      fr.fills = [{ type: "IMAGE", scaleMode: "FILL", imageHash: img.hash }];
+      fillApplied = true;
+    } catch (e) { _ifcWarn(warnings, "frame image decode failed: " + e.message); }
+  }
+  if (!fillApplied) {
+    var ff = _ifcFillFromValue(spec.fill);
+    if (ff) fr.fills = ff; else fr.fills = [];
+  }
   if (spec.cornerRadius != null) fr.cornerRadius = Number(spec.cornerRadius) || 0;
   _ifcApplyCommonProps(fr, spec);
   // auto-layout
