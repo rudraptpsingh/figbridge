@@ -110,23 +110,55 @@ export async function urlToSpec(url, opts = {}) {
     );
 
     // Iframe substitution: walk the spec for any rect tagged _iframeIdx
-    // (added by the extractor) and replace its placeholder with a real
-    // puppeteer screenshot of that iframe's bounding rect. Gives the
-    // hero demo deck (and any other iframe content) a real visual.
+    // and replace its placeholder with a real puppeteer screenshot. Wait
+    // for each iframe's content to load (DOM ready + a fixed settle) so
+    // we don't capture a blank state.
     const iframeHandles = await page.$$('iframe');
     if (iframeHandles.length) {
-      // Build index → base64 PNG bytes for each iframe.
       const shots = {};
       for (let i = 0; i < iframeHandles.length; i++) {
         try {
+          // contentFrame() returns the Frame inside the iframe — wait for
+          // its DOM ready so we don't capture a still-loading blank.
+          const cf = await iframeHandles[i].contentFrame();
+          if (cf) {
+            try { await cf.waitForSelector('body', { timeout: 5000 }); } catch {}
+            await new Promise(r => setTimeout(r, 1500)); // settle CSS/images
+          }
           const buf = await iframeHandles[i].screenshot({ type: "png" });
           shots[i] = Buffer.from(buf).toString("base64");
         } catch (e) { /* tainted / cross-origin → skip */ }
       }
-      // Find rects in spec with _iframeIdx and inject _imageBytes.
       (function walk(n) {
         if (n && n.type === "rect" && typeof n._iframeIdx === "number" && shots[n._iframeIdx]) {
           n._imageBytes = "data:image/png;base64," + shots[n._iframeIdx];
+        }
+        if (n && n.children) for (const c of n.children) walk(c);
+      })(spec);
+    }
+
+    // background-image: url() substitution. Walk the spec for any frame
+    // with _bgUrl, fetch the bytes (server-side, no CORS), inline as
+    // _imageBytes so the plugin renders an image fill.
+    const bgUrls = new Set();
+    (function collect(n) {
+      if (n && n._bgUrl) bgUrls.add(n._bgUrl);
+      if (n && n.children) for (const c of n.children) collect(c);
+    })(spec);
+    if (bgUrls.size) {
+      const bytesByUrl = {};
+      for (const u of bgUrls) {
+        try {
+          const r = await fetch(u);
+          if (!r.ok) continue;
+          const ct = r.headers.get("content-type") || "image/png";
+          const ab = await r.arrayBuffer();
+          bytesByUrl[u] = `data:${ct};base64,` + Buffer.from(ab).toString("base64");
+        } catch (e) { /* skip */ }
+      }
+      (function walk(n) {
+        if (n && n._bgUrl && bytesByUrl[n._bgUrl] && !n._imageBytes) {
+          n._imageBytes = bytesByUrl[n._bgUrl];
         }
         if (n && n.children) for (const c of n.children) walk(c);
       })(spec);
