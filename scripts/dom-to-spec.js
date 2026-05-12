@@ -130,13 +130,68 @@
     if (cs.display.includes('flex')) {
       return cs.flexDirection && cs.flexDirection.startsWith('row') ? 'HORIZONTAL' : 'VERTICAL';
     }
+    // CSS Grid — approximate as a wrapping HORIZONTAL row. Most page-level
+    // grids on real sites are card-grids (4 columns, wrap to 2 / 1 on
+    // narrower viewports) — that's HORIZONTAL + WRAP in Figma's auto-
+    // layout. When the grid is single-row by computed track count, the
+    // result is identical to a flex row. When it's multi-row, wrap kicks
+    // in. (Per-child x/y still applies on the parent if non-auto-layout.)
+    if (cs.display.includes('grid')) return 'HORIZONTAL';
     return 'NONE';
   }
 
   function flexWrapOf(cs) {
+    // Flex wrap OR grid both go through Figma's WRAP since multi-row grids
+    // need the same behavior.
+    if (cs.display.includes('grid')) return 'WRAP';
     if (!cs.display.includes('flex')) return null;
     const w = cs.flexWrap;
     return (w === 'wrap' || w === 'wrap-reverse') ? 'WRAP' : null;
+  }
+
+  // CSS filter — blur(), grayscale(), drop-shadow(). Map to Figma effects.
+  // Returns an array of LAYER_BLUR / DROP_SHADOW / null effects.
+  function filterEffectsOf(cs) {
+    const raw = cs.filter;
+    if (!raw || raw === 'none') return null;
+    const effects = [];
+    // Tokenize on ) — each filter function ends in ).
+    const fns = raw.match(/[a-z-]+\([^)]*\)/gi) || [];
+    for (const fn of fns) {
+      const m = fn.match(/^([a-z-]+)\((.*)\)$/i);
+      if (!m) continue;
+      const name = m[1].toLowerCase();
+      const arg = m[2];
+      if (name === 'blur') {
+        const px = parseFloat(arg) || 0;
+        if (px > 0) effects.push({ type: 'LAYER_BLUR', radius: px });
+      } else if (name === 'drop-shadow') {
+        // drop-shadow(x y blur color) — same shape as a single box-shadow.
+        const shadow = shadowOf({ boxShadow: arg });
+        if (shadow && shadow[0]) effects.push({
+          type: 'DROP_SHADOW',
+          x: shadow[0].x, y: shadow[0].y, blur: shadow[0].blur, spread: shadow[0].spread, color: shadow[0].color, inset: false,
+        });
+      }
+      // grayscale/sepia/brightness/contrast/saturate/invert/hue-rotate: skip
+      // for now — Figma doesn't have direct equivalents and faking them
+      // would require image compositing which we don't want to bake in.
+    }
+    return effects.length ? effects : null;
+  }
+
+  // mix-blend-mode → Figma blendMode. Most common values map 1:1.
+  const BLEND_MAP = {
+    normal: 'NORMAL', multiply: 'MULTIPLY', screen: 'SCREEN', overlay: 'OVERLAY',
+    darken: 'DARKEN', lighten: 'LIGHTEN', 'color-dodge': 'COLOR_DODGE',
+    'color-burn': 'COLOR_BURN', 'hard-light': 'HARD_LIGHT',
+    'soft-light': 'SOFT_LIGHT', difference: 'DIFFERENCE', exclusion: 'EXCLUSION',
+    hue: 'HUE', saturation: 'SATURATION', color: 'COLOR', luminosity: 'LUMINOSITY',
+  };
+  function blendModeOf(cs) {
+    const v = cs.mixBlendMode;
+    if (!v || v === 'normal') return null;
+    return BLEND_MAP[v] || null;
   }
 
   function whiteSpaceOf(cs) {
@@ -556,6 +611,8 @@
       opacity: opacityOf(cs),
       transform: transformOf(cs),
       backdropBlur: backdropBlurOf(cs),
+      filterEffects: filterEffectsOf(cs),
+      blendMode: blendModeOf(cs),
       zIndex: zIndexOf(cs),
       width: Math.round(rect.width),
       height: Math.round(rect.height),

@@ -845,12 +845,36 @@ function _ifcApplyCommonProps(node, spec) {
       try { node.strokeAlign = "OUTSIDE"; } catch (e) {}
     }
   }
-  // Combine drop-shadow + (optional) backdrop-blur into one effects list.
+  // Combine drop-shadow + backdrop-blur + CSS-filter effects into one list.
   var fx = spec.shadow ? (_ifcShadowToEffects(spec.shadow) || []) : [];
   if (typeof spec.backdropBlur === "number" && spec.backdropBlur > 0) {
     fx.push({ type: "BACKGROUND_BLUR", radius: Number(spec.backdropBlur), visible: true, blendMode: "NORMAL" });
   }
+  // CSS filter: blur(...) / drop-shadow(...) — already pre-shaped by the
+  // extractor. Convert to Figma effects.
+  if (Array.isArray(spec.filterEffects)) {
+    for (var fi = 0; fi < spec.filterEffects.length; fi++) {
+      var fe = spec.filterEffects[fi];
+      if (fe.type === "LAYER_BLUR") {
+        fx.push({ type: "LAYER_BLUR", radius: Number(fe.radius) || 0, visible: true, blendMode: "NORMAL" });
+      } else if (fe.type === "DROP_SHADOW") {
+        var rgb = hexToRGB(fe.color);
+        if (rgb) fx.push({
+          type: "DROP_SHADOW",
+          color: { r: rgb.r, g: rgb.g, b: rgb.b, a: rgb.a == null ? 1 : rgb.a },
+          offset: { x: Number(fe.x) || 0, y: Number(fe.y) || 0 },
+          radius: Number(fe.blur) || 0,
+          spread: Number(fe.spread) || 0,
+          visible: true, blendMode: "NORMAL",
+        });
+      }
+    }
+  }
   if (fx.length && "effects" in node) node.effects = fx;
+  // CSS mix-blend-mode → Figma blendMode.
+  if (spec.blendMode && "blendMode" in node) {
+    try { node.blendMode = spec.blendMode; } catch (e) {}
+  }
 
   if (typeof spec.opacity === "number" && spec.opacity > 0 && spec.opacity < 1 && "opacity" in node) {
     node.opacity = spec.opacity;

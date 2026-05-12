@@ -118,65 +118,63 @@ export async function urlToSpec(url, opts = {}) {
     // iframeHandle.screenshot() and page.screenshot({clip}) both come back
     // blank for iframes because they render in separate compositing
     // layers. Resolving to a top-level page sidesteps that entirely.
+    // Collect every iframe + every bg-url upfront, then resolve them all
+    // in parallel. Serial fetching of a 3-iframe + 5-bgUrl page was
+    // adding ~15s to imports for no good reason.
     const iframeMeta = await page.$$eval('iframe', els =>
       els.map(el => {
         const r = el.getBoundingClientRect();
         return { src: el.getAttribute('src'), width: Math.round(r.width), height: Math.round(r.height) };
       })
     );
-    if (iframeMeta.length) {
-      const shots = {};
-      for (let i = 0; i < iframeMeta.length; i++) {
-        const m = iframeMeta[i];
-        if (!m.src || !m.width || !m.height) continue;
-        try {
-          const absUrl = new URL(m.src, url).href;
-          const ipage = await browser.newPage();
-          try {
-            await ipage.setViewport({ width: m.width, height: m.height, deviceScaleFactor: 1 });
-            await ipage.goto(absUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
-            await new Promise(r => setTimeout(r, 1500));
-            const buf = await ipage.screenshot({ type: "png", fullPage: false });
-            shots[i] = Buffer.from(buf).toString("base64");
-          } finally {
-            try { await ipage.close(); } catch {}
-          }
-        } catch (e) { /* skip */ }
-      }
-      (function walk(n) {
-        if (n && n.type === "rect" && typeof n._iframeIdx === "number" && shots[n._iframeIdx]) {
-          n._imageBytes = "data:image/png;base64," + shots[n._iframeIdx];
-        }
-        if (n && n.children) for (const c of n.children) walk(c);
-      })(spec);
-    }
-
-    // background-image: url() substitution. Walk the spec for any frame
-    // with _bgUrl, fetch the bytes (server-side, no CORS), inline as
-    // _imageBytes so the plugin renders an image fill.
-    const bgUrls = new Set();
+    const bgUrls = [];
     (function collect(n) {
-      if (n && n._bgUrl) bgUrls.add(n._bgUrl);
+      if (n && n._bgUrl) bgUrls.push(n._bgUrl);
       if (n && n.children) for (const c of n.children) collect(c);
     })(spec);
-    if (bgUrls.size) {
-      const bytesByUrl = {};
-      for (const u of bgUrls) {
+
+    const iframeShotPromises = iframeMeta.map(async (m, i) => {
+      if (!m.src || !m.width || !m.height) return [i, null];
+      try {
+        const absUrl = new URL(m.src, url).href;
+        const ipage = await browser.newPage();
         try {
-          const r = await fetch(u);
-          if (!r.ok) continue;
-          const ct = r.headers.get("content-type") || "image/png";
-          const ab = await r.arrayBuffer();
-          bytesByUrl[u] = `data:${ct};base64,` + Buffer.from(ab).toString("base64");
-        } catch (e) { /* skip */ }
-      }
-      (function walk(n) {
-        if (n && n._bgUrl && bytesByUrl[n._bgUrl] && !n._imageBytes) {
-          n._imageBytes = bytesByUrl[n._bgUrl];
+          await ipage.setViewport({ width: m.width, height: m.height, deviceScaleFactor: 1 });
+          await ipage.goto(absUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
+          await new Promise(r => setTimeout(r, 1500));
+          const buf = await ipage.screenshot({ type: "png", fullPage: false });
+          return [i, Buffer.from(buf).toString("base64")];
+        } finally {
+          try { await ipage.close(); } catch {}
         }
-        if (n && n.children) for (const c of n.children) walk(c);
-      })(spec);
-    }
+      } catch (e) { return [i, null]; }
+    });
+    const bgFetchPromises = bgUrls.map(async (u) => {
+      try {
+        const r = await fetch(u);
+        if (!r.ok) return [u, null];
+        const ct = r.headers.get("content-type") || "image/png";
+        const ab = await r.arrayBuffer();
+        return [u, `data:${ct};base64,` + Buffer.from(ab).toString("base64")];
+      } catch (e) { return [u, null]; }
+    });
+
+    const [iframePairs, bgPairs] = await Promise.all([
+      Promise.all(iframeShotPromises),
+      Promise.all(bgFetchPromises),
+    ]);
+    const shots = Object.fromEntries(iframePairs.filter(([, v]) => v != null));
+    const bytesByUrl = Object.fromEntries(bgPairs.filter(([, v]) => v != null));
+
+    (function walk(n) {
+      if (n && n.type === "rect" && typeof n._iframeIdx === "number" && shots[n._iframeIdx]) {
+        n._imageBytes = "data:image/png;base64," + shots[n._iframeIdx];
+      }
+      if (n && n._bgUrl && bytesByUrl[n._bgUrl] && !n._imageBytes) {
+        n._imageBytes = bytesByUrl[n._bgUrl];
+      }
+      if (n && n.children) for (const c of n.children) walk(c);
+    })(spec);
     return spec;
   } finally {
     try { await page.close(); } catch {}
