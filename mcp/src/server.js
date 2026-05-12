@@ -294,6 +294,63 @@ export async function main() {
     }
   );
 
+  // ── Mediator: figbridge orchestrates browser + plugin ─────
+  // These tools turn figbridge into the single contact-surface between
+  // Claude and Figma. No external chrome-devtools-mcp dance needed; one
+  // call goes URL → Figma frame (or back).
+  server.tool(
+    "import_url",
+    "Render a URL in headless Chrome (figbridge-managed), walk the DOM with computed styles, and create the resulting frame tree in Figma. The single highest-fidelity path from web → Figma. Returns { nodeId, name, createdCount, warnings }.",
+    {
+      url: z.string().describe("Page URL — http(s) or file:// — anything Chrome can load."),
+      width: z.number().optional().describe("Viewport width. Default 1280."),
+      name: z.string().optional().describe("Override the Figma frame's name. Defaults to '<title> WIDTHpx'."),
+      update: z.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false (creates new frame).")
+    },
+    async ({ url, width, name, update }) => {
+      try {
+        const { urlToSpec } = await import("./browser.js");
+        const spec = await urlToSpec(url, { width: width || 1280, name: name || null });
+        if (name) spec.name = name;
+        const action = update ? "update-from-code" : "import-from-code";
+        const r = await sendCommand(action, { spec, name: spec.name || name || null }, 300000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "screenshot_url",
+    "Render a URL in headless Chrome and return a base64 PNG screenshot (full page by default). Use to capture a live reference next to a Figma frame for visual diff. Returns { ok, width, height, bytes, base64 }.",
+    {
+      url: z.string().describe("Page URL."),
+      width: z.number().optional().describe("Viewport width. Default 1280."),
+      fullPage: z.boolean().optional().describe("Capture the whole page vs just the viewport. Default true.")
+    },
+    async ({ url, width, fullPage }) => {
+      try {
+        const { screenshotUrl } = await import("./browser.js");
+        const b64 = await screenshotUrl(url, { width: width || 1280, fullPage: fullPage !== false });
+        return asText({ ok: true, width: width || 1280, bytes: Math.round(b64.length * 0.75), base64: b64 });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "export_frame",
+    "Export an existing Figma frame as a base64 PNG. Use to pull a rendered version of an imported frame back out for visual diff or for sending to an image-capable model. Returns { ok, nodeId, name, width, height, base64 }.",
+    {
+      nodeId: z.string().describe("Figma node id, e.g. '6:1121'."),
+      scale: z.number().optional().describe("Export scale (1 = native size). Default 1.")
+    },
+    async ({ nodeId, scale }) => {
+      try {
+        const r = await sendCommand("export-frame", { nodeId, scale: scale || 1 }, 60000);
+        return asText(r);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   // ── Code → Figma import ────────────────────────────────────
   server.tool(
     "import_from_code",

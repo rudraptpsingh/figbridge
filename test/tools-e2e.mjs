@@ -41,7 +41,8 @@ function fakePlugin() {
     "import-from-code": (a) => ({ ok: true, nodeId: "9:99", name: (a && a.name) || ((a && a.spec && a.spec.name) || "Imported design"), createdCount: 7, warnings: [] }),
     "update-from-code": (a) => ({ ok: true, nodeId: "9:99", name: (a && a.name) || "Updated", replacedCount: 5, warnings: [] }),
     "delete-node":      (a) => ({ ok: true, deleted: [].concat(a && a.nodeId ? [a.nodeId] : [], a && a.nodeIds ? a.nodeIds : []), errors: [] }),
-    "run-script":       (a) => ({ ok: true, result: { ran: true, scriptLength: (a && a.script || "").length } })
+    "run-script":       (a) => ({ ok: true, result: { ran: true, scriptLength: (a && a.script || "").length } }),
+    "export-frame":     (a) => ({ ok: true, nodeId: a && a.nodeId, name: "TestFrame", width: 1280, height: 7770, bytes: 12345, base64: "iVBORw0KGgo=" })
   };
 
   const es = new EventSource(`${BASE}/events`);
@@ -185,7 +186,8 @@ async function main() {
     ["update_from_code", { spec: JSON.stringify({ type: "frame", name: "Hero", children: [] }), name: "Hero" }, /9:99|replacedCount/ ],
     ["delete_node",      { nodeIds: ["1:2", "1:3"] }, /deleted|1:2/ ],
     ["delete_node",      { nodeId: "1:5" }, /deleted|1:5/ ],
-    ["run_script",       { script: "return { hello: 1 };" }, /ran|scriptLength/ ]
+    ["run_script",       { script: "return { hello: 1 };" }, /ran|scriptLength/ ],
+    ["export_frame",     { nodeId: "1:2", scale: 1 }, /1:2|base64|bytes/ ]
   ];
 
   for (const [name, args, re] of cases) {

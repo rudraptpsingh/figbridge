@@ -703,9 +703,90 @@ function _ifcWarn(warnings, msg) { warnings.push(msg); }
 function _ifcFillFromValue(val) {
   if (!val) return null;
   if (typeof val === "string") {
+    // Linear gradient: linear-gradient([angle,] color stop, color stop, ...)
+    if (/^linear-gradient\(/i.test(val)) {
+      var grad = _ifcParseLinearGradient(val);
+      if (grad) return [grad];
+      return null;
+    }
     var rgb = hexToRGB(val);
     if (rgb) return [{ type: "SOLID", color: { r: rgb.r, g: rgb.g, b: rgb.b }, opacity: rgb.a == null ? 1 : rgb.a }];
     return null;
+  }
+  return null;
+}
+
+// Parses CSS `linear-gradient(angleOrSide, c1 stop1, c2 stop2, ...)` into a
+// Figma GRADIENT_LINEAR paint. Best-effort: handles deg, "to bottom" / "to
+// top" / "to right" / "to left", and 2+ stops. Falls back to null on
+// unknown forms.
+function _ifcParseLinearGradient(s) {
+  var body = s.replace(/^linear-gradient\(/i, "").replace(/\)\s*$/, "");
+  // Split on commas NOT inside parens (rgba() etc.)
+  var parts = []; var depth = 0; var buf = "";
+  for (var i = 0; i < body.length; i++) {
+    var ch = body[i];
+    if (ch === "(") depth++; else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { parts.push(buf.trim()); buf = ""; }
+    else buf += ch;
+  }
+  if (buf.trim()) parts.push(buf.trim());
+  if (parts.length < 2) return null;
+  // Direction: first part if it doesn't start with a color.
+  var angleDeg = 180; // default: top → bottom
+  var first = parts[0];
+  var colorRe = /^#|^rgba?\(|^hsla?\(/i;
+  if (!colorRe.test(first)) {
+    parts.shift();
+    var m = first.match(/(-?[\d.]+)deg/);
+    if (m) angleDeg = Number(m[1]);
+    else if (/to\s+top/i.test(first))    angleDeg = 0;
+    else if (/to\s+right/i.test(first))  angleDeg = 90;
+    else if (/to\s+bottom/i.test(first)) angleDeg = 180;
+    else if (/to\s+left/i.test(first))   angleDeg = 270;
+  }
+  var stops = [];
+  for (var j = 0; j < parts.length; j++) {
+    var p = parts[j].trim();
+    var posMatch = p.match(/\s+(-?[\d.]+)%\s*$/);
+    var pos = posMatch ? Number(posMatch[1]) / 100 : (j / (parts.length - 1 || 1));
+    var colorPart = posMatch ? p.replace(/\s+-?[\d.]+%\s*$/, "") : p;
+    var rgb = hexToRGB(colorPart) || _ifcParseRgbString(colorPart);
+    if (!rgb) continue;
+    stops.push({ position: pos, color: { r: rgb.r, g: rgb.g, b: rgb.b, a: rgb.a == null ? 1 : rgb.a } });
+  }
+  if (stops.length < 2) return null;
+  // Figma's gradientTransform: 3x2 matrix; convert CSS angle to gradient handles.
+  // CSS angle = direction the gradient *goes* (0deg = up). Figma uses the
+  // gradient line; map by rotating the start/end points around the unit center.
+  var rad = (angleDeg - 90) * Math.PI / 180;
+  var cos = Math.cos(rad), sin = Math.sin(rad);
+  // Standard Figma identity transform: [[1,0,0],[0,1,0]] (start at left, end at right).
+  // Rotate it by `rad` around the center (0.5, 0.5).
+  var tx = 0.5 - 0.5 * cos + 0.5 * sin;
+  var ty = 0.5 - 0.5 * sin - 0.5 * cos;
+  var transform = [[cos, -sin, tx], [sin, cos, ty]];
+  return { type: "GRADIENT_LINEAR", gradientTransform: transform, gradientStops: stops };
+}
+
+function _ifcParseRgbString(s) {
+  var m = String(s).match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+  if (!m) return null;
+  return { r: Number(m[1]) / 255, g: Number(m[2]) / 255, b: Number(m[3]) / 255, a: m[4] != null ? parseFloat(m[4]) : 1 };
+}
+
+// Resolve padding from spec — accept either a single number (all sides) OR
+// an object { top, right, bottom, left } for per-side fidelity.
+function _ifcResolvePadding(pad) {
+  if (pad == null) return null;
+  if (typeof pad === "number") return { top: pad, right: pad, bottom: pad, left: pad };
+  if (typeof pad === "object") {
+    return {
+      top:    Number(pad.top    || 0),
+      right:  Number(pad.right  || 0),
+      bottom: Number(pad.bottom || 0),
+      left:   Number(pad.left   || 0),
+    };
   }
   return null;
 }
@@ -767,11 +848,10 @@ async function _ifcCreateNode(spec, warnings) {
   var layout = spec.layout || "NONE";
   if (layout === "VERTICAL" || layout === "HORIZONTAL") {
     fr.layoutMode = layout;
-    var pad = spec.padding;
-    if (pad != null) {
-      var pNum = Number(pad) || 0;
-      fr.paddingTop = pNum; fr.paddingBottom = pNum;
-      fr.paddingLeft = pNum; fr.paddingRight = pNum;
+    var pad = _ifcResolvePadding(spec.padding);
+    if (pad) {
+      fr.paddingTop = pad.top; fr.paddingBottom = pad.bottom;
+      fr.paddingLeft = pad.left; fr.paddingRight = pad.right;
     }
     if (spec.spacing != null) fr.itemSpacing = Number(spec.spacing) || 0;
     // When an explicit dimension is provided, lock that axis to FIXED so the
@@ -1020,9 +1100,10 @@ async function updateFromCode(args) {
   }
   if (spec.layout === "VERTICAL" || spec.layout === "HORIZONTAL") {
     target.layoutMode = spec.layout;
-    if (spec.padding != null) {
-      var p = Number(spec.padding) || 0;
-      target.paddingTop = p; target.paddingBottom = p; target.paddingLeft = p; target.paddingRight = p;
+    var pad = _ifcResolvePadding(spec.padding);
+    if (pad) {
+      target.paddingTop = pad.top; target.paddingBottom = pad.bottom;
+      target.paddingLeft = pad.left; target.paddingRight = pad.right;
     }
     if (spec.spacing != null) target.itemSpacing = Number(spec.spacing) || 0;
   }
@@ -1223,6 +1304,18 @@ async function handleCommand(cmdId, action, args) {
       // Delete a node by id (or list of ids, or by name). Returns the
       // ids that were actually removed.
       return await deleteNodes(args || {});
+    }
+    if (action === "export-frame") {
+      var node = await figma.getNodeByIdAsync(args.nodeId);
+      if (!node) return { ok: false, error: "node not found: " + args.nodeId };
+      if (typeof node.exportAsync !== "function") return { ok: false, error: "node is not exportable: " + node.type };
+      try {
+        var bytes = await node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: args.scale || 1 } });
+        var chunk = 0x8000, parts = [];
+        for (var ei = 0; ei < bytes.length; ei += chunk) parts.push(String.fromCharCode.apply(null, bytes.subarray(ei, ei + chunk)));
+        var b64 = (figma.base64Encode ? figma.base64Encode(bytes) : btoa(parts.join("")));
+        return { ok: true, nodeId: node.id, name: node.name, width: node.width, height: node.height, bytes: bytes.length, base64: b64 };
+      } catch (e) { return { ok: false, error: "export failed: " + e.message }; }
     }
     if (action === "run-script") {
       // Generic escape hatch — evaluate arbitrary JS in the plugin sandbox

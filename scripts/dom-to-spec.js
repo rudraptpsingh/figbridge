@@ -38,11 +38,13 @@
   }
 
   function isVisible(el, cs) {
-    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+    // Important: do NOT skip elements with opacity:0. They're real DOM
+    // (often pre-scroll fade-in targets) and we want their structure +
+    // colors captured. Only skip when the element truly contributes
+    // nothing — display:none, visibility:hidden, or zero-area.
+    if (cs.display === 'none' || cs.visibility === 'hidden') return false;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
-    // Skip elements that don't render anything we care about. Empty wrappers
-    // around invisible content slow the agent's context for no gain.
     return true;
   }
 
@@ -65,15 +67,28 @@
     return 'NONE';
   }
 
-  function maxPad(cs) {
-    // Figma frame padding is one value per side, but figbridge currently
-    // accepts a single `padding` (applied to all sides). Pick the largest
-    // padding so visual rhythm survives — refine later to per-side.
+  function padOf(cs) {
+    // Emit per-side padding as an object — figbridge plugin reads either
+    // { top, right, bottom, left } or a single number.
     const t = px(cs.paddingTop) || 0;
     const r = px(cs.paddingRight) || 0;
     const b = px(cs.paddingBottom) || 0;
     const l = px(cs.paddingLeft) || 0;
-    return Math.max(t, r, b, l);
+    if (t === 0 && r === 0 && b === 0 && l === 0) return 0;
+    if (t === r && r === b && b === l) return t; // all equal → number form
+    return { top: t, right: r, bottom: b, left: l };
+  }
+
+  // Pick the best fill: prefer linear-gradient if backgroundImage has one,
+  // otherwise the solid backgroundColor. (Radial gradients are recognized
+  // and noted in _bgImage for a future plugin pass.)
+  function fillOf(cs) {
+    const bgImage = cs.backgroundImage;
+    if (bgImage && bgImage !== 'none') {
+      const linear = bgImage.match(/^linear-gradient\([^)]*(?:\([^)]*\)[^)]*)*\)/i);
+      if (linear) return linear[0];   // pass raw CSS string; plugin parses
+    }
+    return rgbToHex(cs.backgroundColor);
   }
 
   function radius(cs) {
@@ -158,8 +173,8 @@
         type: 'frame',
         name: name + ':' + tag,
         layout: 'HORIZONTAL',
-        padding: maxPad(cs) || 0,
-        fill: rgbToHex(cs.backgroundColor),
+        padding: padOf(cs),
+        fill: fillOf(cs),
         cornerRadius: radius(cs),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
@@ -180,9 +195,9 @@
       type: 'frame',
       name: name,
       layout: pickLayout(cs),
-      padding: maxPad(cs) || 0,
+      padding: padOf(cs),
       spacing: px(cs.gap) || px(cs.rowGap) || 0,
-      fill: rgbToHex(cs.backgroundColor),
+      fill: fillOf(cs),
       cornerRadius: radius(cs),
       width: Math.round(rect.width),
       height: Math.round(rect.height),

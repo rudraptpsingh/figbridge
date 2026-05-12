@@ -23,7 +23,8 @@
     "test": "node test/smoke.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4"
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "puppeteer-core": "^23.11.1"
   },
   "keywords": [
     "figma",
