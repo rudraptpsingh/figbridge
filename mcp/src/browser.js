@@ -82,6 +82,11 @@ export async function urlToSpec(url, opts = {}) {
   const page = await browser.newPage();
   try {
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    // prefers-color-scheme emulation: sites that auto-switch by system
+    // (most modern landing pages) get captured in the requested theme.
+    if (opts.colorScheme === "dark" || opts.colorScheme === "light") {
+      try { await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: opts.colorScheme }]); } catch (e) {}
+    }
     // Use domcontentloaded + a fixed settle wait. networkidle0/2 hangs on
     // sites with persistent beacon connections (analytics, web sockets).
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });

@@ -1090,7 +1090,12 @@ async function _ifcCreateNode(spec, warnings) {
     }
     if (spec.spacing != null) fr.itemSpacing = Number(spec.spacing) || 0;
     if (spec.layoutWrap === "WRAP" && "layoutWrap" in fr) {
-      try { fr.layoutWrap = "WRAP"; } catch (e) {}
+      try {
+        fr.layoutWrap = "WRAP";
+        if (typeof spec.counterAxisSpacing === "number" && "counterAxisSpacing" in fr) {
+          fr.counterAxisSpacing = spec.counterAxisSpacing;
+        }
+      } catch (e) {}
     }
     // When an explicit dimension is provided, lock that axis to FIXED so the
     // resize call below sticks. Otherwise auto-layout hugs content and the
