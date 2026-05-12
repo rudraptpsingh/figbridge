@@ -202,6 +202,106 @@ export async function probeUrl(url, script, opts = {}) {
   }
 }
 
+/**
+ * Render URL and audit its CSS-feature usage. Returns counts of every
+ * "is this thing on this page?" question that drives fidelity decisions:
+ * tag mix, layout strategies, color palette, fonts, effects, etc.
+ *
+ * Use this before bigger fidelity pushes — tells us where the actual
+ * coverage gaps are vs speculation.
+ */
+export async function fingerprintUrl(url, opts = {}) {
+  const width = opts.width || 1280;
+  const height = opts.height || 900;
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise(r => setTimeout(r, opts.settleMs || 1500));
+    return await page.evaluate(() => {
+      const tags = {};
+      const displays = {};
+      const positions = {};
+      const colors = new Set();
+      const fonts = new Set();
+      const features = {
+        flexbox: 0, grid: 0,
+        gradients: 0, bgImages: 0, multiBg: 0,
+        shadows: 0, textShadows: 0, filters: 0,
+        backdropFilters: 0, blendModes: 0, opacityLT1: 0,
+        transforms: 0, animations: 0, transitions: 0,
+        borderRadius: 0, borders: 0, outlines: 0,
+        objectFit: 0, aspectRatio: 0, clipPath: 0, maskImage: 0,
+        zIndex: 0, sticky: 0, fixed: 0, absolute: 0,
+        pseudos: 0, iframes: 0, svgs: 0, imgs: 0, videos: 0,
+      };
+      const all = document.querySelectorAll('*');
+      for (const el of all) {
+        const tag = el.tagName.toLowerCase();
+        tags[tag] = (tags[tag] || 0) + 1;
+        const cs = getComputedStyle(el);
+        displays[cs.display] = (displays[cs.display] || 0) + 1;
+        positions[cs.position] = (positions[cs.position] || 0) + 1;
+        if (cs.color && cs.color !== 'rgba(0, 0, 0, 0)') colors.add(cs.color);
+        if (cs.fontFamily) fonts.add(cs.fontFamily.split(',')[0].replace(/['"]/g, '').trim());
+        if (cs.display.includes('flex')) features.flexbox++;
+        if (cs.display.includes('grid')) features.grid++;
+        if (cs.backgroundImage && cs.backgroundImage !== 'none') {
+          features.bgImages++;
+          if (cs.backgroundImage.includes('gradient')) features.gradients++;
+          if (cs.backgroundImage.split(',').length > 1) features.multiBg++;
+        }
+        if (cs.boxShadow && cs.boxShadow !== 'none') features.shadows++;
+        if (cs.textShadow && cs.textShadow !== 'none') features.textShadows++;
+        if (cs.filter && cs.filter !== 'none') features.filters++;
+        if (cs.backdropFilter && cs.backdropFilter !== 'none') features.backdropFilters++;
+        if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') features.blendModes++;
+        const op = parseFloat(cs.opacity);
+        if (op > 0 && op < 1) features.opacityLT1++;
+        if (cs.transform && cs.transform !== 'none') features.transforms++;
+        if (cs.animationName && cs.animationName !== 'none') features.animations++;
+        if (cs.transitionDuration && cs.transitionDuration !== '0s') features.transitions++;
+        if (parseFloat(cs.borderTopLeftRadius) > 0) features.borderRadius++;
+        if (parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none') features.borders++;
+        if (parseFloat(cs.outlineWidth) > 0 && cs.outlineStyle !== 'none') features.outlines++;
+        if (cs.objectFit && cs.objectFit !== 'fill') features.objectFit++;
+        if (cs.aspectRatio && cs.aspectRatio !== 'auto') features.aspectRatio++;
+        if (cs.clipPath && cs.clipPath !== 'none') features.clipPath++;
+        if (cs.maskImage && cs.maskImage !== 'none') features.maskImage++;
+        const z = parseInt(cs.zIndex, 10);
+        if (isFinite(z) && z !== 0) features.zIndex++;
+        if (cs.position === 'sticky') features.sticky++;
+        if (cs.position === 'fixed') features.fixed++;
+        if (cs.position === 'absolute') features.absolute++;
+        for (const side of ['::before', '::after']) {
+          const ps = getComputedStyle(el, side);
+          if (ps.content && ps.content !== 'none' && ps.content !== 'normal') features.pseudos++;
+        }
+      }
+      features.iframes = document.querySelectorAll('iframe').length;
+      features.svgs    = document.querySelectorAll('svg').length;
+      features.imgs    = document.querySelectorAll('img').length;
+      features.videos  = document.querySelectorAll('video').length;
+      // Top N tags
+      const topTags = Object.entries(tags).sort((a,b) => b[1]-a[1]).slice(0, 12);
+      return {
+        url: location.href,
+        title: document.title,
+        totalElements: all.length,
+        topTags: Object.fromEntries(topTags),
+        displays,
+        positions,
+        features,
+        colors: Array.from(colors).slice(0, 30),
+        fonts: Array.from(fonts),
+      };
+    });
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
 /** Render URL and return a base64 PNG screenshot (full page). */
 export async function screenshotUrl(url, opts = {}) {
   const width = opts.width || 1280;

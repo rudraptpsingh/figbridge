@@ -123,8 +123,12 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
           if (!body.action) return send(res, 400, { ok: false, error: "action required" });
           const args = body.args || {};
           // Server-side actions handled here, not over SSE.
-          if (body.action === "import-url" || body.action === "screenshot-url" || body.action === "probe-url" || body.action === "visual-diff") {
-            const { urlToSpec, screenshotUrl, probeUrl } = await import("./browser.js");
+          if (body.action === "import-url" || body.action === "screenshot-url" || body.action === "probe-url" || body.action === "visual-diff" || body.action === "fingerprint-url") {
+            const { urlToSpec, screenshotUrl, probeUrl, fingerprintUrl } = await import("./browser.js");
+            if (body.action === "fingerprint-url") {
+              const r = await fingerprintUrl(args.url, { width: args.width || 1280 });
+              return send(res, 200, { ok: true, ...r });
+            }
             const fs = await import("node:fs/promises");
             const path = await import("node:path");
             const writeMaybe = async (b64, outPath) => {

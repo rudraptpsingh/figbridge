@@ -1004,7 +1004,8 @@ async function _ifcCreateNode(spec, warnings) {
         var u8 = new Uint8Array(bin.length);
         for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
         var img = figma.createImage(u8);
-        r.fills = [{ type: "IMAGE", scaleMode: "FILL", imageHash: img.hash }];
+        var smode = spec.imageScaleMode === "FIT" || spec.imageScaleMode === "CROP" || spec.imageScaleMode === "TILE" ? spec.imageScaleMode : "FILL";
+        r.fills = [{ type: "IMAGE", scaleMode: smode, imageHash: img.hash }];
         return r;
       } catch (e) { _ifcWarn(warnings, "image decode failed: " + e.message); }
     }

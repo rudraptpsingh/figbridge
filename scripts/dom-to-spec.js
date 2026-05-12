@@ -465,6 +465,8 @@
     // <img> → rect (image bytes inlined as data URL when embedImages opt is on).
     if (tag === 'img') {
       const fill = rgbToHex(cs.backgroundColor);
+      // object-fit: cover → FILL, contain → FIT, fill (default) → CROP, none → CROP, scale-down → FIT
+      const fitMap = { cover: 'FILL', contain: 'FIT', fill: 'CROP', none: 'CROP', 'scale-down': 'FIT' };
       const node = {
         type: 'rect',
         name: name + ':img',
@@ -472,6 +474,7 @@
         height: Math.round(rect.height),
         fill: fill || '#e2e8f0',
         cornerRadius: radius(cs),
+        imageScaleMode: fitMap[cs.objectFit] || 'FILL',
         _src: el.getAttribute('src') || null,
       };
       if (opts.embedImages) {
