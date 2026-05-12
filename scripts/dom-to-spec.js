@@ -116,6 +116,77 @@
     return v || null;
   }
 
+  // 1px borders are common on cards/buttons — extract width + color.
+  function strokeOf(cs) {
+    const w = px(cs.borderTopWidth) || 0;
+    if (w === 0 || cs.borderTopStyle === 'none') return null;
+    const c = rgbToHex(cs.borderTopColor);
+    if (!c) return null;
+    return { color: c, width: w };
+  }
+
+  // Parse a single CSS box-shadow into { x, y, blur, spread, color, inset }.
+  // Multi-shadow strings (comma-separated) → take the first non-inset visible
+  // one for Figma DROP_SHADOW. Insets are noted but Figma's INNER_SHADOW
+  // matches them in the plugin.
+  function shadowOf(cs) {
+    const raw = cs.boxShadow;
+    if (!raw || raw === 'none') return null;
+    // Split on commas not inside parens (rgba() etc.)
+    const parts = []; let depth = 0; let buf = '';
+    for (const ch of raw) {
+      if (ch === '(') depth++; else if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { parts.push(buf.trim()); buf = ''; }
+      else buf += ch;
+    }
+    if (buf.trim()) parts.push(buf.trim());
+    const out = [];
+    for (const p of parts) {
+      const inset = /\binset\b/.test(p);
+      const cm = p.match(/(rgba?\([^)]+\)|#[0-9a-f]+|[a-z]+)/i);
+      if (!cm) continue;
+      const colorRaw = cm[0];
+      const color = rgbToHex(colorRaw);
+      if (!color) continue;
+      const after = p.replace(colorRaw, '').replace(/\binset\b/, '').trim();
+      const nums = (after.match(/-?[\d.]+px/g) || []).map(s => parseFloat(s));
+      if (nums.length < 2) continue;
+      out.push({
+        x: nums[0] || 0,
+        y: nums[1] || 0,
+        blur: nums[2] || 0,
+        spread: nums[3] || 0,
+        color,
+        inset,
+      });
+    }
+    return out.length ? out : null;
+  }
+
+  function textAlignOf(cs) {
+    const v = cs.textAlign;
+    if (v === 'left' || v === 'start') return 'LEFT';
+    if (v === 'right' || v === 'end') return 'RIGHT';
+    if (v === 'center') return 'CENTER';
+    if (v === 'justify') return 'JUSTIFIED';
+    return null;
+  }
+
+  function fontFamilyOf(cs) {
+    return cs.fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+  }
+
+  function lineHeightOf(cs) {
+    const v = parseFloat(cs.lineHeight);
+    if (!isFinite(v)) return null;
+    return Math.round(v);
+  }
+
+  function opacityOf(cs) {
+    const v = parseFloat(cs.opacity);
+    return (isFinite(v) && v < 1) ? v : null;
+  }
+
   function fontWeight(cs) {
     const w = parseInt(cs.fontWeight, 10);
     if (!w) return null;
@@ -178,11 +249,26 @@
         _src: el.getAttribute('src') || null,
       };
     }
-    // <hr> / <svg> / empty placeholder
-    if (tag === 'hr' || tag === 'svg') {
+    // <svg> → carry the outerHTML so the plugin can do
+    // figma.createNodeFromSvg() and produce real vector layers.
+    if (tag === 'svg') {
+      // Set fill on the svg element if missing so currentColor renders.
+      // We capture the source as-is; the plugin will pre-pass currentColor.
+      const node = {
+        type: 'svg',
+        name: name + ':svg',
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        _svg: el.outerHTML,
+        _color: rgbToHex(cs.color),
+      };
+      return node;
+    }
+    // <hr> → thin colored line
+    if (tag === 'hr') {
       return {
         type: 'rect',
-        name: name + ':' + tag,
+        name: name + ':hr',
         width: Math.round(rect.width),
         height: Math.round(rect.height),
         fill: rgbToHex(cs.backgroundColor) || rgbToHex(cs.color) || '#94a3b8',
@@ -201,7 +287,11 @@
         characters: getTextValue(el),
         fontSize: Math.round(px(cs.fontSize) || 16),
         fontWeight: fontWeight(cs),
+        fontFamily: fontFamilyOf(cs),
+        lineHeight: lineHeightOf(cs),
+        textAlign: textAlignOf(cs),
         color: rgbToHex(cs.color),
+        opacity: opacityOf(cs),
       };
     }
 
@@ -214,6 +304,9 @@
         padding: padOf(cs),
         fill: fillOf(cs),
         cornerRadius: radius(cs),
+        stroke: strokeOf(cs),
+        shadow: shadowOf(cs),
+        opacity: opacityOf(cs),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
         children: [{
@@ -222,6 +315,9 @@
           characters: getTextValue(el),
           fontSize: Math.round(px(cs.fontSize) || 14),
           fontWeight: fontWeight(cs),
+          fontFamily: fontFamilyOf(cs),
+          lineHeight: lineHeightOf(cs),
+          textAlign: textAlignOf(cs),
           color: rgbToHex(cs.color),
         }],
       };
@@ -237,6 +333,9 @@
       spacing: px(cs.gap) || px(cs.rowGap) || 0,
       fill: fillOf(cs),
       cornerRadius: radius(cs),
+      stroke: strokeOf(cs),
+      shadow: shadowOf(cs),
+      opacity: opacityOf(cs),
       width: Math.round(rect.width),
       height: Math.round(rect.height),
       children: [],

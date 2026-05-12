@@ -791,6 +791,52 @@ function _ifcResolvePadding(pad) {
   return null;
 }
 
+// Convert a spec.shadow array (from the extractor) into Figma effects.
+// Each shadow has { x, y, blur, spread, color, inset }. Inset → INNER_SHADOW.
+function _ifcShadowToEffects(shadows) {
+  if (!shadows || !shadows.length) return null;
+  var out = [];
+  for (var i = 0; i < shadows.length; i++) {
+    var s = shadows[i];
+    var rgb = hexToRGB(s.color);
+    if (!rgb) continue;
+    out.push({
+      type: s.inset ? "INNER_SHADOW" : "DROP_SHADOW",
+      color: { r: rgb.r, g: rgb.g, b: rgb.b, a: rgb.a == null ? 1 : rgb.a },
+      offset: { x: Number(s.x) || 0, y: Number(s.y) || 0 },
+      radius: Number(s.blur) || 0,
+      spread: Number(s.spread) || 0,
+      visible: true,
+      blendMode: "NORMAL",
+    });
+  }
+  return out.length ? out : null;
+}
+
+// Convert a spec.stroke { color, width } into a Figma SOLID stroke array.
+function _ifcStrokeToFills(stroke) {
+  if (!stroke || !stroke.color) return null;
+  var rgb = hexToRGB(stroke.color);
+  if (!rgb) return null;
+  return [{ type: "SOLID", color: { r: rgb.r, g: rgb.g, b: rgb.b }, opacity: rgb.a == null ? 1 : rgb.a }];
+}
+
+// Apply common visual props (stroke, shadow, opacity) to any node that
+// supports them. Safe — checks each property exists before assigning.
+function _ifcApplyCommonProps(node, spec) {
+  if (spec.stroke && "strokes" in node) {
+    var sFills = _ifcStrokeToFills(spec.stroke);
+    if (sFills) { node.strokes = sFills; node.strokeWeight = Number(spec.stroke.width) || 1; }
+  }
+  if (spec.shadow && "effects" in node) {
+    var fx = _ifcShadowToEffects(spec.shadow);
+    if (fx) node.effects = fx;
+  }
+  if (typeof spec.opacity === "number" && spec.opacity > 0 && spec.opacity < 1 && "opacity" in node) {
+    node.opacity = spec.opacity;
+  }
+}
+
 function _ifcSetSize(node, w, h) {
   if (w != null && h != null) {
     try { node.resizeWithoutConstraints(Math.max(1, w), Math.max(1, h)); } catch (e) {
@@ -801,6 +847,29 @@ function _ifcSetSize(node, w, h) {
 
 async function _ifcCreateNode(spec, warnings) {
   var type = (spec && spec.type) || "frame";
+  if (type === "svg") {
+    // figma.createNodeFromSvg() parses the SVG string and returns a real
+    // FRAME containing vector children. Massive fidelity bump vs. a flat rect.
+    try {
+      var svgSrc = String(spec._svg || "");
+      // Ensure 'currentColor' resolves — embed the CSS color into the SVG.
+      if (spec._color) svgSrc = svgSrc.replace(/currentColor/g, spec._color);
+      var node = figma.createNodeFromSvg(svgSrc);
+      if (spec.name) node.name = spec.name;
+      _ifcSetSize(node, spec.width, spec.height);
+      _ifcApplyCommonProps(node, spec);
+      return node;
+    } catch (e) {
+      _ifcWarn(warnings, "svg parse failed: " + e.message);
+      // Fall back to a flat rect.
+      var fb = figma.createRectangle();
+      _ifcSetSize(fb, spec.width, spec.height);
+      var c = _ifcFillFromValue(spec._color || "#94a3b8");
+      if (c) fb.fills = c;
+      if (spec.name) fb.name = spec.name;
+      return fb;
+    }
+  }
   if (type === "text") {
     var t = figma.createText();
     var fontName = { family: (spec.fontFamily || "Inter"), style: _ifcFontStyle(spec.fontWeight) };
@@ -814,6 +883,15 @@ async function _ifcCreateNode(spec, warnings) {
     t.characters = String(spec.characters != null ? spec.characters : (spec.text || ""));
     var col = _ifcFillFromValue(spec.color || spec.fill);
     if (col) t.fills = col;
+    if (spec.textAlign === "LEFT" || spec.textAlign === "CENTER" || spec.textAlign === "RIGHT" || spec.textAlign === "JUSTIFIED") {
+      t.textAlignHorizontal = spec.textAlign;
+    }
+    if (typeof spec.lineHeight === "number" && spec.lineHeight > 0) {
+      try { t.lineHeight = { value: spec.lineHeight, unit: "PIXELS" }; } catch (e) {}
+    }
+    if (typeof spec.opacity === "number" && spec.opacity > 0 && spec.opacity < 1) {
+      t.opacity = spec.opacity;
+    }
     if (spec.name) t.name = spec.name;
     return t;
   }
@@ -836,6 +914,7 @@ async function _ifcCreateNode(spec, warnings) {
     }
     var f = _ifcFillFromValue(spec.fill);
     if (f) r.fills = f; else r.fills = [];
+    _ifcApplyCommonProps(r, spec);
     return r;
   }
   // frame (default)
@@ -844,6 +923,7 @@ async function _ifcCreateNode(spec, warnings) {
   var ff = _ifcFillFromValue(spec.fill);
   if (ff) fr.fills = ff; else fr.fills = [];
   if (spec.cornerRadius != null) fr.cornerRadius = Number(spec.cornerRadius) || 0;
+  _ifcApplyCommonProps(fr, spec);
   // auto-layout
   var layout = spec.layout || "NONE";
   if (layout === "VERTICAL" || layout === "HORIZONTAL") {
