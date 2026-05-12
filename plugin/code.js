@@ -882,7 +882,8 @@ function _ifcApplyCommonProps(node, spec) {
   // Combine drop-shadow + backdrop-blur + CSS-filter effects into one list.
   var fx = spec.shadow ? (_ifcShadowToEffects(spec.shadow) || []) : [];
   if (typeof spec.backdropBlur === "number" && spec.backdropBlur > 0) {
-    fx.push({ type: "BACKGROUND_BLUR", radius: Number(spec.backdropBlur), visible: true, blendMode: "NORMAL" });
+    // BlurEffect: no blendMode, but blurType is required in newer API.
+    fx.push({ type: "BACKGROUND_BLUR", blurType: "NORMAL", radius: Number(spec.backdropBlur), visible: true });
   }
   // CSS filter: blur(...) / drop-shadow(...) — already pre-shaped by the
   // extractor. Convert to Figma effects.
@@ -890,7 +891,7 @@ function _ifcApplyCommonProps(node, spec) {
     for (var fi = 0; fi < spec.filterEffects.length; fi++) {
       var fe = spec.filterEffects[fi];
       if (fe.type === "LAYER_BLUR") {
-        fx.push({ type: "LAYER_BLUR", radius: Number(fe.radius) || 0, visible: true, blendMode: "NORMAL" });
+        fx.push({ type: "LAYER_BLUR", blurType: "NORMAL", radius: Number(fe.radius) || 0, visible: true });
       } else if (fe.type === "DROP_SHADOW") {
         var rgb = hexToRGB(fe.color);
         if (rgb) fx.push({
