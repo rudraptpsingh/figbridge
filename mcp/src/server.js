@@ -305,16 +305,18 @@ export async function main() {
       url: z.string().describe("Page URL — http(s) or file:// — anything Chrome can load."),
       width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
       name: z.string().optional().describe("Override the Figma frame's name. Defaults to '<title> WIDTHpx'."),
-      update: z.coerce.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false (creates new frame).")
+      update: z.coerce.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false."),
+      dryRun: z.coerce.boolean().optional().describe("If true, runs the full extraction but skips sending to Figma. Returns spec metadata + telemetry only. Useful for verifying spec content without touching the Figma file.")
     },
-    async ({ url, width, name, update }) => {
+    async ({ url, width, name, update, dryRun }) => {
       try {
-        const { urlToSpec } = await import("./browser.js");
-        const spec = await urlToSpec(url, { width: width || 1280, name: name || null });
-        if (name) spec.name = name;
-        const action = update ? "update-from-code" : "import-from-code";
-        const r = await sendCommand(action, { spec, name: spec.name || name || null }, 300000);
-        return asText(r);
+        // Route through /command so the dryRun + telemetry logic stays
+        // in one place (bridge.js handler).
+        const r = await fetch(`http://127.0.0.1:${port}/command`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun }, timeoutMs: 300000 })
+        });
+        return asText(await r.json());
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );
