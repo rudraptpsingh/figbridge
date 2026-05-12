@@ -139,7 +139,7 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
               return outPath;
             };
             if (body.action === "import-url") {
-              const spec = await urlToSpec(args.url, { width: args.width || 1280, name: args.name || null, colorScheme: args.colorScheme || null });
+              const spec = await urlToSpec(args.url, { width: args.width || 1280, name: args.name || null, colorScheme: args.colorScheme || null, sourceDir: args.sourceDir || null });
               if (args.name) spec.name = args.name;
               // Telemetry: count nodes + features so the response gives
               // visibility into what was captured.

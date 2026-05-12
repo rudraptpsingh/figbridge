@@ -151,8 +151,7 @@
   function isInlineText(el) {
     const tag = el.tagName.toLowerCase();
     if (!INLINE_TEXT_TAGS.has(tag)) return false;
-    // Iterative scan instead of two querySelectorAll() calls. Same answer,
-    // ~3-5× faster on big trees because we short-circuit and don't allocate.
+    // Block-level / media kill the textification.
     const stack = [el];
     while (stack.length) {
       const n = stack.pop();
@@ -162,6 +161,17 @@
         if (BLOCK_TAGS.has(ctag) && c.children.length > 0) return false;
         if (c.children.length) stack.push(c);
       }
+    }
+    // Additional rule for buttons/links: if the element has multiple
+    // top-level spans with their own semantic classes (e.g. .name +
+    // .tagline + .arrow), the author is using span as a layout box,
+    // not inline text. Keep as a frame so per-span positioning survives.
+    if (tag === 'a' || tag === 'button') {
+      let semanticSpanKids = 0;
+      for (const c of el.children) {
+        if (c.tagName === 'SPAN' && firstSemanticClass(c.className)) semanticSpanKids++;
+      }
+      if (semanticSpanKids >= 2) return false;
     }
     return el.textContent && el.textContent.trim().length > 0;
   }
