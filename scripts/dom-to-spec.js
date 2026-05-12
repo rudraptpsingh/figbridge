@@ -1113,26 +1113,29 @@
       frame.children.push(pseudoNode);
     }
 
-    // Track the visual extent of children — see "computed-from-children
-    // height" fix below. The browser reports getBoundingClientRect().height
-    // as the CSS-declared box, which doesn't include absolutely-positioned
-    // overflowing children. Figma frames need the visual extent or they
-    // clip their contents on export.
+    // Track the visual extent of children — even for auto-layout parents,
+    // because absolutely-positioned children can overflow the declared
+    // parent box in HTML, and Figma's auto-layout clips them. We need to
+    // promote such parents to NONE-layout so children can sit anywhere.
     let childMaxY = 0;
     let childMaxX = 0;
+    let hasAbsoluteChild = false;
     const draft = [];
     for (const child of el.children) {
       const cn = nodeForElement(child, opts, depth + 1);
       if (!cn) continue;
+      const cr = child.getBoundingClientRect();
+      const childCs0 = window.getComputedStyle(child);
+      if (childCs0.position === 'absolute' || childCs0.position === 'fixed') hasAbsoluteChild = true;
+      // Always track extent (computed off rect, before any auto-layout
+      // sizing kicks in). This is the visual truth.
+      const relRight  = (cr.left - parentRect.left) + cr.width;
+      const relBottom = (cr.top  - parentRect.top)  + cr.height;
+      if (relRight  > childMaxX) childMaxX = relRight;
+      if (relBottom > childMaxY) childMaxY = relBottom;
       if (!isAutoLayout) {
-        const cr = child.getBoundingClientRect();
         cn.x = Math.round(cr.left - parentRect.left);
-        cn.y = Math.round(cr.top - parentRect.top);
-        // Track child extent for "trust children over CSS height" fix
-        const right = cn.x + (cn.width || cr.width || 0);
-        const bottom = cn.y + (cn.height || cr.height || 0);
-        if (right > childMaxX) childMaxX = right;
-        if (bottom > childMaxY) childMaxY = bottom;
+        cn.y = Math.round(cr.top  - parentRect.top);
       }
       const childCs = window.getComputedStyle(child);
       const zi = parseInt(childCs.zIndex, 10);
@@ -1160,17 +1163,28 @@
     }
     for (const d of draft) frame.children.push(d.node);
 
-    // Frame sizing: trust the children's visual extent over the CSS-
-    // declared height for NON-auto-layout frames. Absolutely-positioned
-    // children frequently overflow their declared parent in HTML; Figma
-    // frames need the visual extent, otherwise overflowing children get
-    // cut off on export.
-    if (!isAutoLayout && childMaxY > frame.height) {
-      frame.height = Math.max(frame.height, Math.ceil(childMaxY));
+    // If any child uses position:absolute|fixed, the parent's auto-layout
+    // would clip those children's visual position. Drop auto-layout and
+    // emit per-child x/y, matching the live render.
+    if (hasAbsoluteChild && (frame.layout === 'VERTICAL' || frame.layout === 'HORIZONTAL')) {
+      frame.layout = 'NONE';
+      // Need to add x/y for children that don't have them yet.
+      let idx = 0;
+      for (const child of el.children) {
+        const cn = draft[idx] && draft[idx].node;
+        if (cn) {
+          const cr2 = child.getBoundingClientRect();
+          cn.x = Math.round(cr2.left - parentRect.left);
+          cn.y = Math.round(cr2.top  - parentRect.top);
+        }
+        idx++;
+      }
     }
-    if (!isAutoLayout && childMaxX > frame.width) {
-      frame.width = Math.max(frame.width, Math.ceil(childMaxX));
-    }
+    // Trust children's visual extent over CSS-declared height/width. This
+    // catches both NONE-layout and (now) demoted auto-layout frames whose
+    // CSS height understates the real content extent.
+    if (childMaxY > frame.height) frame.height = Math.ceil(childMaxY);
+    if (childMaxX > frame.width)  frame.width  = Math.ceil(childMaxX);
 
     // If a flex container has zero element children but has a text leaf,
     // emit a text node too (some sites stuff text directly into a flex row).
