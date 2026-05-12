@@ -123,8 +123,17 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
           if (!body.action) return send(res, 400, { ok: false, error: "action required" });
           const args = body.args || {};
           // Server-side actions handled here, not over SSE.
-          if (body.action === "import-url" || body.action === "screenshot-url" || body.action === "probe-url") {
+          if (body.action === "import-url" || body.action === "screenshot-url" || body.action === "probe-url" || body.action === "visual-diff") {
             const { urlToSpec, screenshotUrl, probeUrl } = await import("./browser.js");
+            const fs = await import("node:fs/promises");
+            const path = await import("node:path");
+            const writeMaybe = async (b64, outPath) => {
+              if (!outPath) return null;
+              const dir = path.dirname(outPath);
+              try { await fs.mkdir(dir, { recursive: true }); } catch {}
+              await fs.writeFile(outPath, Buffer.from(b64, "base64"));
+              return outPath;
+            };
             if (body.action === "import-url") {
               const spec = await urlToSpec(args.url, { width: args.width || 1280, name: args.name || null });
               if (args.name) spec.name = args.name;
@@ -134,11 +143,31 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
             }
             if (body.action === "screenshot-url") {
               const b64 = await screenshotUrl(args.url, { width: args.width || 1280, fullPage: args.fullPage !== false });
-              return send(res, 200, { ok: true, width: args.width || 1280, bytes: Math.round(b64.length * 0.75), base64: b64 });
+              const written = await writeMaybe(b64, args.outPath);
+              const out = { ok: true, width: args.width || 1280, bytes: Math.round(b64.length * 0.75) };
+              if (written) out.path = written; else out.base64 = b64;
+              return send(res, 200, out);
             }
             if (body.action === "probe-url") {
               const r = await probeUrl(args.url, args.script, { width: args.width || 1280 });
               return send(res, 200, { ok: true, result: r });
+            }
+            if (body.action === "visual-diff") {
+              // One call: chrome screenshot + figma frame export, both to disk.
+              // Returns paths the agent can hand to Read for inline viewing.
+              const b64chrome = await screenshotUrl(args.url, { width: args.width || 1280, fullPage: true });
+              const figR = await sendCommand("export-frame", { nodeId: args.nodeId, scale: args.scale || 0.5 }, 60000);
+              if (!figR || !figR.ok) return send(res, 200, { ok: false, error: "figma export failed", figmaError: figR && figR.error });
+              const outDir = args.outDir || "/tmp";
+              const chromePath = path.join(outDir, (args.prefix || "diff") + "-chrome.png");
+              const figmaPath  = path.join(outDir, (args.prefix || "diff") + "-figma.png");
+              await writeMaybe(b64chrome, chromePath);
+              await writeMaybe(figR.base64, figmaPath);
+              return send(res, 200, {
+                ok: true,
+                chrome: { path: chromePath, width: args.width || 1280, bytes: Math.round(b64chrome.length * 0.75) },
+                figma:  { path: figmaPath, width: figR.width, height: figR.height, bytes: figR.bytes }
+              });
             }
           }
           const result = await sendCommand(body.action, args, body.timeoutMs || 15000);

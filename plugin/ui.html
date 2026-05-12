@@ -1459,10 +1459,25 @@
     var el = document.querySelector(".footer .port");
     if (el) el.textContent = "localhost:" + BRIDGE_PORT;
   }
+  // Reconnect backoff in seconds: 1, 2, 4, 8, 8, 8...
+  var _reconnectAttempt = 0;
+  function _reconnectDelayMs() {
+    var s = Math.min(8, Math.pow(2, _reconnectAttempt));
+    _reconnectAttempt++;
+    return s * 1000;
+  }
   function openEventStream() {
     if (eventSource) return;
     probeBridgePort(function(found){
-      if (!found) { setStatus("err", "Bridge offline"); setFoot("No bridge on " + PORT_BASE + "–" + (PORT_BASE + PORT_RANGE - 1)); return; }
+      if (!found) {
+        // Keep retrying until the user toggles Live bridge off. Without
+        // this, a single bridge restart turns into a manual reload.
+        setStatus("err", "Bridge offline");
+        setFoot("No bridge — retrying in " + Math.min(8, Math.pow(2, _reconnectAttempt)) + "s");
+        if (state.bridge) setTimeout(openEventStream, _reconnectDelayMs());
+        return;
+      }
+      _reconnectAttempt = 0;
       updatePortLabel();
       _openEventStreamInner();
     });
