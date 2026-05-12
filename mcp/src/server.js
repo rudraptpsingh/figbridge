@@ -337,6 +337,23 @@ export async function main() {
   );
 
   server.tool(
+    "probe_url",
+    "Render a URL in headless Chrome and run an arbitrary JS snippet inside the page. Use to inspect the live DOM / computed styles when planning an extraction. Replaces external chrome-devtools-mcp.evaluate_script. Snippet is the async-function body; use `return` for the result. Returns { ok, result }.",
+    {
+      url: z.string(),
+      script: z.string().describe("JS body, runs as async. The `document`/`window`/`getComputedStyle` globals are available. Use `return` for the result."),
+      width: z.number().optional()
+    },
+    async ({ url, script, width }) => {
+      try {
+        const { probeUrl } = await import("./browser.js");
+        const r = await probeUrl(url, script, { width: width || 1280 });
+        return asText({ ok: true, result: r });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "export_frame",
     "Export an existing Figma frame as a base64 PNG. Use to pull a rendered version of an imported frame back out for visual diff or for sending to an image-capable model. Returns { ok, nodeId, name, width, height, base64 }.",
     {

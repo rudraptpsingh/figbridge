@@ -107,7 +107,51 @@ export async function urlToSpec(url, opts = {}) {
       (o) => window.domToSpec(o),
       { rootSelector: opts.rootSelector || "body", maxDepth, embedImages, viewport: width, name: opts.name || null }
     );
+
+    // Iframe substitution: walk the spec for any rect tagged _iframeIdx
+    // (added by the extractor) and replace its placeholder with a real
+    // puppeteer screenshot of that iframe's bounding rect. Gives the
+    // hero demo deck (and any other iframe content) a real visual.
+    const iframeHandles = await page.$$('iframe');
+    if (iframeHandles.length) {
+      // Build index → base64 PNG bytes for each iframe.
+      const shots = {};
+      for (let i = 0; i < iframeHandles.length; i++) {
+        try {
+          const buf = await iframeHandles[i].screenshot({ type: "png" });
+          shots[i] = Buffer.from(buf).toString("base64");
+        } catch (e) { /* tainted / cross-origin → skip */ }
+      }
+      // Find rects in spec with _iframeIdx and inject _imageBytes.
+      (function walk(n) {
+        if (n && n.type === "rect" && typeof n._iframeIdx === "number" && shots[n._iframeIdx]) {
+          n._imageBytes = "data:image/png;base64," + shots[n._iframeIdx];
+        }
+        if (n && n.children) for (const c of n.children) walk(c);
+      })(spec);
+    }
     return spec;
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
+/**
+ * Render URL and run a JS snippet inside the page. The snippet is wrapped
+ * as an async body and its return value is shipped back as JSON. This is
+ * the diagnostic "evaluate-some-JS-in-the-page" tool — figbridge replaces
+ * chrome-devtools-mcp.evaluate_script for one-off DOM probes.
+ */
+export async function probeUrl(url, script, opts = {}) {
+  const width = opts.width || 1280;
+  const height = opts.height || 900;
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
+    await new Promise(r => setTimeout(r, opts.settleMs || 1000));
+    return await page.evaluate(new Function(`return (async () => { ${script} })()`));
   } finally {
     try { await page.close(); } catch {}
   }
