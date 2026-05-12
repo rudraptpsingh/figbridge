@@ -92,6 +92,13 @@
 
   function nameForNode(el, tag) {
     if (el.id) return '#' + el.id;
+    // For text-y tags, snip the first words of textContent so layer
+    // names read like "Heading 1: Sort. Tag. Deliver..." instead of
+    // just "Heading 1". Way more navigable in Figma's Layers panel.
+    if (['h1','h2','h3','h4','h5','h6','p','blockquote','figcaption','button'].includes(tag)) {
+      const tc = (el.textContent || '').trim().slice(0, 40);
+      if (tc) return (SEMANTIC_NAMES[tag] || tag) + ': ' + tc + (tc.length === 40 ? '…' : '');
+    }
     const sc = firstSemanticClass(el.className);
     if (sc) return '.' + sc.slice(0, 32);
     if (SEMANTIC_NAMES[tag]) return SEMANTIC_NAMES[tag];
@@ -692,15 +699,51 @@
       };
     }
     // <input> / <textarea> → frame styled like the input, with a text
-    // child showing the current value or placeholder. Otherwise input
-    // boxes come back as empty rects.
-    if (tag === 'input' || tag === 'textarea') {
-      const isText = tag === 'textarea' || ['text','email','search','tel','url','password',null,'','number'].includes(el.getAttribute('type'));
+    // child showing the current value or placeholder. Radio + checkbox
+    // get rendered as their visual indicator (filled/empty circle or
+    // square). Select shows the currently-selected option text.
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      const inputType = (tag === 'input' ? el.getAttribute('type') : null) || tag;
+      const r = el.getBoundingClientRect();
+      if (inputType === 'radio' || inputType === 'checkbox') {
+        const checked = el.checked || el.hasAttribute('checked');
+        return {
+          type: 'rect',
+          name: name + ':' + inputType,
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+          fill: checked ? (rgbToHex(cs.accentColor) || '#0f172a') : (rgbToHex(cs.backgroundColor) || '#ffffff'),
+          stroke: { color: rgbToHex(cs.borderTopColor) || '#94a3b8', width: 1 },
+          cornerRadius: inputType === 'radio' ? Math.max(r.width, r.height) : (radius(cs) || 4),
+        };
+      }
+      if (tag === 'select') {
+        const opt = el.selectedOptions && el.selectedOptions[0];
+        const text = opt ? opt.textContent.trim() : (el.options[0] ? el.options[0].textContent.trim() : '');
+        return {
+          type: 'frame',
+          name: name + ':select',
+          layout: 'HORIZONTAL',
+          padding: padOf(cs),
+          fill: fillOf(cs),
+          cornerRadius: radius(cs),
+          stroke: strokeOf(cs),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+          children: text ? [{
+            type: 'text', name: name + ':value',
+            characters: text + ' ▾',
+            fontSize: Math.round(px(cs.fontSize) || 14),
+            fontFamily: fontFamilyOf(cs),
+            color: rgbToHex(cs.color),
+          }] : [],
+        };
+      }
+      const isText = tag === 'textarea' || ['text','email','search','tel','url','password',null,'','number'].includes(inputType);
       const value = el.value || el.getAttribute('value');
       const placeholder = el.getAttribute('placeholder') || '';
       const display = value || placeholder;
       const isPlaceholder = !value && !!placeholder;
-      const r = el.getBoundingClientRect();
       const frame = {
         type: 'frame',
         name: name + ':' + tag,
