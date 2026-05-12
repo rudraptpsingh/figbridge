@@ -1115,14 +1115,14 @@ async function _ifcCreateNode(spec, warnings) {
       var child = await _ifcCreateNode(children[i], warnings);
       if (!child) continue;
       fr.appendChild(child);
-      // For non-auto-layout parents the extractor emits per-child x/y
-      // (relative to the parent). Without these every child would land at
-      // (0,0) and the page would visually collapse into the top-left.
       if (!isAutoLayout && "x" in child) {
-        var cs = children[i];
-        if (cs && typeof cs.x === "number") child.x = cs.x;
-        if (cs && typeof cs.y === "number") child.y = cs.y;
+        var cs2 = children[i];
+        if (cs2 && typeof cs2.x === "number") child.x = cs2.x;
+        if (cs2 && typeof cs2.y === "number") child.y = cs2.y;
       }
+      // Carry the componentization group id so a post-pass can identify
+      // siblings to merge into Component + Instances.
+      if (children[i] && children[i]._componentGroupId) child._cgid = children[i]._componentGroupId;
     } catch (e) { _ifcWarn(warnings, "child[" + i + "] failed: " + (e && e.message || e)); }
   }
   return fr;
@@ -1342,6 +1342,51 @@ async function _ifcSyncColorStyles(histogram, warnings) {
   return created;
 }
 
+// Post-import componentization. Walk the tree, collect every node tagged
+// _componentGroupId, group them, then for each group:
+//   1. Take the first member's underlying Figma node
+//   2. Convert it to a Component (createComponentFromNode preserves layout)
+//   3. Replace each remaining group member with an Instance of that component
+// Cancellable — runs in try/catch so a partial failure doesn't abort the
+// whole import. Returns count of components created.
+async function _ifcComponentize(rootNode, warnings) {
+  if (!rootNode || !figma.createComponentFromNode) return 0;
+  // Walk to find group leaders. We store a sidecar map of nodeId→groupId
+  // on the spec walker side; here we re-extract by name suffix _SLOT_ to
+  // keep this self-contained (set in _ifcCreateNode below).
+  var groups = {};
+  function walk(n) {
+    if (n._cgid) (groups[n._cgid] = groups[n._cgid] || []).push(n);
+    if ("children" in n && n.children) for (var i = 0; i < n.children.length; i++) walk(n.children[i]);
+  }
+  walk(rootNode);
+  var made = 0;
+  var keys = Object.keys(groups);
+  for (var k = 0; k < keys.length; k++) {
+    var members = groups[keys[k]];
+    if (members.length < 2) continue;
+    try {
+      var first = members[0];
+      var component = figma.createComponentFromNode(first);
+      component.name = keys[k];
+      made++;
+      for (var m = 1; m < members.length; m++) {
+        var inst = component.createInstance();
+        var oldNode = members[m];
+        // Match the instance's position to the old node.
+        if ("x" in inst && "x" in oldNode) { inst.x = oldNode.x; inst.y = oldNode.y; }
+        // Reparent to old node's parent and remove the old.
+        var parent = oldNode.parent;
+        if (parent) {
+          parent.insertChild(parent.children.indexOf(oldNode), inst);
+          try { oldNode.remove(); } catch (e) {}
+        }
+      }
+    } catch (e) { _ifcWarn(warnings, "componentize " + keys[k] + ": " + e.message); }
+  }
+  return made;
+}
+
 async function importFromCode(args) {
   var warnings = [];
   var spec = args.spec;
@@ -1388,7 +1433,10 @@ async function importFromCode(args) {
     if ("children" in n && n.children) for (var i = 0; i < n.children.length; i++) c += count(n.children[i]);
     return c;
   }
-  return { ok: true, nodeId: root.id, name: root.name, createdCount: count(root), warnings: warnings };
+  // Post-import: convert repeated-sibling groups into Components + Instances.
+  var componentsMade = 0;
+  try { componentsMade = await _ifcComponentize(root, warnings); } catch (e) { _ifcWarn(warnings, "componentize: " + e.message); }
+  return { ok: true, nodeId: root.id, name: root.name, createdCount: count(root), componentsCreated: componentsMade, warnings: warnings };
 }
 
 async function updateFromCode(args) {
