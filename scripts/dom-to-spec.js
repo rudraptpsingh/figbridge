@@ -633,6 +633,41 @@
         _color: rgbToHex(cs.color),
       };
     }
+    // <input> / <textarea> → frame styled like the input, with a text
+    // child showing the current value or placeholder. Otherwise input
+    // boxes come back as empty rects.
+    if (tag === 'input' || tag === 'textarea') {
+      const isText = tag === 'textarea' || ['text','email','search','tel','url','password',null,'','number'].includes(el.getAttribute('type'));
+      const value = el.value || el.getAttribute('value');
+      const placeholder = el.getAttribute('placeholder') || '';
+      const display = value || placeholder;
+      const isPlaceholder = !value && !!placeholder;
+      const r = el.getBoundingClientRect();
+      const frame = {
+        type: 'frame',
+        name: name + ':' + tag,
+        layout: 'HORIZONTAL',
+        padding: padOf(cs),
+        fill: fillOf(cs),
+        cornerRadius: radius(cs),
+        stroke: strokeOf(cs),
+        outline: outlineOf(cs),
+        opacity: opacityOf(cs),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+        children: isText && display ? [{
+          type: 'text',
+          name: name + ':value',
+          characters: display,
+          fontSize: Math.round(px(cs.fontSize) || 14),
+          fontWeight: fontWeight(cs),
+          fontFamily: fontFamilyOf(cs),
+          color: isPlaceholder ? '#94a3b8' : rgbToHex(cs.color),
+          opacity: isPlaceholder ? 0.6 : opacityOf(cs),
+        }] : [],
+      };
+      return frame;
+    }
     // <video> → rect with poster image if present, else a placeholder.
     if (tag === 'video') {
       const poster = el.getAttribute('poster');
@@ -693,6 +728,9 @@
 
     // Button/link with text content → frame containing a single text child.
     if ((tag === 'button' || tag === 'a') && (hasOnlyTextChildren(el) || isInlineText(el))) {
+      // Hyperlink — Figma supports node.hyperlink {type, value} on text
+      // nodes so designers can click through in prototypes.
+      const href = tag === 'a' ? el.getAttribute('href') : null;
       const frame = {
         type: 'frame',
         name: name + ':' + tag,
@@ -708,6 +746,7 @@
         backdropBlur: backdropBlurOf(cs),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
+        hyperlink: href ? { url: href.startsWith('#') || href.startsWith('/') ? new URL(href, document.baseURI).href : href } : undefined,
         children: [{
           type: 'text',
           name: name + ':text',
@@ -718,6 +757,7 @@
           lineHeight: lineHeightOf(cs),
           textAlign: textAlignOf(cs),
           color: rgbToHex(cs.color),
+          hyperlink: href ? { url: href.startsWith('#') || href.startsWith('/') ? new URL(href, document.baseURI).href : href } : undefined,
         }],
       };
       return frame;

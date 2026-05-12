@@ -1001,6 +1001,10 @@ async function _ifcCreateNode(spec, warnings) {
     }
     // Inline-span style ranges: setRange*() for any segment whose computed
     // style differs from the parent. Each range needs the font loaded.
+    // Hyperlink — Figma text supports node.hyperlink {type:'URL', value}.
+    if (spec.hyperlink && spec.hyperlink.url) {
+      try { t.hyperlink = { type: "URL", value: String(spec.hyperlink.url) }; } catch (e) {}
+    }
     if (Array.isArray(spec.ranges) && spec.ranges.length) {
       var charLen = t.characters.length;
       for (var ri = 0; ri < spec.ranges.length; ri++) {
