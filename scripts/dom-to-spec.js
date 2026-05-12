@@ -55,6 +55,23 @@
     return el.textContent && el.textContent.trim().length > 0;
   }
 
+  // Headings / paragraphs / buttons frequently contain inline spans
+  // (highlight rules, masks, em). The leading direct-text-node would
+  // otherwise be dropped. Returns true if the element is a known
+  // "text-y" tag and ALL nested content is text-like (no images, no
+  // block children, no svg).
+  function isInlineText(el) {
+    const tag = el.tagName.toLowerCase();
+    if (!['h1','h2','h3','h4','h5','h6','p','a','button','label','strong','em','span','blockquote'].includes(tag)) return false;
+    // Walk: anything block-level or media kills the textification.
+    for (const n of el.querySelectorAll('img,svg,video,canvas,iframe,picture,hr')) return false;
+    for (const n of el.querySelectorAll('section,header,footer,article,aside,main,div')) {
+      // Allow shallow inline-wrapper divs but bail on anything deeper.
+      if (n.children.length > 0) return false;
+    }
+    return el.textContent && el.textContent.trim().length > 0;
+  }
+
   function getTextValue(el) {
     return el.textContent.replace(/\s+/g, ' ').trim();
   }
@@ -142,6 +159,24 @@
       }
       return node;
     }
+    // <iframe> → rect with index tag so the server-side orchestrator
+    // can fill it in with a puppeteer-captured screenshot of that iframe.
+    if (tag === 'iframe') {
+      // Compute the iframe's index in document order; matches what the
+      // server's page.$$('iframe') will return.
+      const all = Array.from(document.querySelectorAll('iframe'));
+      const idx = all.indexOf(el);
+      return {
+        type: 'rect',
+        name: name + ':iframe',
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        fill: rgbToHex(cs.backgroundColor) || '#e2e8f0',
+        cornerRadius: radius(cs),
+        _iframeIdx: idx,
+        _src: el.getAttribute('src') || null,
+      };
+    }
     // <hr> / <svg> / empty placeholder
     if (tag === 'hr' || tag === 'svg') {
       return {
@@ -154,10 +189,11 @@
       };
     }
 
-    // Pure-text leaf → text node.
-    if (hasOnlyTextChildren(el) && !['button', 'a'].includes(tag)) {
-      // (buttons/links with text-only content are handled below as frame+text
-      //  so we can preserve their background.)
+    // Text leaf — either pure-text or "inline-text" (heading/p/span with
+    // nested inline spans but no block-level or media children). The
+    // inline-text path catches `<h1>Sort. <span>Tag.</span> Deliver.</h1>`
+    // where the leading direct-text-node would otherwise be dropped.
+    if ((hasOnlyTextChildren(el) || isInlineText(el)) && !['button', 'a'].includes(tag)) {
       return {
         type: 'text',
         name: name,
@@ -169,8 +205,7 @@
     }
 
     // Button/link with text content → frame containing a single text child.
-    // Preserves background, padding, radius — closer to what designers expect.
-    if ((tag === 'button' || tag === 'a') && hasOnlyTextChildren(el)) {
+    if ((tag === 'button' || tag === 'a') && (hasOnlyTextChildren(el) || isInlineText(el))) {
       const frame = {
         type: 'frame',
         name: name + ':' + tag,

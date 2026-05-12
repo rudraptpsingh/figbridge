@@ -107,8 +107,13 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
     }
 
     // External command injection — POST /command { action, args, timeoutMs? }
-    // Lets any local script drive the plugin without going through MCP.
+    // Lets any local script drive figbridge without going through MCP.
     // Same trust model as the rest of the bridge: 127.0.0.1 only.
+    //
+    // Two kinds of actions:
+    //   - PLUGIN actions (default) — broadcast to plugin over SSE, await reply
+    //   - SERVER actions (browser orchestrator) — handled in the MCP server
+    //     process directly so they don't need the Figma plugin to be open.
     if (req.method === "POST" && req.url === "/command") {
       let chunks = [];
       req.on("data", (c) => chunks.push(c));
@@ -116,7 +121,27 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
           if (!body.action) return send(res, 400, { ok: false, error: "action required" });
-          const result = await sendCommand(body.action, body.args || {}, body.timeoutMs || 15000);
+          const args = body.args || {};
+          // Server-side actions handled here, not over SSE.
+          if (body.action === "import-url" || body.action === "screenshot-url" || body.action === "probe-url") {
+            const { urlToSpec, screenshotUrl, probeUrl } = await import("./browser.js");
+            if (body.action === "import-url") {
+              const spec = await urlToSpec(args.url, { width: args.width || 1280, name: args.name || null });
+              if (args.name) spec.name = args.name;
+              const action = args.update ? "update-from-code" : "import-from-code";
+              const r = await sendCommand(action, { spec, name: spec.name || args.name || null }, args.timeoutMs || 300000);
+              return send(res, 200, r);
+            }
+            if (body.action === "screenshot-url") {
+              const b64 = await screenshotUrl(args.url, { width: args.width || 1280, fullPage: args.fullPage !== false });
+              return send(res, 200, { ok: true, width: args.width || 1280, bytes: Math.round(b64.length * 0.75), base64: b64 });
+            }
+            if (body.action === "probe-url") {
+              const r = await probeUrl(args.url, args.script, { width: args.width || 1280 });
+              return send(res, 200, { ok: true, result: r });
+            }
+          }
+          const result = await sendCommand(body.action, args, body.timeoutMs || 15000);
           send(res, 200, result);
         } catch (e) { send(res, 502, { ok: false, error: e.message }); }
       });
