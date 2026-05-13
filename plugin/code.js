@@ -1738,6 +1738,176 @@ async function auditTypography(args) {
   };
 }
 
+// WCAG 2.x relative luminance + contrast ratio. Standard formula.
+function _ifcRelLum(r, g, b) {
+  function chan(c) { c /= 1; c = c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); return c; }
+  return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b);
+}
+function _ifcContrast(rgbA, rgbB) {
+  var lA = _ifcRelLum(rgbA.r, rgbA.g, rgbA.b);
+  var lB = _ifcRelLum(rgbB.r, rgbB.g, rgbB.b);
+  var hi = Math.max(lA, lB), lo = Math.min(lA, lB);
+  return (hi + 0.05) / (lo + 0.05);
+}
+function _ifcSolidColor(node, prop) {
+  if (!node || !(prop in node) || !Array.isArray(node[prop])) return null;
+  var arr = node[prop];
+  for (var i = arr.length - 1; i >= 0; i--) { // top fill first
+    var p = arr[i];
+    if (p.type === "SOLID" && p.color && p.visible !== false) {
+      return { r: p.color.r, g: p.color.g, b: p.color.b, opacity: p.opacity == null ? 1 : p.opacity };
+    }
+  }
+  return null;
+}
+// Walk up parents to find the effective background color for a text node.
+function _ifcEffectiveBg(node) {
+  var cur = node.parent;
+  while (cur && cur.type !== "PAGE") {
+    var bg = _ifcSolidColor(cur, "fills");
+    if (bg) return bg;
+    cur = cur.parent;
+  }
+  return null;
+}
+
+async function auditA11yFrame(args) {
+  var root = await figma.getNodeByIdAsync(args.nodeId);
+  if (!root) return { ok: false, error: "node not found: " + args.nodeId };
+
+  var contrastIssues = [];
+  var allTextNodes = 0;
+  var smallTextThreshold = 18;          // px below which text is "small" (WCAG 1.4.3)
+  var smallBoldThreshold = 14;
+  function walk(n) {
+    if (n.type === "TEXT") {
+      allTextNodes++;
+      var fg = _ifcSolidColor(n, "fills");
+      var bg = _ifcEffectiveBg(n);
+      if (fg && bg) {
+        var c = _ifcContrast(fg, bg);
+        var sz = (n.fontSize !== figma.mixed && typeof n.fontSize === "number") ? n.fontSize : null;
+        var weight = (n.fontName !== figma.mixed && n.fontName) ? String(n.fontName.style || "").toLowerCase() : "";
+        var isBold = /bold|black|heavy|extra/.test(weight);
+        var isLarge = sz != null && (sz >= smallTextThreshold || (sz >= smallBoldThreshold && isBold));
+        var required = isLarge ? 3.0 : 4.5;        // AA
+        var requiredAAA = isLarge ? 4.5 : 7.0;     // AAA
+        var pass = c >= required;
+        if (!pass) {
+          contrastIssues.push({
+            name: n.name, text: (n.characters || "").slice(0, 40),
+            fontSize: sz, isBold: isBold, isLarge: isLarge,
+            contrast: Math.round(c * 100) / 100,
+            requiredAA: required, requiredAAA: requiredAAA,
+            fg: "#" + Math.round(fg.r*255).toString(16).padStart(2,"0") + Math.round(fg.g*255).toString(16).padStart(2,"0") + Math.round(fg.b*255).toString(16).padStart(2,"0"),
+            bg: "#" + Math.round(bg.r*255).toString(16).padStart(2,"0") + Math.round(bg.g*255).toString(16).padStart(2,"0") + Math.round(bg.b*255).toString(16).padStart(2,"0"),
+          });
+        }
+      }
+    }
+    if (n.children) for (var i = 0; i < n.children.length; i++) walk(n.children[i]);
+  }
+  walk(root);
+
+  // Semantic landmark check: do we have an obvious header / nav / main / footer?
+  var landmarks = { header: 0, nav: 0, main: 0, footer: 0, aside: 0, section: 0 };
+  function landmarkWalk(n) {
+    var name = (n.name || "").toLowerCase();
+    for (var k in landmarks) if (name.indexOf(k) !== -1) landmarks[k]++;
+    if (n.children) for (var i = 0; i < n.children.length; i++) landmarkWalk(n.children[i]);
+  }
+  landmarkWalk(root);
+
+  // Image-without-name detection (proxy for missing alt text).
+  var imagesWithoutName = 0;
+  function imgWalk(n) {
+    if (n.type === "RECTANGLE" && Array.isArray(n.fills)) {
+      var hasImg = false;
+      for (var i = 0; i < n.fills.length; i++) if (n.fills[i].type === "IMAGE") { hasImg = true; break; }
+      if (hasImg) {
+        // Image rect with name 'img' / no semantic class = no alt
+        if (!n.name || n.name === "img" || n.name === "rect" || n.name.startsWith("svg:")) imagesWithoutName++;
+      }
+    }
+    if (n.children) for (var j = 0; j < n.children.length; j++) imgWalk(n.children[j]);
+  }
+  imgWalk(root);
+
+  return {
+    ok: true,
+    totalTextNodes: allTextNodes,
+    contrastFailuresAA: contrastIssues.length,
+    contrastIssues: contrastIssues.slice(0, 20),
+    landmarks: landmarks,
+    landmarkScore: Object.keys(landmarks).reduce(function (s, k) { return s + (landmarks[k] > 0 ? 1 : 0); }, 0),
+    imagesWithoutName: imagesWithoutName,
+  };
+}
+
+async function auditWhitespace(args) {
+  var root = await figma.getNodeByIdAsync(args.nodeId);
+  if (!root) return { ok: false, error: "node not found: " + args.nodeId };
+
+  // Collect padding + gap values across all auto-layout frames.
+  var paddingValues = [];   // each entry: { value, count, axis }
+  var paddingHist = {};
+  var gapHist = {};
+  function rec(map, value) {
+    if (value == null || value === 0) return;
+    var k = String(Math.round(value));
+    map[k] = (map[k] || 0) + 1;
+  }
+  function walk(n) {
+    if (n.type === "FRAME" || n.type === "COMPONENT" || n.type === "INSTANCE") {
+      if (n.layoutMode === "VERTICAL" || n.layoutMode === "HORIZONTAL") {
+        rec(paddingHist, n.paddingTop);
+        rec(paddingHist, n.paddingRight);
+        rec(paddingHist, n.paddingBottom);
+        rec(paddingHist, n.paddingLeft);
+        rec(gapHist, n.itemSpacing);
+      }
+    }
+    if (n.children) for (var i = 0; i < n.children.length; i++) walk(n.children[i]);
+  }
+  walk(root);
+
+  function asSorted(hist) {
+    return Object.keys(hist).map(function (k) { return { value: Number(k), count: hist[k] }; })
+      .sort(function (a, b) { return a.value - b.value; });
+  }
+  var paddingList = asSorted(paddingHist);
+  var gapList = asSorted(gapHist);
+
+  // Detect: are most values divisible by 4 / 8? (Grid-aligned design.)
+  function divisibility(list, mod) {
+    var aligned = 0, total = 0;
+    for (var i = 0; i < list.length; i++) {
+      total += list[i].count;
+      if (list[i].value % mod === 0) aligned += list[i].count;
+    }
+    return total ? Math.round((aligned / total) * 100) : 0;
+  }
+
+  // Detect off-grid stragglers — values that appear ONCE and are NOT divisible
+  // by 4. These are typically design mistakes worth flagging.
+  var stragglers = paddingList.filter(function (v) {
+    return v.count === 1 && v.value % 4 !== 0 && v.value > 0;
+  }).concat(gapList.filter(function (v) {
+    return v.count === 1 && v.value % 4 !== 0 && v.value > 0;
+  }));
+
+  return {
+    ok: true,
+    distinctPaddingValues: paddingList.length,
+    distinctGapValues: gapList.length,
+    paddings: paddingList,
+    gaps: gapList,
+    pct_div_by_4: divisibility(paddingList.concat(gapList), 4),
+    pct_div_by_8: divisibility(paddingList.concat(gapList), 8),
+    offGridStragglers: stragglers,
+  };
+}
+
 async function deleteNodes(args) {
   var ids = [];
   if (args.nodeId) ids.push(args.nodeId);
@@ -1935,6 +2105,12 @@ async function handleCommand(cmdId, action, args) {
     }
     if (action === "audit-typography") {
       return await auditTypography(args || {});
+    }
+    if (action === "audit-a11y") {
+      return await auditA11yFrame(args || {});
+    }
+    if (action === "audit-whitespace") {
+      return await auditWhitespace(args || {});
     }
     if (action === "export-frame") {
       var node = await figma.getNodeByIdAsync(args.nodeId);
