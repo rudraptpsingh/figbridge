@@ -20,7 +20,7 @@
   },
   "scripts": {
     "start": "node bin/figbridge-mcp.js",
-    "test": "node test/smoke.mjs"
+    "test": "node ../test/smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
