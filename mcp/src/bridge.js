@@ -123,11 +123,19 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
           if (!body.action) return send(res, 400, { ok: false, error: "action required" });
           const args = body.args || {};
           // Server-side actions handled here, not over SSE.
-          if (body.action === "import-url" || body.action === "screenshot-url" || body.action === "probe-url" || body.action === "visual-diff" || body.action === "fingerprint-url") {
-            const { urlToSpec, screenshotUrl, probeUrl, fingerprintUrl } = await import("./browser.js");
+          if (body.action === "import-url" || body.action === "screenshot-url" || body.action === "probe-url" || body.action === "visual-diff" || body.action === "fingerprint-url" || body.action === "measure-fidelity") {
+            const { urlToSpec, screenshotUrl, probeUrl, fingerprintUrl, measureFidelity } = await import("./browser.js");
             if (body.action === "fingerprint-url") {
               const r = await fingerprintUrl(args.url, { width: args.width || 1280 });
               return send(res, 200, { ok: true, ...r });
+            }
+            if (body.action === "measure-fidelity") {
+              // Export the Figma frame then run the diff.
+              const figR = await sendCommand("export-frame", { nodeId: args.nodeId, scale: args.scale || 1 }, 60000);
+              if (!figR || !figR.ok) return send(res, 200, { ok: false, error: "figma export failed", figmaError: figR && figR.error });
+              const figmaPng = Buffer.from(figR.base64, "base64");
+              const result = await measureFidelity(args.url, figmaPng, { width: args.width || 1280, height: figR.height });
+              return send(res, 200, result);
             }
             const fs = await import("node:fs/promises");
             const path = await import("node:path");

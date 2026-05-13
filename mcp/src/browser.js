@@ -429,6 +429,86 @@ export async function verifyTextFidelity(url, spec, opts = {}) {
   };
 }
 
+/**
+ * Phase 6 fidelity measurement: capture the live URL + the Figma export
+ * at matching dimensions, compute a pixel-similarity score and per-region
+ * error rectangles. The first signal we've had that's NOT eyeballed.
+ *
+ * Returns:
+ *   { score: 0-100,        // higher = more similar
+ *     diffPercent: 0-1,    // fraction of pixels mismatched
+ *     pixelsDiff: N,
+ *     dimensions: { w, h },
+ *     regions: [{x,y,w,h,errorPct}]  // top regions sorted by error
+ *   }
+ */
+export async function measureFidelity(url, figmaPng, opts = {}) {
+  const width = opts.width || 1280;
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width, height: opts.height || 900, deviceScaleFactor: 1 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise(r => setTimeout(r, opts.settleMs || 1500));
+    const livePng = await page.screenshot({ type: "png", fullPage: true });
+    return await diffPngs(livePng, figmaPng);
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
+// Use pngjs + pixelmatch to compute a similarity score + diff regions.
+async function diffPngs(pngA, pngB) {
+  const { PNG } = await import("pngjs");
+  const pixelmatch = (await import("pixelmatch")).default;
+  const a = PNG.sync.read(Buffer.isBuffer(pngA) ? pngA : Buffer.from(pngA));
+  let b = PNG.sync.read(Buffer.isBuffer(pngB) ? pngB : Buffer.from(pngB));
+  // Resize b to match a if dimensions differ (Figma exports may be 2x).
+  if (a.width !== b.width || a.height !== b.height) {
+    // Use sharp if present; else just bail with a note.
+    try {
+      const sharp = (await import("sharp")).default;
+      const buf = await sharp(Buffer.isBuffer(pngB) ? pngB : Buffer.from(pngB))
+        .resize(a.width, a.height, { fit: "fill" }).png().toBuffer();
+      b = PNG.sync.read(buf);
+    } catch (e) {
+      return { ok: false, error: "Dimensions differ and sharp not installed. a=" + a.width + "x" + a.height + " b=" + b.width + "x" + b.height };
+    }
+  }
+  const diff = new PNG({ width: a.width, height: a.height });
+  const totalPixels = a.width * a.height;
+  const pixelsDiff = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.1 });
+  const diffPercent = pixelsDiff / totalPixels;
+  // Bucket diff pixels into a coarse grid to find error hotspots.
+  const cols = 16, rows = 32;
+  const cellW = Math.ceil(a.width / cols), cellH = Math.ceil(a.height / rows);
+  const buckets = Array.from({ length: rows }, () => new Array(cols).fill(0));
+  for (let y = 0; y < a.height; y++) {
+    for (let x = 0; x < a.width; x++) {
+      const idx = (y * a.width + x) * 4;
+      // diff image has red pixels for mismatches
+      if (diff.data[idx] === 255 && diff.data[idx + 1] === 0) {
+        buckets[Math.floor(y / cellH)][Math.floor(x / cellW)]++;
+      }
+    }
+  }
+  const regions = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const cellPx = cellW * cellH;
+    const errorPct = buckets[r][c] / cellPx;
+    if (errorPct > 0.05) regions.push({ x: c * cellW, y: r * cellH, w: cellW, h: cellH, errorPct: Math.round(errorPct * 1000) / 1000 });
+  }
+  regions.sort((x, y) => y.errorPct - x.errorPct);
+  return {
+    ok: true,
+    score: Math.round((1 - diffPercent) * 1000) / 10,
+    diffPercent: Math.round(diffPercent * 1000) / 1000,
+    pixelsDiff,
+    dimensions: { w: a.width, h: a.height },
+    regions: regions.slice(0, 10),
+  };
+}
+
 /** Render URL and return a base64 PNG screenshot (full page). */
 export async function screenshotUrl(url, opts = {}) {
   const width = opts.width || 1280;
