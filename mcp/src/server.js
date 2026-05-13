@@ -491,6 +491,32 @@ export async function main() {
     }
   );
 
+  server.tool(
+    "generate_patch",
+    "Turn a diff_to_source result into a minimal patch plan against a local source directory. For text-content changes, finds the exact old string in HTML/JSX/TSX/etc and emits a before/after edit. For color / fontSize / fontFamily changes, surfaces a structured note pointing at candidate CSS files (style swaps usually want a token edit, not a literal replacement). No files are written — the caller decides whether to apply. Returns { edits[], notes[], unifiedDiff }.",
+    {
+      sourceDir: z.string().describe("Absolute path to the source repo / folder."),
+      changes: z.array(z.any()).optional().describe("changes[] array from diff_to_source. If omitted, pass url + nodeId and we'll compute the diff first."),
+      url: z.string().optional(),
+      nodeId: z.string().optional(),
+    },
+    async ({ sourceDir, changes, url, nodeId }) => {
+      try {
+        let ch = changes;
+        if (!ch && url && nodeId) {
+          const { urlToSpec } = await import("./browser.js");
+          const spec = await urlToSpec(url, {});
+          const r = await sendCommand("diff-frame-vs-spec", { nodeId, spec }, 60000);
+          if (!r || !r.ok) return asText({ ok: false, error: "diff failed: " + (r && r.error || "unknown") });
+          ch = r.changes || [];
+        }
+        if (!ch) return asText({ ok: false, error: "pass either changes[] or (url + nodeId)" });
+        const { generatePatch } = await import("./patch.js");
+        return asText(await generatePatch({ changes: ch, sourceDir }));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   // ── Pillar 2: Design intelligence audits ─────────────────
   server.tool(
     "audit_palette",
