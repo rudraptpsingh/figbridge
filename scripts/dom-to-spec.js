@@ -1136,20 +1136,47 @@
 
     // Track the visual extent of children — even for auto-layout parents,
     // because absolutely-positioned children can overflow the declared
-    // parent box in HTML, and Figma's auto-layout clips them. We need to
-    // promote such parents to NONE-layout so children can sit anywhere.
+    // parent box in HTML, and Figma's auto-layout clips them.
     let childMaxY = 0;
     let childMaxX = 0;
     let hasAbsoluteChild = false;
     const draft = [];
-    for (const child of el.children) {
+    // Walk childNodes (not children) so we also pick up TEXT nodes
+    // interleaved between element children. Example:
+    //   <a class="cta"><svg/>Download for macOS<span class="arrow"/></a>
+    // The "Download for macOS" between the svg and span is a text node;
+    // el.children skips it, dropping the visible text. We emit each
+    // non-empty text node as a synthetic text child, styled from the
+    // parent's computed CSS.
+    for (const node of el.childNodes) {
+      if (node.nodeType === 3) {
+        const txt = (node.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!txt) continue;
+        // Mixed-content text node — emit as a text child inheriting
+        // parent typography. Positioning relies on auto-layout primary
+        // axis (HORIZONTAL flows next to the icon naturally) or per-x/y
+        // if no layout.
+        draft.push({
+          node: {
+            type: 'text',
+            name: 'text:' + txt.slice(0, 24),
+            characters: txt,
+            fontSize: Math.round(px(cs.fontSize) || 16),
+            fontWeight: fontWeight(cs),
+            fontFamily: fontFamilyOf(cs),
+            color: rgbToHex(cs.color),
+          },
+          z: 0, idx: draft.length, sig: null,
+        });
+        continue;
+      }
+      if (node.nodeType !== 1) continue;
+      const child = node;
       const cn = nodeForElement(child, opts, depth + 1);
       if (!cn) continue;
       const cr = child.getBoundingClientRect();
       const childCs0 = window.getComputedStyle(child);
       if (childCs0.position === 'absolute' || childCs0.position === 'fixed') hasAbsoluteChild = true;
-      // Always track extent (computed off rect, before any auto-layout
-      // sizing kicks in). This is the visual truth.
       const relRight  = (cr.left - parentRect.left) + cr.width;
       const relBottom = (cr.top  - parentRect.top)  + cr.height;
       if (relRight  > childMaxX) childMaxX = relRight;
@@ -1160,10 +1187,6 @@
       }
       const childCs = window.getComputedStyle(child);
       const zi = parseInt(childCs.zIndex, 10);
-      // Compute a structural signature for componentization: tag +
-      // first-non-utility-class + visible-text-template. Siblings with
-      // matching signatures are candidates for a Figma Component +
-      // Instances pair.
       const sig = childSignature(child);
       draft.push({ node: cn, z: isFinite(zi) ? zi : 0, idx: draft.length, sig });
     }
