@@ -99,9 +99,15 @@
     figure: 'Figure', figcaption: 'Caption', blockquote: 'Quote',
   };
   function looksUtility(cls) {
-    // Tailwind utility classes: prefixes, brackets, slashes, colons.
-    return /^(p|m|mt|mb|ml|mr|mx|my|w|h|min-|max-|text-|bg-|flex|grid|gap-|items-|justify-|space-|rounded|shadow|opacity|hover:|focus:|md:|lg:|sm:)/.test(cls)
-      || /\[/.test(cls) || /\//.test(cls);
+    // Tailwind utility classes. Prefixes need a trailing - or digit so
+    // we don't accidentally match "mf-seg" (m → margin) or "ben" (b → ?).
+    // Also catches arbitrary-value brackets and fraction slashes.
+    return /^(p|m|mt|mb|ml|mr|mx|my|w|h|min|max|text|bg|gap|space|rounded|shadow|opacity|inset|top|left|right|bottom|order|col|row|grid|flex|items|justify|self|content|place|gap)-/.test(cls)
+      || /^(p|m|mt|mb|ml|mr|mx|my|w|h)\d/.test(cls)
+      || /^(flex|grid|block|inline|hidden|relative|absolute|fixed|sticky|static|sr-only)$/.test(cls)
+      || /^(md|lg|sm|xl|hover|focus|active|disabled|first|last|dark):/.test(cls)
+      || /\[/.test(cls)
+      || /\//.test(cls);
   }
   function firstSemanticClass(className) {
     if (typeof className !== 'string' || !className) return null;
