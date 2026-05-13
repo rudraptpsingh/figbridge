@@ -687,8 +687,16 @@
     // <img> → rect (image bytes inlined as data URL when embedImages opt is on).
     if (tag === 'img') {
       const fill = rgbToHex(cs.backgroundColor);
-      // object-fit: cover → FILL, contain → FIT, fill (default) → CROP, none → CROP, scale-down → FIT
       const fitMap = { cover: 'FILL', contain: 'FIT', fill: 'CROP', none: 'CROP', 'scale-down': 'FIT' };
+      // Resolve src against the element's ownerDocument (matters for
+      // unfolded iframes whose baseURI is the iframe page, not the parent).
+      const ownerDoc = el.ownerDocument || document;
+      const rawSrc = el.getAttribute('src');
+      let absSrc = null;
+      if (rawSrc) {
+        try { absSrc = new URL(rawSrc, ownerDoc.baseURI).href; }
+        catch (e) { absSrc = rawSrc; }
+      }
       const node = {
         type: 'rect',
         name: name + ':img',
@@ -697,7 +705,10 @@
         fill: fill || '#e2e8f0',
         cornerRadius: radius(cs),
         imageScaleMode: fitMap[cs.objectFit] || 'FILL',
-        _src: el.getAttribute('src') || null,
+        _src: absSrc,
+        // Mark as bg-url so the server-side fetcher picks it up — same
+        // path as background-image: url(). One pipeline for both.
+        _bgUrl: absSrc,
       };
       if (opts.embedImages) {
         try {
@@ -1034,16 +1045,16 @@
     };
 
     // Background-image — capture url(...) targets so the server can fetch
-    // + inline them. Also keep the raw CSS for any layered gradient that
-    // the fillOf() helper didn't extract as the primary fill.
+    // + inline them. Resolve against the element's ownerDocument so
+    // unfolded iframes use their own baseURI (not the parent page's).
     const bgImage = cs.backgroundImage;
     if (bgImage && bgImage !== 'none') {
       frame._bgImage = bgImage;
       const urlMatch = bgImage.match(/url\(['"]?([^'")]+)['"]?\)/);
       if (urlMatch) {
-        const u = urlMatch[1];
-        // Resolve to absolute URL for the server to fetch.
-        frame._bgUrl = (new URL(u, document.baseURI)).href;
+        const ownerDoc = el.ownerDocument || document;
+        try { frame._bgUrl = new URL(urlMatch[1], ownerDoc.baseURI).href; }
+        catch (e) { frame._bgUrl = urlMatch[1]; }
       }
     }
 
