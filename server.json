@@ -6,12 +6,12 @@
     "url": "https://github.com/rudraptpsingh/figbridge",
     "source": "github"
   },
-  "version": "0.1.8",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "figbridge-mcp",
-      "version": "0.1.8",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
