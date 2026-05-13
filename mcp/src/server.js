@@ -424,6 +424,20 @@ export async function main() {
   );
 
   server.tool(
+    "audit_mobile",
+    "Render a URL across mobile (375) / tablet (768) / desktop (1280) viewports and report responsive issues: horizontal page scroll, elements overflowing the viewport, touch targets < 44×44 (Fitts), text < 12px (unreadable on phone), and fixed-position traps taller than 50% of viewport. Pure deterministic measurement — no LLM. Run after audit_palette / audit_typography / audit_a11y for the full Pillar 2 review.",
+    {
+      url: z.string(),
+    },
+    async ({ url }) => {
+      try {
+        const { auditMobile } = await import("./browser.js");
+        return asText(await auditMobile(url));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "measure_fidelity",
     "Phase 6 — compute pixel-similarity score between the live URL and a Figma frame export. Returns { score (0-100), diffPercent, regions[] }. The diff regions are the top spots where the import diverges from the live page — feed these back into the extractor for targeted fixes.",
     {
