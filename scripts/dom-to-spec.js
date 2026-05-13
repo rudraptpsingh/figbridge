@@ -949,7 +949,12 @@
     // nested inline spans but no block-level or media children). The
     // inline-text path catches `<h1>Sort. <span>Tag.</span> Deliver.</h1>`
     // where the leading direct-text-node would otherwise be dropped.
-    if ((hasOnlyTextChildren(el) || isInlineText(el)) && !['button', 'a'].includes(tag)) {
+    // Refuse to emit as text-leaf if the element itself has a visible
+    // background, shadow, or border — those are visual boxes the author
+    // wants rendered, not invisible text containers. Fall through to the
+    // frame branch so the styling survives.
+    const hasOwnBoxStyling = !!(rgbToHex(cs.backgroundColor) || (cs.boxShadow && cs.boxShadow !== 'none') || (parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none'));
+    if (!hasOwnBoxStyling && (hasOnlyTextChildren(el) || isInlineText(el)) && !['button', 'a'].includes(tag)) {
       const ranges = collectStyleRanges(el, cs);
       return {
         type: 'text',
