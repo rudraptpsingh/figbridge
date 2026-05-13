@@ -474,6 +474,23 @@ export async function main() {
     }
   );
 
+  // ── Pillar 1: Minimal-diff editing ───────────────────────
+  server.tool(
+    "diff_to_source",
+    "Compare an imported Figma frame against the freshly-extracted source URL spec and report per-text-node field-level differences: characters, fontSize, fontFamily, color, plus presence (nodes that exist on one side but not the other). Use after the designer edited a frame to see exactly what diverged from source — the input to generate_patch. Pure deterministic measurement, no LLM.",
+    {
+      url: z.string().describe("The live source URL the Figma frame was imported from."),
+      nodeId: z.string().describe("Figma node id of the imported frame.")
+    },
+    async ({ url, nodeId }) => {
+      try {
+        const { urlToSpec } = await import("./browser.js");
+        const spec = await urlToSpec(url, {});
+        return asText(await sendCommand("diff-frame-vs-spec", { nodeId, spec }, 60000));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   // ── Pillar 2: Design intelligence audits ─────────────────
   server.tool(
     "audit_palette",

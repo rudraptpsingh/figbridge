@@ -1908,6 +1908,102 @@ async function auditWhitespace(args) {
   };
 }
 
+// ── Pillar 1: minimal-diff editing ──────────────────────────
+// Compare an imported Figma frame against a freshly-extracted source spec
+// and report the per-text-node field-level differences. The caller (server)
+// passes in the spec — we don't re-extract here.
+async function diffFrameVsSpec(args) {
+  var root = await figma.getNodeByIdAsync(args.nodeId);
+  if (!root) return { ok: false, error: "node not found: " + args.nodeId };
+  var spec = args.spec;
+  if (!spec) return { ok: false, error: "missing spec arg" };
+
+  function specRgbToHex(c) {
+    // Spec colors are already hex strings (e.g. "#ff0000").
+    if (typeof c === "string") return c.toLowerCase();
+    if (c && typeof c === "object" && typeof c.r === "number") {
+      var r = Math.round(c.r * 255), g = Math.round(c.g * 255), b = Math.round(c.b * 255);
+      return "#" + [r, g, b].map(function (v) { return ("0" + v.toString(16)).slice(-2); }).join("");
+    }
+    return null;
+  }
+  function figFillHex(node) {
+    if (!node.fills || node.fills === figma.mixed) return null;
+    for (var i = 0; i < node.fills.length; i++) {
+      var f = node.fills[i];
+      if (f.type === "SOLID" && f.visible !== false) {
+        var c = f.color;
+        var r = Math.round(c.r * 255), g = Math.round(c.g * 255), b = Math.round(c.b * 255);
+        return "#" + [r, g, b].map(function (v) { return ("0" + v.toString(16)).slice(-2); }).join("");
+      }
+    }
+    return null;
+  }
+
+  // Walk Figma subtree: name → first matching text node's fields.
+  var figByName = {};
+  function walkFig(n) {
+    if (n.type === "TEXT" && n.name && !(n.name in figByName)) {
+      figByName[n.name] = {
+        characters: n.characters || "",
+        fontSize: typeof n.fontSize === "number" ? n.fontSize : null,
+        fontFamily: (n.fontName && n.fontName.family) || null,
+        color: figFillHex(n),
+      };
+    }
+    if (n.children) for (var i = 0; i < n.children.length; i++) walkFig(n.children[i]);
+  }
+  walkFig(root);
+
+  // Walk spec subtree: name → first matching text node's fields.
+  var specByName = {};
+  function walkSpec(n) {
+    if (n && n.type === "text" && n.name && !(n.name in specByName)) {
+      specByName[n.name] = {
+        characters: n.characters || "",
+        fontSize: typeof n.fontSize === "number" ? n.fontSize : null,
+        fontFamily: n.fontFamily || null,
+        color: specRgbToHex(n.color),
+      };
+    }
+    if (n && n.children) for (var i = 0; i < n.children.length; i++) walkSpec(n.children[i]);
+  }
+  walkSpec(spec);
+
+  var changes = [];
+  var fields = ["characters", "fontSize", "fontFamily", "color"];
+  for (var name in figByName) {
+    if (!Object.prototype.hasOwnProperty.call(specByName, name)) {
+      changes.push({ name: name, field: "_presence", figma: figByName[name].characters || "(node)", source: null });
+      continue;
+    }
+    var fig = figByName[name], src = specByName[name];
+    for (var f = 0; f < fields.length; f++) {
+      var k = fields[f];
+      var a = fig[k], b = src[k];
+      if (a == null && b == null) continue;
+      var eq = (k === "fontSize") ? (Math.round(a) === Math.round(b))
+             : (k === "color") ? (String(a).toLowerCase() === String(b).toLowerCase())
+             : (String(a) === String(b));
+      if (!eq) changes.push({ name: name, field: k, figma: a, source: b });
+    }
+  }
+  for (var sname in specByName) {
+    if (!Object.prototype.hasOwnProperty.call(figByName, sname)) {
+      changes.push({ name: sname, field: "_presence", figma: null, source: specByName[sname].characters || "(node)" });
+    }
+  }
+
+  return {
+    ok: true,
+    nodeId: args.nodeId,
+    figmaNamedTextNodes: Object.keys(figByName).length,
+    sourceNamedTextNodes: Object.keys(specByName).length,
+    changeCount: changes.length,
+    changes: changes,
+  };
+}
+
 async function deleteNodes(args) {
   var ids = [];
   if (args.nodeId) ids.push(args.nodeId);
@@ -2111,6 +2207,9 @@ async function handleCommand(cmdId, action, args) {
     }
     if (action === "audit-whitespace") {
       return await auditWhitespace(args || {});
+    }
+    if (action === "diff-frame-vs-spec") {
+      return await diffFrameVsSpec(args || {});
     }
     if (action === "export-frame") {
       var node = await figma.getNodeByIdAsync(args.nodeId);
