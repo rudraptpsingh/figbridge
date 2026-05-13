@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Figbridge — Figma ↔ Claude &amp; any MCP agent, free &amp; local</title>
-<meta name="description" content="21 MCP tools + offline agent handoff bundle that let Claude, Cursor, and any MCP agent read and edit Figma Desktop files. Free, local, no Dev Mode seat.">
-<meta property="og:title" content="Figbridge — Figma ↔ AI agents, free and local">
-<meta property="og:description" content="21 MCP tools. Offline agent bundle. No $25/seat Dev Mode. No account. No cloud.">
+<title>Figbridge — Figma ↔ code, in both directions. Free &amp; local.</title>
+<meta name="description" content="Import a live URL into Figma, audit the design, edit it, and emit a patch back to your source repo — all on 127.0.0.1 with any MCP agent. 30+ tools, free, no Dev Mode seat.">
+<meta property="og:title" content="Figbridge — Figma ↔ code, in both directions">
+<meta property="og:description" content="Import a URL into Figma. Audit, edit, patch back to source. 30+ MCP tools, free, local, no Dev Mode seat.">
 <meta property="og:url" content="https://rudraptpsingh.github.io/figbridge/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='32' fill='%230e1a15'/%3E%3Ctext x='50%25' y='62%25' text-anchor='middle' font-family='Georgia,serif' font-style='italic' font-weight='600' font-size='42' fill='%23e6dfcc'%3Ef%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -29,7 +29,18 @@
     --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0; overflow-x: hidden; }
+
+  /* ── Agent-bundle grid: stack on mobile, allow internal <pre> scroll ── */
+  .bundle-grid {
+    display: grid; grid-template-columns: 1.15fr 1fr;
+    gap: 44px; align-items: start;
+  }
+  .bundle-grid > .bundle-col { min-width: 0; }
+  .bundle-grid > .bundle-col > pre { max-width: 100%; }
+  @media (max-width: 860px) {
+    .bundle-grid { grid-template-columns: 1fr; gap: 28px; }
+  }
   body {
     background: var(--bg);
     color: var(--ink);
@@ -63,11 +74,16 @@
     font-style: italic; font-weight: 600; color: var(--accent);
   }
   .logo em { font-style: italic; font-weight: 400; color: var(--ink); }
-  .nav-links { margin-left: auto; display: flex; gap: 26px; font-size: 13px; align-items: baseline; }
+  .nav-links { margin-left: auto; display: flex; gap: 26px; font-size: 13px; align-items: baseline; white-space: nowrap; }
   .nav-links a { text-decoration: none; color: var(--ink-2); }
   .nav-links a:hover { color: var(--accent); }
   .nav-links a.gh { color: var(--ink); border-bottom: 1px solid var(--ink); padding-bottom: 2px; }
   .nav-links a.gh:hover { color: var(--accent); border-color: var(--accent); }
+  /* On phones, hide the in-page anchors; keep the GitHub link only. */
+  @media (max-width: 640px) {
+    .nav-links { gap: 18px; }
+    .nav-links a:not(.gh) { display: none; }
+  }
 
   /* ── Buttons (pill) ─────────────────────────────────── */
   .btn {
@@ -214,7 +230,7 @@
   }
   .flow-head h3 em { font-style: italic; font-weight: 300; }
   .flow-head p { font-family: var(--serif); font-size: 16px; line-height: 1.5; color: var(--ink-2); margin: 0; font-variation-settings: "opsz" 36; }
-  .flow-body { padding: 18px 28px 22px; background: var(--code-bg); color: var(--code-ink); font-family: var(--mono); font-size: 12.5px; line-height: 1.7; }
+  .flow-body { padding: 18px 28px 22px; background: var(--code-bg); color: var(--code-ink); font-family: var(--mono); font-size: 12.5px; line-height: 1.7; overflow-x: auto; }
   .flow-body .l { white-space: pre-wrap; }
   .flow-body .l-prompt { color: var(--paper); padding: 10px 0; border-bottom: 1px dashed #2b3a33; margin-bottom: 10px; }
   .flow-body .l-prompt::before { content: "› "; color: var(--accent-2); font-weight: 700; }
@@ -315,6 +331,64 @@
   .quote blockquote em { color: var(--accent); font-style: italic; }
   .quote cite { display: block; margin-top: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); font-style: normal; }
 
+  /* ── 3-step usecase strip (hero) ────────────────────── */
+  .flow3 {
+    margin-top: 56px;
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    border: 1px solid var(--line-2); border-radius: 4px;
+    background: var(--paper);
+    overflow: hidden;
+  }
+  .flow3 .step {
+    padding: 26px 28px;
+    border-right: 1px solid var(--line);
+    position: relative;
+  }
+  .flow3 .step:last-child { border-right: none; }
+  .flow3 .step .num {
+    font-family: var(--serif); font-style: italic; font-weight: 300;
+    font-size: 28px; line-height: 1; color: var(--accent);
+    font-variation-settings: "opsz" 72;
+    margin-bottom: 14px;
+  }
+  .flow3 .step h4 {
+    font-family: var(--serif); font-weight: 500; font-size: 19px;
+    margin: 0 0 8px; letter-spacing: -0.01em; color: var(--ink);
+    font-variation-settings: "opsz" 48;
+  }
+  .flow3 .step h4 em { font-style: italic; font-weight: 300; }
+  .flow3 .step p {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+    color: var(--ink-2); margin: 0;
+  }
+  .flow3 .step code {
+    color: var(--accent); font-size: 12.5px;
+  }
+  .flow3 .step .arr-down,
+  .flow3 .step .arr-right {
+    position: absolute; color: var(--line-2); font-family: var(--mono); font-size: 14px;
+  }
+  .flow3 .step .arr-right { right: -7px; top: 50%; transform: translateY(-50%); background: var(--bg); padding: 2px 0; }
+  @media (max-width: 760px) {
+    .flow3 { grid-template-columns: 1fr; }
+    .flow3 .step { border-right: none; border-bottom: 1px solid var(--line); }
+    .flow3 .step:last-child { border-bottom: none; }
+    .flow3 .step .arr-right { display: none; }
+  }
+
+  /* Hero tightening — shorter padding, sharper lede */
+  .hero .lede.tight {
+    font-family: var(--serif); font-size: 19px; line-height: 1.5;
+    max-width: 580px; color: var(--ink-2);
+    font-variation-settings: "opsz" 36; font-weight: 400;
+    margin: 0;
+  }
+  .hero .lede.tight code {
+    font-family: var(--mono); font-size: 14px;
+    background: var(--paper); padding: 1px 7px; border-radius: 3px;
+    border: 1px solid var(--line);
+  }
+
   footer {
     padding: 48px 0 72px; color: var(--dim); font-size: 12px;
     border-top: 1px solid var(--line-2); text-align: center;
@@ -332,8 +406,6 @@
       <a href="#flows">Flows</a>
       <a href="#arch">How it works</a>
       <a href="#tools">Tools</a>
-      <a href="#bundle">Agent bundle</a>
-      <a href="#compare">vs Dev Mode</a>
       <a href="#install">Install</a>
       <a class="gh" href="https://github.com/rudraptpsingh/figbridge">GitHub ↗</a>
     </div>
@@ -343,94 +415,41 @@
 <main class="wrap">
   <!-- HERO ─────────────────────────────────────────── -->
   <section class="hero">
-    <div class="pretitle"><span class="bar"></span>Free · Local · MCP · 2026</div>
+    <div class="pretitle"><span class="bar"></span>A Figma plugin + local MCP server</div>
     <h1 class="display">
-      Give Claude<br>
-      <em>hands</em> inside your Figma file.
+      Figma ↔ code,<br>
+      in <em>both</em> directions.
     </h1>
-    <p class="lede">
-      Twenty-one MCP tools. One local bridge. Zero Dev Mode seats.
-      Read screens, ship an <em>offline agent handoff bundle</em>, lint design-systems, recolor, clone, and translate frames — <em>directly from any MCP-speaking agent, running on your own machine.</em>
+    <p class="lede tight">
+      Import a live URL into Figma. Audit the design. Edit it.
+      Then emit a patch back to your source repo — all on <code>127.0.0.1</code>, with any MCP agent.
     </p>
     <div class="cta-row">
-      <a class="btn primary" href="#install">Install in 3 minutes <span class="arr">→</span></a>
       <span class="copy-cmd" onclick="navigator.clipboard.writeText('npx figbridge-mcp init'); this.querySelector('.ok').textContent='✓ COPIED';">npx figbridge-mcp init <span class="ok"></span></span>
       <a class="btn" href="https://github.com/rudraptpsingh/figbridge">GitHub ↗</a>
     </div>
 
-    <div class="ornament"><span>01 · Overview</span><span class="r"></span><span>One transcript</span></div>
-
-    <div class="hero-fig">
-      <div class="card">
-        <div class="tag">Architecture — everything on 127.0.0.1</div>
-        <svg viewBox="0 0 560 280" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-          <defs>
-            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#0e1a15"/></marker>
-          </defs>
-          <!-- Figma -->
-          <g>
-            <rect x="16" y="80" width="150" height="120" rx="2" fill="#f7f4ea" stroke="#0e1a15" stroke-width="1"/>
-            <line x1="16" y1="102" x2="166" y2="102" stroke="#0e1a15" stroke-width="1"/>
-            <text x="91" y="96" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#0e1a15" letter-spacing="0.08em">FIGMA DESKTOP</text>
-            <rect x="30" y="116" width="122" height="30" fill="#ece9dd" stroke="#bfb8a6"/>
-            <text x="91" y="136" text-anchor="middle" font-family="Fraunces, serif" font-style="italic" font-size="14" fill="#ad2b1f">Figbridge plugin</text>
-            <rect x="30" y="154" width="122" height="28" fill="#ece9dd" stroke="#bfb8a6"/>
-            <text x="91" y="172" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#2f3d36">● Live bridge on</text>
-          </g>
-          <!-- Arrow 1 -->
-          <line x1="166" y1="130" x2="230" y2="130" stroke="#0e1a15" stroke-width="1" marker-end="url(#a1)"/>
-          <text x="198" y="124" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="#ad2b1f">POST /push</text>
-          <line x1="230" y1="150" x2="166" y2="150" stroke="#0e1a15" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#a1)"/>
-          <text x="198" y="164" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="#6e7870">SSE /events</text>
-
-          <!-- Bridge -->
-          <g>
-            <rect x="230" y="70" width="160" height="140" rx="2" fill="#0e1a15" stroke="#0e1a15"/>
-            <text x="310" y="94" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#8a9790" letter-spacing="0.08em">LOCAL BRIDGE</text>
-            <line x1="240" y1="104" x2="380" y2="104" stroke="#2b3a33"/>
-            <text x="310" y="132" text-anchor="middle" font-family="Fraunces, serif" font-style="italic" font-size="18" fill="#e6dfcc">figbridge-mcp</text>
-            <text x="310" y="152" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#7dd3a0">:7331 · HTTP + SSE</text>
-            <text x="310" y="170" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#8a9790">21 tools · stdio MCP</text>
-            <text x="310" y="190" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#6e7870">~/.figbridge persisted</text>
-          </g>
-
-          <!-- Arrow 2 -->
-          <line x1="390" y1="140" x2="440" y2="140" stroke="#0e1a15" stroke-width="1" marker-end="url(#a1)"/>
-          <text x="415" y="132" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="#0e1a15">stdio</text>
-
-          <!-- Agents -->
-          <g>
-            <rect x="440" y="60" width="112" height="160" rx="2" fill="#f7f4ea" stroke="#0e1a15" stroke-width="1"/>
-            <line x1="440" y1="82" x2="552" y2="82" stroke="#0e1a15" stroke-width="1"/>
-            <text x="496" y="76" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#0e1a15" letter-spacing="0.08em">ANY MCP CLIENT</text>
-            <rect x="454" y="94" width="84" height="30" fill="#ece9dd" stroke="#bfb8a6"/>
-            <text x="496" y="113" text-anchor="middle" font-family="Fraunces, serif" font-style="italic" font-size="13" fill="#0e1a15">Claude Desktop</text>
-            <rect x="454" y="128" width="84" height="30" fill="#ece9dd" stroke="#bfb8a6"/>
-            <text x="496" y="147" text-anchor="middle" font-family="Fraunces, serif" font-style="italic" font-size="13" fill="#0e1a15">Claude Code</text>
-            <rect x="454" y="162" width="84" height="30" fill="#ece9dd" stroke="#bfb8a6"/>
-            <text x="496" y="181" text-anchor="middle" font-family="Fraunces, serif" font-style="italic" font-size="13" fill="#0e1a15">Cursor · …</text>
-          </g>
-        </svg>
+    <!-- The use case, as a single visual scan ───────────── -->
+    <div class="flow3" aria-label="figbridge in three steps">
+      <div class="step">
+        <div class="num">01</div>
+        <h4>Import a <em>URL</em> into Figma</h4>
+        <p><code>import_url</code> walks the live DOM and rebuilds every frame, color, font, and effect as native Figma nodes — multi-page aware.</p>
       </div>
-
-      <div class="card chat-card">
-        <div class="chat-bar">claude desktop <span>·</span> figbridge</div>
-        <div class="chat-body">
-          <div class="line u">Lint the whole file for DS violations.</div>
-          <div class="line t">→ <code>lint_ds</code>({})</div>
-          <div class="line a">833 findings across 3 rules —</div>
-          <div class="line t">   <strong>691</strong> non-grid-spacing</div>
-          <div class="line t">    <strong>96</strong> duplicate-name</div>
-          <div class="line t">    <strong>46</strong> unbound-color</div>
-          <div class="line u" style="margin-top:14px;">Recolor the brand #ff7a29 → #3ddc97 file-wide, bind loose fills.</div>
-          <div class="line t">→ <code>recolor</code> · <code>apply_tokens</code></div>
-          <div class="line a">Recolored <strong>9</strong> fills / <strong>58</strong> nodes.<br>Bound <strong>14</strong> layers to --color-brand-primary.</div>
-        </div>
+      <div class="step">
+        <div class="num">02</div>
+        <h4>Audit &amp; <em>edit</em> the design</h4>
+        <p>Five deterministic audits: <code>palette · typography · a11y · whitespace · mobile</code>. No LLM rewrites — just numbers.</p>
+      </div>
+      <div class="step">
+        <div class="num">03</div>
+        <h4>Patch back to <em>source</em></h4>
+        <p><code>diff_to_source</code> finds what changed; <code>generate_patch</code> emits a minimal before/after edit list against your local repo.</p>
       </div>
     </div>
 
     <div class="kpis">
-      <div class="kpi"><div class="n">21</div><div class="l">MCP tools</div></div>
+      <div class="kpi"><div class="n">30<em>+</em></div><div class="l">MCP tools</div></div>
       <div class="kpi"><div class="n">$<em>0</em></div><div class="l">vs $25/seat Dev Mode</div></div>
       <div class="kpi"><div class="n">100<span style="font-size:30px;">%</span></div><div class="l">local · no account</div></div>
       <div class="kpi"><div class="n">3 min</div><div class="l">to install</div></div>
@@ -674,11 +693,11 @@
     <h2>One zip. <em>Everything an agent needs.</em></h2>
     <p class="sub">The official Figma MCP needs a live server and poisons the agent's context with its own React+Tailwind conventions. <em>Figbridge's bundle is static, offline, token-budgeted, and deterministic</em> — the exact shape agent loops ask for.</p>
 
-    <div style="background: var(--paper); border: 1px solid var(--line-2); border-radius: 4px; padding: 36px 36px 28px; margin-top: 20px;">
-      <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 44px; align-items: start;">
-        <div>
+    <div class="bundle-card" style="background: var(--paper); border: 1px solid var(--line-2); border-radius: 4px; padding: 36px 36px 28px; margin-top: 20px;">
+      <div class="bundle-grid">
+        <div class="bundle-col">
           <div style="font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin-bottom: 12px;">get_agent_bundle(budget: "medium")</div>
-          <pre style="margin: 0; background: var(--code-bg); color: var(--code-ink); padding: 22px 24px; border-radius: 4px; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; overflow: auto;">figbridge-bundle.zip
+          <pre style="margin: 0; background: var(--code-bg); color: var(--code-ink); padding: 22px 24px; border-radius: 4px; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; overflow-x: auto;">figbridge-bundle.zip
 ├── <span style="color:#d8c9a3;">DESIGN.md</span>         <span style="color:#8a9790;"># palette · rhythm · do/don't</span>
 ├── <span style="color:#d8c9a3;">hierarchy.md</span>      <span style="color:#8a9790;"># indented tree · stable slugs</span>
 ├── <span style="color:#d8c9a3;">components.json</span>   <span style="color:#8a9790;"># variants + props schema</span>
