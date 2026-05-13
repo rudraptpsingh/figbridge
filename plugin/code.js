@@ -1168,10 +1168,13 @@ async function _ifcCreateNode(spec, warnings) {
 function _ifcFontStyle(weight) {
   if (!weight) return "Regular";
   var w = String(weight).toLowerCase();
-  if (w === "bold" || w === "700" || w === "800" || w === "900") return "Bold";
-  if (w === "600" || w === "semibold" || w === "semi-bold") return "Semi Bold";
-  if (w === "500" || w === "medium") return "Medium";
-  if (w === "300" || w === "light") return "Light";
+  if (w === "black"    || w === "900") return "Black";
+  if (w === "extra bold" || w === "extrabold" || w === "extra-bold" || w === "800") return "Extra Bold";
+  if (w === "bold"     || w === "700") return "Bold";
+  if (w === "semi bold" || w === "semibold" || w === "semi-bold" || w === "600") return "Semi Bold";
+  if (w === "medium"   || w === "500") return "Medium";
+  if (w === "light"    || w === "300") return "Light";
+  if (w === "thin"     || w === "100" || w === "200") return "Thin";
   return "Regular";
 }
 
