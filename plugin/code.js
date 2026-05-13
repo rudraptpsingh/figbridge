@@ -832,6 +832,11 @@ function _ifcShadowToEffects(shadows) {
     var rgb = hexToRGB(s.color);
     if (!rgb) continue;
     var alpha = (typeof s.alpha === "number") ? s.alpha : (rgb.a == null ? 1 : rgb.a);
+    // Clamp to [0,1] — Figma's color schema requires alpha in that range,
+    // and edge cases (negative, %, malformed CSS) can spit out values
+    // outside it.
+    if (!isFinite(alpha)) alpha = 1;
+    alpha = Math.max(0, Math.min(1, alpha));
     out.push({
       type: s.inset ? "INNER_SHADOW" : "DROP_SHADOW",
       color: { r: rgb.r, g: rgb.g, b: rgb.b, a: alpha },
