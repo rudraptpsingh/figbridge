@@ -482,6 +482,26 @@ export async function main() {
   );
 
   server.tool(
+    "audit_a11y",
+    "Audit accessibility of an imported Figma frame. Returns WCAG contrast pass/fail counts (AA 4.5 normal / 3.0 large), per-failure list with measured ratio and node text, landmark coverage, and image nodes without descriptive names. Pure deterministic measurement — no LLM.",
+    { nodeId: z.string() },
+    async ({ nodeId }) => {
+      try { return asText(await sendCommand("audit-a11y", { nodeId }, 30000)); }
+      catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "audit_whitespace",
+    "Audit spacing rhythm of an imported Figma frame. Returns padding / gap distributions, percentage divisible by 4 / 8 (grid conformance), and off-grid stragglers that break the spacing system.",
+    { nodeId: z.string() },
+    async ({ nodeId }) => {
+      try { return asText(await sendCommand("audit-whitespace", { nodeId }, 30000)); }
+      catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "export_frame",
     "Export a Figma frame as PNG. With `outPath`: writes to disk, returns path. Without: returns base64. Use to pull a rendered version of an imported frame back out for visual diff.",
     {
