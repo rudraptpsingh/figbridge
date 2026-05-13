@@ -203,14 +203,19 @@
         if (c.children.length) stack.push(c);
       }
     }
-    // Additional rule for buttons/links: if the element has multiple
-    // top-level spans with their own semantic classes (e.g. .name +
-    // .tagline + .arrow), the author is using span as a layout box,
-    // not inline text. Keep as a frame so per-span positioning survives.
+    // Additional rule for buttons/links: don't collapse to a single
+    // text node when the inner content carries visible styling that
+    // would be lost (background, border, shadow, transform).
     if (tag === 'a' || tag === 'button') {
       let semanticSpanKids = 0;
       for (const c of el.children) {
         if (c.tagName === 'SPAN' && firstSemanticClass(c.className)) semanticSpanKids++;
+        // Inner element with a non-transparent background → it's a
+        // visual element (badge, logo box, pill), not inline text.
+        const ccs = window.getComputedStyle(c);
+        if (rgbToHex(ccs.backgroundColor)) return false;
+        if (ccs.boxShadow && ccs.boxShadow !== 'none') return false;
+        if (parseFloat(ccs.borderTopWidth) > 0 && ccs.borderTopStyle !== 'none') return false;
       }
       if (semanticSpanKids >= 2) return false;
     }
