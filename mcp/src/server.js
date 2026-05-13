@@ -423,6 +423,26 @@ export async function main() {
   );
 
   server.tool(
+    "measure_fidelity",
+    "Phase 6 — compute pixel-similarity score between the live URL and a Figma frame export. Returns { score (0-100), diffPercent, regions[] }. The diff regions are the top spots where the import diverges from the live page — feed these back into the extractor for targeted fixes.",
+    {
+      url: z.string(),
+      nodeId: z.string(),
+      width: z.coerce.number().optional(),
+      scale: z.coerce.number().optional()
+    },
+    async ({ url, nodeId, width, scale }) => {
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/command`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "measure-fidelity", args: { url, nodeId, width: width || 1280, scale: scale || 1 }, timeoutMs: 120000 })
+        });
+        return asText(await r.json());
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "probe_url",
     "Render a URL in headless Chrome and run an arbitrary JS snippet inside the page. Use to inspect the live DOM / computed styles when planning an extraction. Replaces external chrome-devtools-mcp.evaluate_script. Snippet is the async-function body; use `return` for the result. Returns { ok, result }.",
     {
