@@ -544,14 +544,13 @@
     return { color: c, width: w, style: cs.borderTopStyle, dashPattern };
   }
 
-  // Parse a single CSS box-shadow into { x, y, blur, spread, color, inset }.
-  // Multi-shadow strings (comma-separated) → take the first non-inset visible
-  // one for Figma DROP_SHADOW. Insets are noted but Figma's INNER_SHADOW
-  // matches them in the plugin.
+  // Parse a single CSS box-shadow into { x, y, blur, spread, color, alpha,
+  // inset }. CRITICAL: preserve alpha separately from the hex color
+  // because rgbToHex strips it. Without alpha, every shadow renders at
+  // full opacity (e.g. rgba(0,0,0,0.35) → solid black halo, 3x too dark).
   function shadowOf(cs) {
     const raw = cs.boxShadow;
     if (!raw || raw === 'none') return null;
-    // Split on commas not inside parens (rgba() etc.)
     const parts = []; let depth = 0; let buf = '';
     for (const ch of raw) {
       if (ch === '(') depth++; else if (ch === ')') depth--;
@@ -567,6 +566,10 @@
       const colorRaw = cm[0];
       const color = rgbToHex(colorRaw);
       if (!color) continue;
+      // Extract alpha from rgba(R,G,B,A) or rgb(R G B / A). Default 1.
+      let alpha = 1;
+      const am = colorRaw.match(/rgba?\([^)]*?[,/]\s*([\d.]+%?)\s*\)/i);
+      if (am) alpha = am[1].endsWith('%') ? parseFloat(am[1]) / 100 : parseFloat(am[1]);
       const after = p.replace(colorRaw, '').replace(/\binset\b/, '').trim();
       const nums = (after.match(/-?[\d.]+px/g) || []).map(s => parseFloat(s));
       if (nums.length < 2) continue;
@@ -576,6 +579,7 @@
         blur: nums[2] || 0,
         spread: nums[3] || 0,
         color,
+        alpha,
         inset,
       });
     }

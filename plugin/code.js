@@ -820,7 +820,10 @@ function _ifcResolvePadding(pad) {
 }
 
 // Convert a spec.shadow array (from the extractor) into Figma effects.
-// Each shadow has { x, y, blur, spread, color, inset }. Inset → INNER_SHADOW.
+// Each shadow has { x, y, blur, spread, color, alpha, inset }. Inset →
+// INNER_SHADOW. CRITICAL: trust spec.alpha (extracted from rgba()) over
+// the hex's alpha-bit because rgbToHex strips alpha — without this, every
+// shadow renders at full opacity (e.g. 0.35-alpha shadow → solid black halo).
 function _ifcShadowToEffects(shadows) {
   if (!shadows || !shadows.length) return null;
   var out = [];
@@ -828,9 +831,10 @@ function _ifcShadowToEffects(shadows) {
     var s = shadows[i];
     var rgb = hexToRGB(s.color);
     if (!rgb) continue;
+    var alpha = (typeof s.alpha === "number") ? s.alpha : (rgb.a == null ? 1 : rgb.a);
     out.push({
       type: s.inset ? "INNER_SHADOW" : "DROP_SHADOW",
-      color: { r: rgb.r, g: rgb.g, b: rgb.b, a: rgb.a == null ? 1 : rgb.a },
+      color: { r: rgb.r, g: rgb.g, b: rgb.b, a: alpha },
       offset: { x: Number(s.x) || 0, y: Number(s.y) || 0 },
       radius: Number(s.blur) || 0,
       spread: Number(s.spread) || 0,
