@@ -18,7 +18,7 @@ Figma's own [Dev Mode MCP](https://help.figma.com/hc/en-us/articles/321321008335
 Figbridge:
 - **Free.** MIT. Runs entirely on your machine.
 - **No account, no token.** Uses your existing Figma desktop session.
-- **30+ MCP tools.** Read, catalog, write-back, lint, ship an agent handoff bundle, import a live URL into Figma, audit the imported design across 5 dimensions, and round-trip changes back to a source repo as a patch.
+- **40+ MCP tools.** Read, catalog, write-back, lint, ship an agent handoff bundle, import a live URL into Figma, audit the imported design across 5 dimensions, and round-trip changes back to a source repo as a patch.
 - **Offline agent bundle.** `get_agent_bundle` produces a zip (hierarchy · tokens · components · AGENTS.md · CHANGES.md) an agent can ship from *without* a live MCP connection.
 - **Deterministic.** No LLM rewrites. What you select is what you get.
 - **Live.** Toggle "Live bridge" and every selection change auto-pushes; agents pull the current selection instantly.
@@ -40,7 +40,7 @@ Then:
 1. **Quit and reopen Claude Desktop** — it only reads MCP config at launch.
 2. In Figma: **Plugins → Development → Import plugin from manifest…** → pick the `plugin/manifest.json` from the clone above. (One-time.)
 3. Run the Figbridge plugin on any frame, toggle **Live bridge** on. A green dot in the plugin header = connected to the local bridge. The footer shows the port.
-4. In Claude: *"What tools does figbridge expose?"* — you should see 30+.
+4. In Claude: *"What tools does figbridge expose?"* — you should see 40+.
 
 For any other MCP client (Cursor, Cline, VS Code, …), point it at the same binary: `npx figbridge-mcp`.
 

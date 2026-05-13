@@ -191,7 +191,7 @@ export async function runInit(opts = {}) {
   console.log(`  ${BOLD}3.${RESET} Run the Figbridge plugin on a frame, toggle ${CYAN}Live bridge${RESET} on.`);
   console.log(`     ${DIM}Green dot in the plugin header = connected to the bridge. Port shows in the footer.${RESET}`);
   console.log(`  ${BOLD}4.${RESET} In Claude, ask: ${CYAN}"What tools does figbridge expose?"${RESET}`);
-  console.log(`     ${DIM}You should see 21 tools (get_current_selection, export_app_spec, get_agent_bundle, …).${RESET}`);
+  console.log(`     ${DIM}You should see 40+ tools (get_current_selection, import_url, audit_*, diff_to_source, generate_patch, …).${RESET}`);
 
   console.log(`\n${GREEN}${BOLD}Done.${RESET}  Stuck? ${CYAN}npx figbridge-mcp doctor${RESET} reaps orphan processes and probes ports 7331–7340.`);
   console.log(`       Docs: ${CYAN}https://rudraptpsingh.github.io/figbridge${RESET}\n`);
