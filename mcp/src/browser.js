@@ -510,6 +510,119 @@ async function diffPngs(pngA, pngB) {
 }
 
 /** Render URL and return a base64 PNG screenshot (full page). */
+/**
+ * Audit how a URL behaves across mobile / tablet / desktop viewports.
+ * For each viewport: loads the page, then in-page measures:
+ *  - horizontal page scroll (body wider than viewport — classic "broken mobile")
+ *  - elements overflowing their parents on the x-axis
+ *  - elements whose computed touch target (button / a / input) is smaller than 44×44 (Fitts)
+ *  - elements with `position:fixed` taller than 50% of the viewport (mobile traps)
+ *  - text nodes whose font-size < 12px (unreadable on phone)
+ *
+ * Pure deterministic measurement — no LLM. Output shape mirrors the other
+ * Pillar 2 audits: one block per viewport, plus a flat issue list.
+ */
+export async function auditMobile(url, opts = {}) {
+  const viewports = opts.viewports || [
+    { name: "mobile", width: 375, height: 812 },
+    { name: "tablet", width: 768, height: 1024 },
+    { name: "desktop", width: 1280, height: 900 },
+  ];
+  const results = [];
+  const browser = await getBrowser();
+  for (const vp of viewports) {
+    const page = await browser.newPage();
+    try {
+      await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: 1 });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await new Promise(r => setTimeout(r, opts.settleMs || 1200));
+      const r = await page.evaluate((vpName, vpW, vpH) => {
+        const out = {
+          viewport: vpName,
+          width: vpW,
+          height: vpH,
+          pageScrollX: false,
+          docWidth: 0,
+          overflowX: [],
+          tinyTouchTargets: [],
+          tinyText: [],
+          fixedTraps: [],
+        };
+        const doc = document.documentElement;
+        out.docWidth = Math.max(doc.scrollWidth, doc.offsetWidth);
+        out.pageScrollX = out.docWidth > vpW + 1;
+
+        const all = document.querySelectorAll("*");
+        let i = 0;
+        for (const el of all) {
+          const cs = getComputedStyle(el);
+          if (cs.display === "none" || cs.visibility === "hidden") continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 1 || r.height < 1) continue;
+
+          // Overflow-x: element extends past viewport right edge.
+          if (r.right > vpW + 1 && i < 50) {
+            out.overflowX.push({
+              tag: el.tagName.toLowerCase(),
+              cls: (el.className && typeof el.className === "string" ? el.className : "").slice(0, 60),
+              right: Math.round(r.right),
+              w: Math.round(r.width),
+            });
+            i++;
+          }
+
+          // Tiny touch targets — only on mobile/tablet.
+          if (vpW <= 1024) {
+            const tag = el.tagName.toLowerCase();
+            const isTouch = tag === "button" || tag === "a" || tag === "input" || tag === "select" || tag === "textarea" || el.getAttribute("role") === "button";
+            if (isTouch && (r.width < 44 || r.height < 44) && out.tinyTouchTargets.length < 30) {
+              out.tinyTouchTargets.push({
+                tag, w: Math.round(r.width), h: Math.round(r.height),
+                text: (el.textContent || "").trim().slice(0, 40),
+              });
+            }
+          }
+
+          // Tiny text — only on mobile.
+          if (vpW <= 480) {
+            const fs = parseFloat(cs.fontSize);
+            if (fs > 0 && fs < 12 && el.textContent && el.textContent.trim().length > 4 && out.tinyText.length < 30) {
+              out.tinyText.push({
+                tag: el.tagName.toLowerCase(),
+                fontSize: fs,
+                text: el.textContent.trim().slice(0, 40),
+              });
+            }
+          }
+
+          // Fixed-position elements taller than 50% of viewport on mobile.
+          if (vpW <= 480 && cs.position === "fixed" && r.height > vpH * 0.5 && out.fixedTraps.length < 10) {
+            out.fixedTraps.push({
+              tag: el.tagName.toLowerCase(),
+              h: Math.round(r.height),
+              cls: (el.className && typeof el.className === "string" ? el.className : "").slice(0, 60),
+            });
+          }
+        }
+        return out;
+      }, vp.name, vp.width, vp.height);
+      results.push(r);
+    } finally {
+      try { await page.close(); } catch {}
+    }
+  }
+
+  // Roll up a flat issue summary.
+  const summary = {
+    horizontalScrollViewports: results.filter(r => r.pageScrollX).map(r => r.viewport),
+    overflowXCount: results.reduce((a, r) => a + r.overflowX.length, 0),
+    tinyTouchTargetCount: results.reduce((a, r) => a + r.tinyTouchTargets.length, 0),
+    tinyTextCount: results.reduce((a, r) => a + r.tinyText.length, 0),
+    fixedTrapCount: results.reduce((a, r) => a + r.fixedTraps.length, 0),
+  };
+  return { ok: true, url, viewports: results, summary };
+}
+
 export async function screenshotUrl(url, opts = {}) {
   const width = opts.width || 1280;
   const height = opts.height || (width >= 1024 ? 900 : (width >= 600 ? 1024 : 812));
