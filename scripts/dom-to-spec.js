@@ -137,17 +137,22 @@
     return tag + '|' + cls + '|' + tagFingerprint;
   }
 
+  // Join ALL semantic (non-utility) classes on an element so structural
+  // diffs against source HTML see every class name in the node name.
+  // E.g. <a class="cta-big primary"> → ".cta-big.primary"
+  function allSemanticClasses(className) {
+    if (typeof className !== 'string' || !className) return '';
+    return className.split(/\s+/).filter(c => c && !looksUtility(c)).join('.');
+  }
+
   function nameForNode(el, tag) {
     if (el.id) return '#' + el.id;
-    // For text-y tags, snip the first words of textContent so layer
-    // names read like "Heading 1: Sort. Tag. Deliver..." instead of
-    // just "Heading 1". Way more navigable in Figma's Layers panel.
     if (['h1','h2','h3','h4','h5','h6','p','blockquote','figcaption','button'].includes(tag)) {
       const tc = (el.textContent || '').trim().slice(0, 40);
       if (tc) return (SEMANTIC_NAMES[tag] || tag) + ': ' + tc + (tc.length === 40 ? '…' : '');
     }
-    const sc = firstSemanticClass(el.className);
-    if (sc) return '.' + sc.slice(0, 32);
+    const allCls = allSemanticClasses(el.className);
+    if (allCls) return '.' + allCls.slice(0, 48);
     if (SEMANTIC_NAMES[tag]) return SEMANTIC_NAMES[tag];
     return tag;
   }
