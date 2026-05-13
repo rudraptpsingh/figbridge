@@ -1456,12 +1456,24 @@ async function importFromCode(args) {
   if (Array.isArray(spec._colorHistogram) && spec._colorHistogram.length) {
     try { await _ifcSyncColorStyles(spec._colorHistogram, warnings); } catch (e) { _ifcWarn(warnings, "colorStyles: " + e.message); }
   }
-  // Resolve page
+  // Resolve target Figma Page. Priority:
+  //   1. args.pageId — exact existing page
+  //   2. args.pageName — find existing by name, or CREATE a new page
+  //   3. fallback to current page
+  // The pageName flow is the common case for multi-page imports: each
+  // call lands on its own Figma Page so designers can navigate them
+  // like real screens, not stacked on Page 1.
   var page = figma.currentPage;
   if (args.pageId) {
     var p = figma.root.children.find(function (pp) { return pp.id === args.pageId; });
     if (p) { await figma.setCurrentPageAsync(p); page = p; }
     else _ifcWarn(warnings, "pageId not found, using current page");
+  } else if (args.pageName) {
+    try { await figma.loadAllPagesAsync(); } catch (e) {}
+    var existing = figma.root.children.find(function (pp) { return pp.name === args.pageName; });
+    if (existing) { page = existing; }
+    else { page = figma.createPage(); page.name = args.pageName; }
+    try { await figma.setCurrentPageAsync(page); } catch (e) {}
   }
   if (args.name) spec.name = args.name;
   var root;

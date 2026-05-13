@@ -308,13 +308,14 @@ export async function main() {
       update: z.coerce.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false."),
       dryRun: z.coerce.boolean().optional().describe("If true, runs the full extraction but skips sending to Figma. Returns spec metadata + telemetry only."),
       colorScheme: z.enum(["light", "dark"]).optional().describe("Force prefers-color-scheme."),
-      sourceDir: z.string().optional().describe("Absolute path to the local source directory backing this URL (e.g. the docs/ folder of the GitHub repo). When provided, figbridge reads tokens.json + :root CSS variables from there and enriches the spec with authored design-system tokens — not just computed values. Source-aware extraction.")
+      sourceDir: z.string().optional().describe("Absolute path to the local source directory backing this URL."),
+      pageName: z.string().optional().describe("Target Figma Page name. If a page with this name exists the frame goes there; otherwise figbridge creates a new Figma Page. Use a different pageName per imported URL to keep multi-page imports navigable (Landing, Features, Pricing, …) instead of stacking everything on Page 1.")
     },
-    async ({ url, width, name, update, dryRun, colorScheme, sourceDir }) => {
+    async ({ url, width, name, update, dryRun, colorScheme, sourceDir, pageName }) => {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/command`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun, colorScheme: colorScheme || null, sourceDir: sourceDir || null }, timeoutMs: 300000 })
+          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun, colorScheme: colorScheme || null, sourceDir: sourceDir || null, pageName: pageName || null }, timeoutMs: 300000 })
         });
         return asText(await r.json());
       } catch (e) { return asText({ ok: false, error: e.message }); }
