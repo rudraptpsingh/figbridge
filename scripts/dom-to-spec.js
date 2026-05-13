@@ -681,11 +681,14 @@
   function fontWeight(cs) {
     const w = parseInt(cs.fontWeight, 10);
     if (!w) return null;
+    if (w >= 900) return 'Black';
+    if (w >= 800) return 'Extra Bold';
     if (w >= 700) return 'Bold';
     if (w >= 600) return 'Semi Bold';
     if (w >= 500) return 'Medium';
-    if (w <= 300) return 'Light';
-    return 'Regular';
+    if (w >= 350) return 'Regular';
+    if (w >= 250) return 'Light';
+    return 'Thin';
   }
 
   function nodeForElement(el, opts, depth) {
