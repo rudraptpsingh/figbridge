@@ -148,6 +148,9 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
             };
             if (body.action === "import-url") {
               const spec = await urlToSpec(args.url, { width: args.width || 1280, name: args.name || null, colorScheme: args.colorScheme || null, sourceDir: args.sourceDir || null });
+              // Carry pageName through so the plugin handler can route
+              // the imported frame to its own Figma Page.
+              if (args.pageName) spec.__pageName = args.pageName;
               if (args.name) spec.name = args.name;
               // Telemetry: count nodes + features so the response gives
               // visibility into what was captured.
@@ -171,7 +174,7 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
               // Dry-run: return the telemetry without sending to plugin.
               if (args.dryRun) return send(res, 200, { ok: true, dryRun: true, spec: { name: spec.name, width: spec.width, height: spec.height }, telemetry });
               const action = args.update ? "update-from-code" : "import-from-code";
-              const r = await sendCommand(action, { spec, name: spec.name || args.name || null }, args.timeoutMs || 300000);
+              const r = await sendCommand(action, { spec, name: spec.name || args.name || null, pageName: args.pageName || null }, args.timeoutMs || 300000);
               return send(res, 200, { ...r, telemetry });
             }
             if (body.action === "screenshot-url") {
