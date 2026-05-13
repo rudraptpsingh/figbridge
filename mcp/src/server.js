@@ -460,6 +460,27 @@ export async function main() {
     }
   );
 
+  // ── Pillar 2: Design intelligence audits ─────────────────
+  server.tool(
+    "audit_palette",
+    "Audit color usage in an imported Figma frame. Returns total distinct colors, top-10 by frequency, coverage curve (how many of top-N cover X% of usage), and near-duplicate merge suggestions for consolidation. Pure deterministic measurement — no LLM.",
+    { nodeId: z.string() },
+    async ({ nodeId }) => {
+      try { return asText(await sendCommand("audit-palette", { nodeId }, 30000)); }
+      catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "audit_typography",
+    "Audit typography in an imported Figma frame. Returns distinct font sizes / families / styles, the (family, style, size) triplet frequency, and which standard modular scale (1.25 / 1.333 / golden ratio / etc.) the existing sizes best fit. Surfaces a suggested clean scale from the base size.",
+    { nodeId: z.string() },
+    async ({ nodeId }) => {
+      try { return asText(await sendCommand("audit-typography", { nodeId }, 30000)); }
+      catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   server.tool(
     "export_frame",
     "Export a Figma frame as PNG. With `outPath`: writes to disk, returns path. Without: returns base64. Use to pull a rendered version of an imported frame back out for visual diff.",

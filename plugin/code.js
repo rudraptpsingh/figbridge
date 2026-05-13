@@ -1557,6 +1557,187 @@ async function updateFromCode(args) {
   return { ok: true, nodeId: target.id, name: target.name, replacedCount: ncount(target), warnings: warnings };
 }
 
+// ── Pillar 2 audits ──────────────────────────────────────────
+// Pure deterministic measurement: walk the Figma frame subtree, collect
+// signals, return structured findings + suggestions. NO LLM.
+
+// Convert a Figma SOLID paint to an "rrggbb" hex string for grouping.
+function _ifcPaintHex(paint) {
+  if (!paint || paint.type !== "SOLID" || !paint.color) return null;
+  var c = paint.color;
+  function ch(v) { return Math.round((v || 0) * 255).toString(16).padStart(2, "0"); }
+  return ch(c.r) + ch(c.g) + ch(c.b);
+}
+
+// Squared distance between two hex colors in sRGB. Used for near-dupe
+// clustering. (Perceptual would use CIE Lab but sRGB-squared is good
+// enough for "are these visually the same?" within a single design.)
+function _ifcColorDistSq(hexA, hexB) {
+  function p(h, i) { return parseInt(h.substr(i*2, 2), 16); }
+  var dr = p(hexA, 0) - p(hexB, 0);
+  var dg = p(hexA, 1) - p(hexB, 1);
+  var db = p(hexA, 2) - p(hexB, 2);
+  return dr*dr + dg*dg + db*db;
+}
+
+async function auditPalette(args) {
+  var root = await figma.getNodeByIdAsync(args.nodeId);
+  if (!root) return { ok: false, error: "node not found: " + args.nodeId };
+
+  // Walk subtree, collecting hex color usage by role (fill / stroke / text).
+  var usage = {}; // hex → { count, asFill, asStroke, asText, samples: [nodeName, ...] }
+  function record(hex, role, name) {
+    if (!hex) return;
+    if (!usage[hex]) usage[hex] = { count: 0, asFill: 0, asStroke: 0, asText: 0, samples: [] };
+    var u = usage[hex];
+    u.count++;
+    u[role]++;
+    if (u.samples.length < 3) u.samples.push(name);
+  }
+  function walk(n) {
+    var nm = n.name || n.type;
+    if ("fills" in n && Array.isArray(n.fills)) {
+      for (var i = 0; i < n.fills.length; i++) {
+        var hex = _ifcPaintHex(n.fills[i]);
+        if (hex) record(hex, n.type === "TEXT" ? "asText" : "asFill", nm);
+      }
+    }
+    if ("strokes" in n && Array.isArray(n.strokes)) {
+      for (var j = 0; j < n.strokes.length; j++) {
+        var sh = _ifcPaintHex(n.strokes[j]);
+        if (sh) record(sh, "asStroke", nm);
+      }
+    }
+    if (n.children) for (var k = 0; k < n.children.length; k++) walk(n.children[k]);
+  }
+  walk(root);
+
+  var colors = Object.keys(usage).map(function (hex) {
+    return Object.assign({ hex: "#" + hex }, usage[hex]);
+  }).sort(function (a, b) { return b.count - a.count; });
+
+  // Coverage: what % of total usage is covered by the top N colors?
+  var totalRefs = colors.reduce(function (s, c) { return s + c.count; }, 0);
+  var coverage = [];
+  var running = 0;
+  for (var ci = 0; ci < Math.min(colors.length, 20); ci++) {
+    running += colors[ci].count;
+    coverage.push({ topN: ci + 1, pct: Math.round((running / totalRefs) * 100) });
+  }
+
+  // Near-duplicate suggestion: group colors within distance threshold.
+  // Threshold = 12 * sqrt(3) ≈ ~21 per channel total — visually similar.
+  var threshold = 12 * 12 * 3;
+  var groups = [];
+  var assigned = {};
+  for (var x = 0; x < colors.length; x++) {
+    var hexA = colors[x].hex.slice(1);
+    if (assigned[hexA]) continue;
+    var group = { keep: colors[x].hex, keepCount: colors[x].count, mergeable: [] };
+    assigned[hexA] = true;
+    for (var y = x + 1; y < colors.length; y++) {
+      var hexB = colors[y].hex.slice(1);
+      if (assigned[hexB]) continue;
+      if (_ifcColorDistSq(hexA, hexB) < threshold) {
+        group.mergeable.push({ hex: colors[y].hex, count: colors[y].count });
+        assigned[hexB] = true;
+      }
+    }
+    if (group.mergeable.length) groups.push(group);
+  }
+
+  return {
+    ok: true,
+    totalColors: colors.length,
+    totalRefs: totalRefs,
+    top10: colors.slice(0, 10),
+    coverage: coverage,
+    mergeSuggestions: groups,
+  };
+}
+
+async function auditTypography(args) {
+  var root = await figma.getNodeByIdAsync(args.nodeId);
+  if (!root) return { ok: false, error: "node not found: " + args.nodeId };
+
+  // Walk subtree, collecting per-text-node font triplet (family, size, style).
+  var sizes = {};  // size → count
+  var families = {};
+  var styles = {};
+  var triplets = {};
+  var totalText = 0;
+  function walk(n) {
+    if (n.type === "TEXT") {
+      totalText++;
+      var sz = (n.fontSize && n.fontSize !== figma.mixed) ? Math.round(n.fontSize) : null;
+      var fam = (n.fontName && n.fontName !== figma.mixed && n.fontName.family) ? n.fontName.family : null;
+      var style = (n.fontName && n.fontName !== figma.mixed && n.fontName.style) ? n.fontName.style : null;
+      if (sz) sizes[sz] = (sizes[sz] || 0) + 1;
+      if (fam) families[fam] = (families[fam] || 0) + 1;
+      if (style) styles[style] = (styles[style] || 0) + 1;
+      if (sz && fam && style) {
+        var t = fam + " " + style + " " + sz;
+        triplets[t] = (triplets[t] || 0) + 1;
+      }
+    }
+    if (n.children) for (var i = 0; i < n.children.length; i++) walk(n.children[i]);
+  }
+  walk(root);
+
+  var sizeList = Object.keys(sizes).map(function (s) { return { size: Number(s), count: sizes[s] }; })
+    .sort(function (a, b) { return b.size - a.size; });
+
+  // Check if the size set conforms to a standard modular scale.
+  // Candidate ratios: 1.125 (minor 2nd), 1.2 (minor 3rd), 1.25 (major 3rd),
+  // 1.333 (perfect 4th), 1.414 (aug 4th), 1.5 (perfect 5th), 1.618 (golden).
+  var scales = [
+    { name: "Minor Second", ratio: 1.125 },
+    { name: "Major Second", ratio: 1.125 },
+    { name: "Minor Third", ratio: 1.2 },
+    { name: "Major Third", ratio: 1.25 },
+    { name: "Perfect Fourth", ratio: 1.333 },
+    { name: "Augmented Fourth", ratio: 1.414 },
+    { name: "Perfect Fifth", ratio: 1.5 },
+    { name: "Golden Ratio", ratio: 1.618 },
+  ];
+  var base = sizeList.length ? Math.min.apply(null, sizeList.map(function (s) { return s.size; })) : 16;
+  var scaleFits = scales.map(function (s) {
+    // For each size, compute the closest step in this scale and measure error.
+    var totalErr = 0;
+    for (var i = 0; i < sizeList.length; i++) {
+      var ratio = sizeList[i].size / base;
+      var step = Math.round(Math.log(ratio) / Math.log(s.ratio));
+      var expected = base * Math.pow(s.ratio, step);
+      totalErr += Math.abs(sizeList[i].size - expected);
+    }
+    return { scale: s.name, ratio: s.ratio, totalErrorPx: Math.round(totalErr) };
+  }).sort(function (a, b) { return a.totalErrorPx - b.totalErrorPx; });
+
+  // Build the suggested scale: from `base`, step up using the best ratio
+  // until we've covered the max size, output cleanly-rounded values.
+  var bestRatio = scaleFits[0].ratio;
+  var maxSize = sizeList.length ? Math.max.apply(null, sizeList.map(function (s) { return s.size; })) : 32;
+  var suggested = [];
+  var v = base;
+  while (v <= maxSize * 1.1) { suggested.push(Math.round(v)); v *= bestRatio; }
+
+  return {
+    ok: true,
+    totalTextNodes: totalText,
+    distinctSizes: sizeList,
+    distinctFamilies: Object.keys(families).map(function (f) { return { family: f, count: families[f] }; })
+      .sort(function (a, b) { return b.count - a.count; }),
+    distinctStyles: Object.keys(styles).map(function (s) { return { style: s, count: styles[s] }; })
+      .sort(function (a, b) { return b.count - a.count; }),
+    topTriplets: Object.keys(triplets).map(function (t) { return { triplet: t, count: triplets[t] }; })
+      .sort(function (a, b) { return b.count - a.count; }).slice(0, 10),
+    bestScaleFit: scaleFits[0],
+    allScaleFits: scaleFits,
+    baseSize: base,
+    suggestedScale: suggested,
+  };
+}
+
 async function deleteNodes(args) {
   var ids = [];
   if (args.nodeId) ids.push(args.nodeId);
@@ -1745,6 +1926,15 @@ async function handleCommand(cmdId, action, args) {
       // Delete a node by id (or list of ids, or by name). Returns the
       // ids that were actually removed.
       return await deleteNodes(args || {});
+    }
+    // ── Pillar 2: Design intelligence audits ─────────────────
+    // Each audit walks the Figma frame subtree and returns structured
+    // findings — no LLM, all deterministic measurement.
+    if (action === "audit-palette") {
+      return await auditPalette(args || {});
+    }
+    if (action === "audit-typography") {
+      return await auditTypography(args || {});
     }
     if (action === "export-frame") {
       var node = await figma.getNodeByIdAsync(args.nodeId);
