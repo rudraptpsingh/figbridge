@@ -307,15 +307,17 @@ export async function main() {
       name: z.string().optional().describe("Override the Figma frame's name. Defaults to '<title> WIDTHpx'."),
       update: z.coerce.boolean().optional().describe("If true, finds the existing frame by name and replaces its children (no duplicates). Default false."),
       dryRun: z.coerce.boolean().optional().describe("If true, runs the full extraction but skips sending to Figma. Returns spec metadata + telemetry only."),
+      hybridSnapshot: z.coerce.boolean().optional().describe("If true, inserts a full-page screenshot as a bottom reference layer underneath editable extracted layers. Useful for Framer/Webflow/video-heavy pages where pixel fidelity matters."),
       colorScheme: z.enum(["light", "dark"]).optional().describe("Force prefers-color-scheme."),
+      rootSelector: z.string().optional().describe("CSS selector for the page region to import. Default 'body'. Use this to capture one section/component instead of the whole page."),
       sourceDir: z.string().optional().describe("Absolute path to the local source directory backing this URL."),
       pageName: z.string().optional().describe("Target Figma Page name. If a page with this name exists the frame goes there; otherwise figbridge creates a new Figma Page. Use a different pageName per imported URL to keep multi-page imports navigable (Landing, Features, Pricing, …) instead of stacking everything on Page 1.")
     },
-    async ({ url, width, name, update, dryRun, colorScheme, sourceDir, pageName }) => {
+    async ({ url, width, name, update, dryRun, hybridSnapshot, colorScheme, rootSelector, sourceDir, pageName }) => {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/command`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun, colorScheme: colorScheme || null, sourceDir: sourceDir || null, pageName: pageName || null }, timeoutMs: 300000 })
+          body: JSON.stringify({ action: "import-url", args: { url, width: width || 1280, name: name || null, update: !!update, dryRun: !!dryRun, hybridSnapshot: !!hybridSnapshot, colorScheme: colorScheme || null, rootSelector: rootSelector || null, sourceDir: sourceDir || null, pageName: pageName || null }, timeoutMs: 300000 })
         });
         return asText(await r.json());
       } catch (e) { return asText({ ok: false, error: e.message }); }
@@ -324,27 +326,109 @@ export async function main() {
 
   server.tool(
     "import_responsive_set",
-    "Import a URL at multiple viewport widths in one call. Creates one Figma frame per viewport, laid out side-by-side. Most efficient way to capture mobile/tablet/desktop in a single iteration. Default widths: 1280, 768, 375. Returns { frames: [{ width, nodeId, name, createdCount }] }.",
+    "Import a URL at multiple viewport widths and optional light/dark color schemes in one call. Creates one Figma frame per width/theme combination, or returns telemetry only with dryRun. This is the multi-viewport capture path for desktop/tablet/mobile and theme sets. Default widths: 1280, 768, 375. Returns { frames: [{ width, colorScheme, nodeId, name, createdCount, telemetry }] }.",
     {
       url: z.string(),
       widths: z.array(z.coerce.number()).optional().describe("Viewport widths to capture. Default [1280, 768, 375]."),
-      namePrefix: z.string().optional().describe("Frame name prefix. Each frame becomes `<prefix> <width>px`. Default uses the page title.")
+      colorSchemes: z.array(z.enum(["light", "dark"])).optional().describe("Optional theme captures. Use ['light','dark'] to import both modes. Omit to capture the site default."),
+      rootSelector: z.string().optional().describe("CSS selector for the page region to import at every viewport/theme. Default 'body'."),
+      namePrefix: z.string().optional().describe("Frame name prefix. Each frame becomes `<prefix> <theme> <width>px` when themes are used, otherwise `<prefix> <width>px`. Default uses the page title."),
+      update: z.coerce.boolean().optional().describe("If true, update matching frames by name instead of creating duplicates."),
+      dryRun: z.coerce.boolean().optional().describe("If true, extract every width/theme but do not send anything to Figma. Returns spec metadata + telemetry."),
+      hybridSnapshot: z.coerce.boolean().optional().describe("If true, inserts a full-page screenshot reference under editable layers for every imported viewport."),
+      sourceDir: z.string().optional().describe("Absolute path to the local source directory backing this URL. Used to enrich imported specs with authored tokens/CSS variables."),
+      pageName: z.string().optional().describe("Target Figma Page name for the imported set.")
     },
-    async ({ url, widths, namePrefix }) => {
+    async ({ url, widths, colorSchemes, rootSelector, namePrefix, update, dryRun, hybridSnapshot, sourceDir, pageName }) => {
       const wList = widths && widths.length ? widths : [1280, 768, 375];
+      const schemes = colorSchemes && colorSchemes.length ? colorSchemes : [null];
       const results = [];
-      for (const w of wList) {
-        try {
-          const { urlToSpec } = await import("./browser.js");
-          const spec = await urlToSpec(url, { width: w });
-          const name = (namePrefix || spec.name || "Import") + " " + w + "px";
-          spec.name = name;
-          spec.width = w;
-          const r = await sendCommand("import-from-code", { spec, name }, 300000);
-          results.push({ width: w, ...r });
-        } catch (e) { results.push({ width: w, ok: false, error: e.message }); }
+      for (const scheme of schemes) {
+        for (const w of wList) {
+          try {
+            const label = scheme ? `${scheme} ${w}px` : `${w}px`;
+            const r = await fetch(`http://127.0.0.1:${port}/command`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "import-url",
+                args: {
+                  url,
+                  width: w,
+                  name: namePrefix ? `${namePrefix} ${label}` : null,
+                  update: !!update,
+                  dryRun: !!dryRun,
+                  hybridSnapshot: !!hybridSnapshot,
+                  colorScheme: scheme,
+                  rootSelector: rootSelector || null,
+                  sourceDir: sourceDir || null,
+                  pageName: pageName || null
+                },
+                timeoutMs: 300000
+              })
+            });
+            const body = await r.json();
+            results.push({ width: w, colorScheme: scheme || "default", ...body });
+          } catch (e) { results.push({ width: w, colorScheme: scheme || "default", ok: false, error: e.message }); }
+        }
       }
       return asText({ ok: true, frames: results });
+    }
+  );
+
+  server.tool(
+    "import_url_batch",
+    "Bulk-import multiple URLs using the same website-to-Figma pipeline as import_url/import_responsive_set. Each URL can be imported at one or more widths and optional light/dark themes. Use dryRun first for large batches. Returns { results: [{ url, frames: [...] }] }.",
+    {
+      urls: z.array(z.string()).min(1).max(20).describe("URLs to import. Max 20 per call to keep the plugin responsive."),
+      widths: z.array(z.coerce.number()).optional().describe("Viewport widths for every URL. Default [1280]. Use [1280, 768, 375] for full responsive capture."),
+      colorSchemes: z.array(z.enum(["light", "dark"])).optional().describe("Optional theme captures for every URL. Use ['light','dark'] to capture both modes."),
+      rootSelector: z.string().optional().describe("CSS selector to import from each URL. Default 'body'."),
+      namePrefix: z.string().optional().describe("Optional prefix for generated frame names."),
+      update: z.coerce.boolean().optional().describe("If true, update matching frames by name instead of creating duplicates."),
+      dryRun: z.coerce.boolean().optional().describe("If true, extract every URL/width/theme but do not send anything to Figma."),
+      hybridSnapshot: z.coerce.boolean().optional().describe("If true, inserts a full-page screenshot reference under editable layers for every imported frame."),
+      sourceDir: z.string().optional().describe("Absolute source directory to enrich imported specs with tokens/CSS variables."),
+      pageName: z.string().optional().describe("Target Figma Page for all imported frames. If omitted, each URL can use the current page.")
+    },
+    async ({ urls, widths, colorSchemes, rootSelector, namePrefix, update, dryRun, hybridSnapshot, sourceDir, pageName }) => {
+      const wList = widths && widths.length ? widths : [1280];
+      const schemes = colorSchemes && colorSchemes.length ? colorSchemes : [null];
+      const results = [];
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i];
+        const frames = [];
+        for (const scheme of schemes) {
+          for (const w of wList) {
+            try {
+              const label = scheme ? `${scheme} ${w}px` : `${w}px`;
+              const prefix = namePrefix ? `${namePrefix} ${i + 1}` : null;
+              const r = await fetch(`http://127.0.0.1:${port}/command`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "import-url",
+                  args: {
+                    url,
+                    width: w,
+                    name: prefix ? `${prefix} ${label}` : null,
+                    update: !!update,
+                    dryRun: !!dryRun,
+                    hybridSnapshot: !!hybridSnapshot,
+                    colorScheme: scheme,
+                    rootSelector: rootSelector || null,
+                    sourceDir: sourceDir || null,
+                    pageName: pageName || null
+                  },
+                  timeoutMs: 300000
+                })
+              });
+              const body = await r.json();
+              frames.push({ width: w, colorScheme: scheme || "default", ...body });
+            } catch (e) { frames.push({ width: w, colorScheme: scheme || "default", ok: false, error: e.message }); }
+          }
+        }
+        results.push({ url, frames });
+      }
+      return asText({ ok: true, results });
     }
   );
 
@@ -424,6 +508,36 @@ export async function main() {
   );
 
   server.tool(
+    "audit_interactions",
+    "Discover hover/focus-capable elements on a URL before attempting prototype variant capture. Returns interactive elements plus CSS :hover/:focus selector counts and examples. Use this to decide which components need hover variants.",
+    {
+      url: z.string(),
+      width: z.coerce.number().optional().describe("Viewport width. Default 1280.")
+    },
+    async ({ url, width }) => {
+      try {
+        const { auditInteractions } = await import("./browser.js");
+        return asText(await auditInteractions(url, { width: width || 1280 }));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "preflight_import",
+    "Check a URL for common website-to-Figma import risks before spending time on a full import: bot-protection/captcha pages, HTTP errors, missing-font risk, low-resolution images, SVG-heavy pages, deep wrapper nesting/auto-layout noise, horizontal scroll, and very tall pages. Run this before import_url/import_responsive_set/import_url_batch.",
+    {
+      url: z.string(),
+      width: z.coerce.number().optional().describe("Viewport width. Default 1280.")
+    },
+    async ({ url, width }) => {
+      try {
+        const { preflightImport } = await import("./browser.js");
+        return asText(await preflightImport(url, { width: width || 1280 }));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "audit_mobile",
     "Render a URL across mobile (375) / tablet (768) / desktop (1280) viewports and report responsive issues: horizontal page scroll, elements overflowing the viewport, touch targets < 44×44 (Fitts), text < 12px (unreadable on phone), and fixed-position traps taller than 50% of viewport. Pure deterministic measurement — no LLM. Run after audit_palette / audit_typography / audit_a11y for the full Pillar 2 review.",
     {
@@ -453,6 +567,32 @@ export async function main() {
           body: JSON.stringify({ action: "measure-fidelity", args: { url, nodeId, width: width || 1280, scale: scale || 1 }, timeoutMs: 120000 })
         });
         return asText(await r.json());
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "audit_regression",
+    "Compare a baseline URL and candidate URL to find frontend/UI regressions. Runs deterministic screenshot pixel diffs across desktop/tablet/mobile, visible-text disappearance checks, responsive issue deltas, and CSS-feature drift. Use before/after a frontend change, in CI, or before syncing updated UI into Figma.",
+    {
+      baselineUrl: z.string().describe("Known-good URL, e.g. production or previous local build."),
+      candidateUrl: z.string().describe("Candidate URL, e.g. localhost branch build."),
+      widths: z.array(z.coerce.number()).optional().describe("Viewport widths to compare. Default [1280, 768, 375]."),
+      minScore: z.coerce.number().optional().describe("Minimum acceptable visual similarity score per viewport. Default 96."),
+      maxNewResponsiveIssues: z.coerce.number().optional().describe("Allowed number of new responsive issues. Default 0."),
+      maxMissingText: z.coerce.number().optional().describe("Allowed number of disappeared visible text strings per viewport. Default 0."),
+      settleMs: z.coerce.number().optional().describe("Delay after load before measurement. Default 1200ms.")
+    },
+    async ({ baselineUrl, candidateUrl, widths, minScore, maxNewResponsiveIssues, maxMissingText, settleMs }) => {
+      try {
+        const { auditRegression } = await import("./browser.js");
+        return asText(await auditRegression(baselineUrl, candidateUrl, {
+          widths,
+          minScore,
+          maxNewResponsiveIssues,
+          maxMissingText,
+          settleMs
+        }));
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );

@@ -1,6 +1,6 @@
 # Figbridge — free, local MCP bridge for Figma
 
-Figbridge gives AI coding agents — Claude Desktop, Claude Code, Cursor, Continue, or any MCP-speaking client — a live connection to the Figma file you have open. No Dev Mode seat. No cloud. Nothing leaves your machine.
+Figbridge gives AI coding agents — Claude Desktop, Claude Code, Cursor, Continue, or any MCP-speaking client — a live connection to the Figma file you have open. It is free, open source, local, and built for community workflows.
 
 ## What it does
 

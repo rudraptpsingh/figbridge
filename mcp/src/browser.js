@@ -11,7 +11,10 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXTRACTOR_PATH = path.join(__dirname, "..", "..", "scripts", "dom-to-spec.js");
+const EXTRACTOR_PATHS = [
+  path.join(__dirname, "dom-to-spec.js"),
+  path.join(__dirname, "..", "..", "scripts", "dom-to-spec.js")
+];
 
 const CHROME_PATHS = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -59,12 +62,183 @@ async function getBrowser() {
 
 async function getExtractor() {
   if (_extractor) return _extractor;
-  _extractor = await readFile(EXTRACTOR_PATH, "utf8");
-  return _extractor;
+  let lastError = null;
+  for (const candidate of EXTRACTOR_PATHS) {
+    try {
+      _extractor = await readFile(candidate, "utf8");
+      return _extractor;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error("dom-to-spec extractor not found");
+}
+
+async function rasterizeImageDataUrl(dataUrl, opts = {}) {
+  if (!dataUrl || typeof dataUrl !== "string") return null;
+  const maxDimension = opts.maxDimension || 2048;
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    return await page.evaluate(async ({ dataUrl, maxDimension, width, height }) => {
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("image load failed"));
+          img.src = src;
+        });
+      }
+      const img = await loadImage(dataUrl);
+      const naturalW = img.naturalWidth || width || 1;
+      const naturalH = img.naturalHeight || height || 1;
+      const scale = Math.min(1, maxDimension / Math.max(naturalW, naturalH));
+      const outW = Math.max(1, Math.round(naturalW * scale));
+      const outH = Math.max(1, Math.round(naturalH * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, outW, outH);
+      return canvas.toDataURL("image/png");
+    }, { dataUrl, maxDimension, width: opts.width || 0, height: opts.height || 0 });
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
+async function rasterizeSvgDataUrl(svg, opts = {}) {
+  if (!svg) return null;
+  const width = Math.max(1, Math.round(opts.width || 64));
+  const height = Math.max(1, Math.round(opts.height || 64));
+  const dataUrl = "data:image/svg+xml;base64," + Buffer.from(String(svg)).toString("base64");
+  return await rasterizeImageDataUrl(dataUrl, { width, height, maxDimension: opts.maxDimension || 2048 });
+}
+
+async function rasterizeDataUrlBatch(items, opts = {}) {
+  if (!items.length) return [];
+  const maxDimension = opts.maxDimension || 2048;
+  const unique = [];
+  const keyToIndexes = new Map();
+  for (const item of items) {
+    const key = [item.dataUrl, item.width || 0, item.height || 0].join("\n");
+    if (!keyToIndexes.has(key)) {
+      keyToIndexes.set(key, []);
+      unique.push({ ...item, index: unique.length, _originalKey: key });
+    }
+    keyToIndexes.get(key).push(item.index);
+  }
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    const uniqueResults = await page.evaluate(async ({ items, maxDimension }) => {
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("image load failed"));
+          img.src = src;
+        });
+      }
+      const out = [];
+      for (const item of items) {
+        try {
+          const img = await loadImage(item.dataUrl);
+          const naturalW = img.naturalWidth || item.width || 1;
+          const naturalH = img.naturalHeight || item.height || 1;
+          const scale = Math.min(1, maxDimension / Math.max(naturalW, naturalH));
+          const outW = Math.max(1, Math.round(naturalW * scale));
+          const outH = Math.max(1, Math.round(naturalH * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = outW;
+          canvas.height = outH;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, outW, outH);
+          out.push({ index: item.index, dataUrl: canvas.toDataURL("image/png") });
+        } catch (e) {
+          out.push({ index: item.index, error: e.message });
+        }
+      }
+      return out;
+    }, { items: unique, maxDimension });
+    const expanded = [];
+    for (const result of uniqueResults) {
+      const src = unique[result.index];
+      if (!src) continue;
+      const indexes = keyToIndexes.get(src._originalKey) || [];
+      for (const originalIndex of indexes) expanded.push({ ...result, index: originalIndex });
+    }
+    return expanded;
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
+function shouldNormalizeImage(dataUrl, node) {
+  if (!dataUrl || typeof dataUrl !== "string") return false;
+  return true;
+}
+
+async function normalizeSpecMedia(spec) {
+  const imageNodes = [];
+  const svgNodes = [];
+  (function collect(n) {
+    if (!n) return;
+    if (n._imageBytes) imageNodes.push(n);
+    if (n.type === "svg" && n._svg) svgNodes.push(n);
+    if (n.children) for (const c of n.children) collect(c);
+  })(spec);
+  const normalizeItems = [];
+  for (let i = 0; i < imageNodes.length; i++) {
+    const n = imageNodes[i];
+    if (shouldNormalizeImage(n._imageBytes, n)) {
+      normalizeItems.push({ index: i, dataUrl: n._imageBytes, width: n.width, height: n.height });
+    }
+  }
+  const normalized = await rasterizeDataUrlBatch(normalizeItems);
+  for (const item of normalized) {
+    const n = imageNodes[item.index];
+    if (!n) continue;
+    if (item.dataUrl) n._imageBytes = item.dataUrl;
+    else if (item.error) {
+      n._imageWarn = "image normalization failed: " + item.error;
+      delete n._imageBytes;
+    }
+  }
+
+  // SVG fallbacks are only used after plugin-side vector parsing fails;
+  // vector import remains the primary path for every SVG.
+  const svgItems = svgNodes.map((n, i) => ({
+    index: i,
+    dataUrl: "data:image/svg+xml;base64," + Buffer.from(String(n._svg)).toString("base64"),
+    width: n.width,
+    height: n.height,
+  }));
+  const svgRasters = await rasterizeDataUrlBatch(svgItems);
+  for (const item of svgRasters) {
+    const n = svgNodes[item.index];
+    if (!n) continue;
+    if (item.dataUrl) n._svgImageBytes = item.dataUrl;
+    else if (item.error) n._svgWarn = "svg raster fallback failed: " + item.error;
+  }
 }
 
 export async function shutdown() {
-  if (_browser) { try { await _browser.close(); } catch {} _browser = null; }
+  if (!_browser) return;
+  const browser = _browser;
+  _browser = null;
+  let proc = null;
+  try { proc = typeof browser.process === "function" ? browser.process() : null; } catch {}
+  try {
+    await Promise.race([
+      browser.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Chrome close timed out")), 2000))
+    ]);
+  } catch {
+    try { if (proc && !proc.killed) proc.kill("SIGTERM"); } catch {}
+    await new Promise(r => setTimeout(r, 300));
+    try { if (proc && !proc.killed) proc.kill("SIGKILL"); } catch {}
+  }
 }
 
 /**
@@ -134,19 +308,72 @@ export async function urlToSpec(url, opts = {}) {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await new Promise(r => setTimeout(r, opts.settleMs || 2000));
 
-    // Scroll-prime so IntersectionObserver reveals fire, then rescue any
-    // opacity:0 elements (pre-fade-in DOM is real and we want it).
+    // Scroll-prime so IntersectionObserver reveals fire, wake lazy media,
+    // then rescue opacity:0 elements (pre-fade-in DOM is real and we want it).
     await page.evaluate(async () => {
-      for (let y = 0; y < document.body.scrollHeight; y += 600) {
+      const wait = (ms) => new Promise(r => setTimeout(r, ms));
+      const wakeImages = () => {
+        document.querySelectorAll("img").forEach((img) => {
+          try { img.loading = "eager"; } catch {}
+          const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-lazy-src") || img.getAttribute("data-original");
+          const dataSrcset = img.getAttribute("data-srcset") || img.getAttribute("data-lazy-srcset");
+          if (!img.getAttribute("src") && dataSrc) img.setAttribute("src", dataSrc);
+          if (!img.getAttribute("srcset") && dataSrcset) img.setAttribute("srcset", dataSrcset);
+          try { img.decoding = "sync"; } catch {}
+        });
+        document.querySelectorAll("source").forEach((source) => {
+          const dataSrcset = source.getAttribute("data-srcset") || source.getAttribute("data-lazy-srcset");
+          if (!source.getAttribute("srcset") && dataSrcset) source.setAttribute("srcset", dataSrcset);
+        });
+        document.querySelectorAll("video").forEach((video) => {
+          try { video.preload = "auto"; } catch {}
+          try { video.muted = true; } catch {}
+          try { video.playsInline = true; } catch {}
+          try { if (video.readyState < 2) video.load(); } catch {}
+        });
+      };
+      wakeImages();
+      const maxScroll = Math.min(document.body.scrollHeight || 0, 24000);
+      for (let y = 0; y < maxScroll; y += 600) {
         window.scrollTo(0, y);
-        await new Promise(r => setTimeout(r, 50));
+        wakeImages();
+        await wait(50);
       }
       window.scrollTo(0, 0);
-      await new Promise(r => setTimeout(r, 500));
+      await wait(500);
+      const visibleImages = Array.from(document.images).filter(img => {
+        const r = img.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && img.currentSrc;
+      }).slice(0, 120);
+      await Promise.allSettled(visibleImages.map(img => {
+        try {
+          if (img.complete && img.naturalWidth) return Promise.resolve();
+          return img.decode ? img.decode() : new Promise((resolve) => {
+            img.addEventListener("load", resolve, { once: true });
+            img.addEventListener("error", resolve, { once: true });
+            setTimeout(resolve, 1500);
+          });
+        } catch { return Promise.resolve(); }
+      }));
+      const visibleVideos = Array.from(document.querySelectorAll("video")).filter(video => {
+        const r = video.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      }).slice(0, 80);
+      await Promise.allSettled(visibleVideos.map(video => new Promise((resolve) => {
+        try {
+          if (video.readyState >= 2 && video.videoWidth) return resolve();
+          const done = () => resolve();
+          video.addEventListener("loadeddata", done, { once: true });
+          video.addEventListener("canplay", done, { once: true });
+          setTimeout(done, 2000);
+          const p = video.play && video.play();
+          if (p && p.then) p.then(() => { try { video.pause(); } catch {}; resolve(); }).catch(() => {});
+        } catch { resolve(); }
+      })));
       document.querySelectorAll("*").forEach(el => {
         if (getComputedStyle(el).opacity === "0") el.style.opacity = "1";
       });
-      await new Promise(r => setTimeout(r, 200));
+      await wait(200);
     });
 
     const extractor = await getExtractor();
@@ -198,6 +425,7 @@ export async function urlToSpec(url, opts = {}) {
         const r = await fetch(u);
         if (!r.ok) return [u, null];
         const ct = r.headers.get("content-type") || "image/png";
+        if (!/^image\//i.test(ct)) return [u, null];
         const ab = await r.arrayBuffer();
         return [u, `data:${ct};base64,` + Buffer.from(ab).toString("base64")];
       } catch (e) { return [u, null]; }
@@ -219,6 +447,7 @@ export async function urlToSpec(url, opts = {}) {
       }
       if (n && n.children) for (const c of n.children) walk(c);
     })(spec);
+    await normalizeSpecMedia(spec);
 
     // Source-aware enrichment: if the agent passes a sourceDir (the
     // GitHub repo serving the URL), read tokens.json / :root css vars
@@ -380,6 +609,243 @@ export async function fingerprintUrl(url, opts = {}) {
 }
 
 /**
+ * Discover hover/focus-capable elements on a page. This is the first step
+ * toward generated prototype variants: before generating Figma
+ * component variants, tell the agent which elements actually change state.
+ */
+export async function auditInteractions(url, opts = {}) {
+  const width = opts.width || 1280;
+  const height = opts.height || 900;
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise(r => setTimeout(r, opts.settleMs || 1200));
+    return await page.evaluate(() => {
+      const interactiveSelector = [
+        "a[href]",
+        "button",
+        "input",
+        "select",
+        "textarea",
+        "[role=button]",
+        "[tabindex]",
+        "[onclick]",
+        "[data-hover]",
+        "[data-state]"
+      ].join(",");
+      const styleSheets = Array.from(document.styleSheets);
+      const hoverSelectors = [];
+      const focusSelectors = [];
+      for (const sheet of styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch (e) { continue; }
+        if (!rules) continue;
+        const stack = Array.from(rules);
+        while (stack.length) {
+          const rule = stack.shift();
+          if (rule.cssRules) {
+            stack.push(...Array.from(rule.cssRules));
+            continue;
+          }
+          const sel = rule.selectorText || "";
+          if (!sel) continue;
+          if (sel.includes(":hover")) hoverSelectors.push(sel);
+          if (sel.includes(":focus")) focusSelectors.push(sel);
+        }
+      }
+      for (const style of Array.from(document.querySelectorAll("style"))) {
+        const text = style.textContent || "";
+        for (const m of text.matchAll(/([^{}]+):hover[^{}]*\{/g)) hoverSelectors.push(m[1].trim() + ":hover");
+        for (const m of text.matchAll(/([^{}]+):focus[^{}]*\{/g)) focusSelectors.push(m[1].trim() + ":focus");
+      }
+      const elements = Array.from(document.querySelectorAll(interactiveSelector)).slice(0, 100).map((el, index) => {
+        const rect = el.getBoundingClientRect();
+        const text = (el.innerText || el.getAttribute("aria-label") || el.getAttribute("title") || "").replace(/\s+/g, " ").trim();
+        const cs = getComputedStyle(el);
+        return {
+          index,
+          tag: el.tagName.toLowerCase(),
+          role: el.getAttribute("role") || null,
+          type: el.getAttribute("type") || null,
+          text: text.slice(0, 80),
+          href: el.getAttribute("href") || null,
+          className: String(el.className || "").slice(0, 120),
+          rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
+          cursor: cs.cursor,
+          transition: cs.transitionDuration && cs.transitionDuration !== "0s" ? cs.transitionDuration : null,
+        };
+      });
+      return {
+        ok: true,
+        url: location.href,
+        title: document.title,
+        interactiveCount: elements.length,
+        elements,
+        css: {
+          hoverSelectorCount: hoverSelectors.length,
+          focusSelectorCount: focusSelectors.length,
+          hoverSelectors: hoverSelectors.slice(0, 30),
+          focusSelectors: focusSelectors.slice(0, 30),
+        }
+      };
+    });
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
+/**
+ * Preflight a URL for the common failure modes users report in website
+ * to Figma importers: bot-protection pages, missing fonts, low-res
+ * images, SVG-heavy pages, deep wrapper nesting / auto-layout noise,
+ * and full-page capture surprises.
+ */
+export async function preflightImport(url, opts = {}) {
+  const width = opts.width || 1280;
+  const height = opts.height || 900;
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise(r => setTimeout(r, opts.settleMs || 1500));
+    return await page.evaluate((status, viewportWidth, viewportHeight) => {
+      const text = (document.body && document.body.innerText || "").replace(/\s+/g, " ").trim().slice(0, 5000);
+      const lower = text.toLowerCase();
+      const botSignals = [
+        "captcha", "verify you are human", "human verification", "checking your browser",
+        "cloudflare", "access denied", "unusual traffic", "bot protection"
+      ].filter(s => lower.includes(s));
+      const fonts = {};
+      const maxDepth = { value: 0 };
+      function depth(el, d) {
+        if (!el || !el.children) return;
+        if (d > maxDepth.value) maxDepth.value = d;
+        for (const child of el.children) depth(child, d + 1);
+      }
+      depth(document.body, 1);
+      for (const el of document.querySelectorAll("*")) {
+        const cs = getComputedStyle(el);
+        const fam = (cs.fontFamily || "").split(",")[0].replace(/['"]/g, "").trim();
+        if (fam) fonts[fam] = (fonts[fam] || 0) + 1;
+      }
+      const images = Array.from(document.images).map((img) => {
+        const r = img.getBoundingClientRect();
+        const renderedW = Math.round(r.width);
+        const renderedH = Math.round(r.height);
+        const naturalW = img.naturalWidth || 0;
+        const naturalH = img.naturalHeight || 0;
+        const ratio = renderedW && renderedH && naturalW && naturalH
+          ? Math.min(naturalW / renderedW, naturalH / renderedH)
+          : null;
+        return {
+          src: img.currentSrc || img.src || "",
+          alt: img.alt || "",
+          rendered: { width: renderedW, height: renderedH },
+          natural: { width: naturalW, height: naturalH },
+          scaleRatio: ratio == null ? null : Math.round(ratio * 100) / 100,
+        };
+      });
+      const lowResImages = images.filter(img => img.scaleRatio != null && img.scaleRatio < 1.5 && img.rendered.width > 32 && img.rendered.height > 32);
+      const largeImages = images.filter(img => img.natural.width >= 1600 || img.natural.height >= 1600);
+      const fontFaces = [];
+      const fontDownloadUrls = new Set();
+      function absolutizeFontUrl(raw) {
+        if (!raw) return null;
+        try { return new URL(raw, document.baseURI).href; }
+        catch { return raw; }
+      }
+      function collectFontFaceRule(rule) {
+        if (!rule || !rule.style) return;
+        const family = (rule.style.getPropertyValue("font-family") || "").replace(/['"]/g, "").trim();
+        const weight = (rule.style.getPropertyValue("font-weight") || "").trim();
+        const style = (rule.style.getPropertyValue("font-style") || "").trim();
+        const src = rule.style.getPropertyValue("src") || "";
+        const urls = [];
+        for (const m of src.matchAll(/url\((['"]?)(.*?)\1\)/g)) {
+          const abs = absolutizeFontUrl(m[2]);
+          if (abs) {
+            urls.push(abs);
+            fontDownloadUrls.add(abs);
+          }
+        }
+        if (family || urls.length) fontFaces.push({ family, weight, style, urls });
+      }
+      function walkRules(rules) {
+        if (!rules) return;
+        for (const rule of Array.from(rules)) {
+          try {
+            if (rule.type === CSSRule.FONT_FACE_RULE) collectFontFaceRule(rule);
+            if (rule.cssRules) walkRules(rule.cssRules);
+          } catch {}
+        }
+      }
+      for (const sheet of Array.from(document.styleSheets)) {
+        try { walkRules(sheet.cssRules); } catch {}
+      }
+      for (const style of Array.from(document.querySelectorAll("style"))) {
+        const textCss = style.textContent || "";
+        for (const block of textCss.matchAll(/@font-face\s*\{([\s\S]*?)\}/gi)) {
+          const body = block[1] || "";
+          const familyMatch = body.match(/font-family\s*:\s*([^;]+)/i);
+          const weightMatch = body.match(/font-weight\s*:\s*([^;]+)/i);
+          const styleMatch = body.match(/font-style\s*:\s*([^;]+)/i);
+          const urls = [];
+          for (const m of body.matchAll(/url\((['"]?)(.*?)\1\)/g)) {
+            const abs = absolutizeFontUrl(m[2]);
+            if (abs) {
+              urls.push(abs);
+              fontDownloadUrls.add(abs);
+            }
+          }
+          if (familyMatch || urls.length) {
+            fontFaces.push({
+              family: familyMatch ? familyMatch[1].replace(/['"]/g, "").trim() : "",
+              weight: weightMatch ? weightMatch[1].trim() : "",
+              style: styleMatch ? styleMatch[1].trim() : "",
+              urls,
+            });
+          }
+        }
+      }
+      const svgs = document.querySelectorAll("svg").length;
+      const inlineSvgWithImages = Array.from(document.querySelectorAll("svg image")).length;
+      const pageW = Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0);
+      const pageH = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
+      const issues = [];
+      if (status && status >= 400) issues.push({ severity: "error", type: "http-status", message: `HTTP status ${status}` });
+      if (botSignals.length) issues.push({ severity: "error", type: "bot-protection", message: `Possible bot-protection page: ${botSignals.join(", ")}` });
+      if (Object.keys(fonts).length > 6) issues.push({ severity: "warn", type: "many-fonts", message: `${Object.keys(fonts).length} font families detected; verify local Figma availability.` });
+      if (fontDownloadUrls.size) issues.push({ severity: "info", type: "font-downloads", message: `${fontDownloadUrls.size} downloadable font asset(s) detected; review font download URLs and install missing families before import.` });
+      if (lowResImages.length) issues.push({ severity: "warn", type: "low-res-images", message: `${lowResImages.length} image(s) may import soft; prefer high-res sources.` });
+      if (svgs) issues.push({ severity: "info", type: "svg-heavy", message: `${svgs} inline SVG(s) detected; verify vector/image handling after import.` });
+      if (maxDepth.value > 18) issues.push({ severity: "warn", type: "deep-dom", message: `DOM depth ${maxDepth.value}; expect nested layer/auto-layout noise.` });
+      if (pageW > viewportWidth + 2) issues.push({ severity: "warn", type: "horizontal-scroll", message: `Page width ${pageW}px exceeds viewport ${viewportWidth}px.` });
+      if (pageH > 30000) issues.push({ severity: "warn", type: "very-tall-page", message: `Page height ${pageH}px may be slow to import/export.` });
+      return {
+        ok: !issues.some(i => i.severity === "error"),
+        url: location.href,
+        title: document.title,
+        status: status || null,
+        viewport: { width: viewportWidth, height: viewportHeight },
+        page: { width: pageW, height: pageH, maxDomDepth: maxDepth.value },
+        fonts: Object.entries(fonts).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([family, count]) => ({ family, count })),
+        fontFaces: fontFaces.slice(0, 60),
+        fontDownloads: Array.from(fontDownloadUrls).slice(0, 60),
+        images: { count: images.length, lowResCount: lowResImages.length, largeSourceCount: largeImages.length, lowRes: lowResImages.slice(0, 10) },
+        svgs: { count: svgs, imageTagsInsideSvg: inlineSvgWithImages },
+        botSignals,
+        issues,
+      };
+    }, response && response.status ? response.status() : null, width, height);
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
+/**
  * Verify that every visible text string from the live page also exists in
  * a freshly-extracted spec. Returns { matched, missing[], extra[] } — a
  * fast-feedback signal that the extractor didn't drop content.
@@ -396,7 +862,28 @@ export async function verifyTextFidelity(url, spec, opts = {}) {
       const out = new Set();
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       let n;
+      function isVisibleTextNode(node) {
+        const el = node.parentElement;
+        if (!el) return false;
+        let cur = el;
+        while (cur && cur.nodeType === 1) {
+          const cs = getComputedStyle(cur);
+          if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse" || cs.opacity === "0") return false;
+          cur = cur.parentElement;
+        }
+        const range = document.createRange();
+        try {
+          range.selectNodeContents(node);
+          for (const r of Array.from(range.getClientRects())) {
+            if (r.width > 0 && r.height > 0) return true;
+          }
+        } finally {
+          range.detach();
+        }
+        return false;
+      }
       while ((n = walker.nextNode())) {
+        if (!isVisibleTextNode(n)) continue;
         const t = (n.textContent || '').replace(/\s+/g, ' ').trim();
         if (t.length >= 3) out.add(t);
       }
@@ -463,16 +950,18 @@ async function diffPngs(pngA, pngB) {
   const pixelmatch = (await import("pixelmatch")).default;
   const a = PNG.sync.read(Buffer.isBuffer(pngA) ? pngA : Buffer.from(pngA));
   let b = PNG.sync.read(Buffer.isBuffer(pngB) ? pngB : Buffer.from(pngB));
-  // Resize b to match a if dimensions differ (Figma exports may be 2x).
+  // Resize b to match a if dimensions differ (Figma exports may be 2x,
+  // or pages can shift height between extraction and measurement).
   if (a.width !== b.width || a.height !== b.height) {
-    // Use sharp if present; else just bail with a note.
+    // Use sharp if present; otherwise fall back to a tiny nearest-neighbor
+    // resizer so fidelity measurement still returns a useful score.
     try {
       const sharp = (await import("sharp")).default;
       const buf = await sharp(Buffer.isBuffer(pngB) ? pngB : Buffer.from(pngB))
         .resize(a.width, a.height, { fit: "fill" }).png().toBuffer();
       b = PNG.sync.read(buf);
     } catch (e) {
-      return { ok: false, error: "Dimensions differ and sharp not installed. a=" + a.width + "x" + a.height + " b=" + b.width + "x" + b.height };
+      b = resizePngNearest(PNG, b, a.width, a.height);
     }
   }
   const diff = new PNG({ width: a.width, height: a.height });
@@ -507,6 +996,190 @@ async function diffPngs(pngA, pngB) {
     dimensions: { w: a.width, h: a.height },
     regions: regions.slice(0, 10),
   };
+}
+
+function compareSets(a, b, limit = 30) {
+  const aa = new Set(a || []);
+  const bb = new Set(b || []);
+  const missing = [];
+  const added = [];
+  for (const x of aa) {
+    if (!bb.has(x)) missing.push(x);
+    if (missing.length >= limit) break;
+  }
+  for (const x of bb) {
+    if (!aa.has(x)) added.push(x);
+    if (added.length >= limit) break;
+  }
+  return { missing, added, missingCount: [...aa].filter(x => !bb.has(x)).length, addedCount: [...bb].filter(x => !aa.has(x)).length };
+}
+
+function featureDrift(base, candidate) {
+  const out = [];
+  const a = base && base.features || {};
+  const b = candidate && candidate.features || {};
+  const keys = Array.from(new Set(Object.keys(a).concat(Object.keys(b)))).sort();
+  for (const key of keys) {
+    const before = Number(a[key] || 0);
+    const after = Number(b[key] || 0);
+    if (before === after) continue;
+    out.push({ feature: key, before, after, delta: after - before });
+  }
+  return out.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta)).slice(0, 20);
+}
+
+function mobileSummaryDelta(base, candidate) {
+  const a = base && base.summary || {};
+  const b = candidate && candidate.summary || {};
+  return {
+    totalIssues: (b.totalIssues || 0) - (a.totalIssues || 0),
+    overflowXCount: (b.overflowXCount || 0) - (a.overflowXCount || 0),
+    tinyTouchTargetCount: (b.tinyTouchTargetCount || 0) - (a.tinyTouchTargetCount || 0),
+    tinyTextCount: (b.tinyTextCount || 0) - (a.tinyTextCount || 0),
+    fixedTrapCount: (b.fixedTrapCount || 0) - (a.fixedTrapCount || 0),
+    horizontalScrollViewports: compareSets(a.horizontalScrollViewports || [], b.horizontalScrollViewports || [], 10),
+  };
+}
+
+async function captureRegressionPage(url, width, opts = {}) {
+  const height = opts.height || (width >= 1024 ? 900 : (width >= 600 ? 1024 : 812));
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: opts.timeoutMs || 30000 });
+    await new Promise(r => setTimeout(r, opts.settleMs || 1200));
+    const screenshot = await page.screenshot({ fullPage: true, type: "png" });
+    const metrics = await page.evaluate(() => {
+      function visibleTextScript() {
+        return Array.from(document.querySelectorAll("body *"))
+          .filter(el => {
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return cs.display !== "none" && cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
+          })
+          .map(el => (el.textContent || "").replace(/\s+/g, " ").trim())
+          .filter(t => t.length >= 3 && t.length <= 160);
+      }
+      const doc = document.documentElement;
+      const body = document.body;
+      return {
+        title: document.title,
+        url: location.href,
+        width: Math.max(doc.scrollWidth, body ? body.scrollWidth : 0),
+        height: Math.max(doc.scrollHeight, body ? body.scrollHeight : 0),
+        text: visibleTextScript(),
+      };
+    });
+    return { status: response && response.status ? response.status() : null, screenshot, metrics };
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
+/**
+ * Compare a baseline URL and candidate URL to find frontend/UI regressions.
+ * This is intentionally deterministic: screenshot pixel diff, visible-text
+ * changes, responsive issue deltas, and CSS-feature drift. Agents can layer
+ * product judgment on top, but the measurements themselves are stable.
+ */
+export async function auditRegression(baselineUrl, candidateUrl, opts = {}) {
+  const widths = opts.widths && opts.widths.length ? opts.widths : [1280, 768, 375];
+  const minScore = opts.minScore == null ? 96 : Number(opts.minScore);
+  const maxNewResponsiveIssues = opts.maxNewResponsiveIssues == null ? 0 : Number(opts.maxNewResponsiveIssues);
+  const maxMissingText = opts.maxMissingText == null ? 0 : Number(opts.maxMissingText);
+  const settleMs = opts.settleMs || 1200;
+  const visual = [];
+  const text = [];
+  const issues = [];
+
+  for (const width of widths) {
+    const [base, candidate] = await Promise.all([
+      captureRegressionPage(baselineUrl, width, { settleMs }),
+      captureRegressionPage(candidateUrl, width, { settleMs }),
+    ]);
+    const diff = await diffPngs(base.screenshot, candidate.screenshot);
+    const textDelta = compareSets(base.metrics.text, candidate.metrics.text);
+    const heightDelta = Math.round((candidate.metrics.height || 0) - (base.metrics.height || 0));
+    const widthDelta = Math.round((candidate.metrics.width || 0) - (base.metrics.width || 0));
+    visual.push({
+      width,
+      score: diff.score,
+      diffPercent: diff.diffPercent,
+      pixelsDiff: diff.pixelsDiff,
+      dimensions: diff.dimensions,
+      regions: diff.regions,
+      pageSizeDelta: { width: widthDelta, height: heightDelta },
+    });
+    text.push({ width, ...textDelta });
+    if (diff.score < minScore) {
+      issues.push({ severity: "warn", type: "visual-diff", width, message: `Visual score ${diff.score} is below ${minScore}.`, regions: diff.regions.slice(0, 5) });
+    }
+    if (textDelta.missingCount > maxMissingText) {
+      issues.push({ severity: "error", type: "missing-text", width, message: `${textDelta.missingCount} visible text string(s) disappeared.`, missing: textDelta.missing.slice(0, 10) });
+    }
+    if (Math.abs(heightDelta) > 400) {
+      issues.push({ severity: "info", type: "page-height-change", width, message: `Page height changed by ${heightDelta}px.` });
+    }
+    if (candidate.status && candidate.status >= 400) {
+      issues.push({ severity: "error", type: "candidate-http-status", width, message: `Candidate returned HTTP ${candidate.status}.` });
+    }
+  }
+
+  const viewports = widths.map(width => ({
+    name: String(width),
+    width,
+    height: width >= 1024 ? 900 : (width >= 600 ? 1024 : 812),
+  }));
+  const [baselineMobile, candidateMobile, baselineFingerprint, candidateFingerprint] = await Promise.all([
+    auditMobile(baselineUrl, { viewports, settleMs }),
+    auditMobile(candidateUrl, { viewports, settleMs }),
+    fingerprintUrl(baselineUrl, { width: Math.max(...widths), settleMs }),
+    fingerprintUrl(candidateUrl, { width: Math.max(...widths), settleMs }),
+  ]);
+  const responsiveDelta = mobileSummaryDelta(baselineMobile, candidateMobile);
+  if (responsiveDelta.totalIssues > maxNewResponsiveIssues) {
+    issues.push({ severity: "error", type: "responsive-regression", message: `${responsiveDelta.totalIssues} new responsive issue(s).`, delta: responsiveDelta });
+  }
+
+  const drift = featureDrift(baselineFingerprint, candidateFingerprint);
+  const errors = issues.filter(i => i.severity === "error").length;
+  const warns = issues.filter(i => i.severity === "warn").length;
+  return {
+    ok: errors === 0,
+    baselineUrl,
+    candidateUrl,
+    thresholds: { minScore, maxNewResponsiveIssues, maxMissingText },
+    summary: {
+      errors,
+      warnings: warns,
+      worstVisualScore: visual.reduce((min, v) => Math.min(min, v.score), 100),
+      newResponsiveIssues: responsiveDelta.totalIssues,
+      missingTextCount: text.reduce((n, t) => n + t.missingCount, 0),
+    },
+    visual,
+    text,
+    responsive: { baseline: baselineMobile.summary, candidate: candidateMobile.summary, delta: responsiveDelta },
+    featureDrift: drift,
+    issues,
+  };
+}
+
+function resizePngNearest(PNG, src, width, height) {
+  const out = new PNG({ width, height });
+  for (let y = 0; y < height; y++) {
+    const sy = Math.min(src.height - 1, Math.floor(y * src.height / height));
+    for (let x = 0; x < width; x++) {
+      const sx = Math.min(src.width - 1, Math.floor(x * src.width / width));
+      const si = (sy * src.width + sx) * 4;
+      const di = (y * width + x) * 4;
+      out.data[di] = src.data[si];
+      out.data[di + 1] = src.data[si + 1];
+      out.data[di + 2] = src.data[si + 2];
+      out.data[di + 3] = src.data[si + 3];
+    }
+  }
+  return out;
 }
 
 /** Render URL and return a base64 PNG screenshot (full page). */
@@ -620,6 +1293,7 @@ export async function auditMobile(url, opts = {}) {
     tinyTextCount: results.reduce((a, r) => a + r.tinyText.length, 0),
     fixedTrapCount: results.reduce((a, r) => a + r.fixedTraps.length, 0),
   };
+  summary.totalIssues = summary.horizontalScrollViewports.length + summary.overflowXCount + summary.tinyTouchTargetCount + summary.tinyTextCount + summary.fixedTrapCount;
   return { ok: true, url, viewports: results, summary };
 }
 

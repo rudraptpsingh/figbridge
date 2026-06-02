@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(__dirname, "..", "mcp", "bin", "figbridge-mcp.js");
-const PORT = 7336;
+const PORT = Number(process.env.FIGBRIDGE_TEST_PORT || 7336);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 function ok(m) { process.stdout.write("  ✓ " + m + "\n"); }

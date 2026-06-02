@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Figbridge Capture</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="mark">Fb</div>
+    <div>
+      <h1>Figbridge Capture</h1>
+      <p id="bridge-status">Checking bridge...</p>
+    </div>
+  </header>
+
+  <main>
+    <label class="toggle">
+      <input id="include-snapshot" type="checkbox" checked>
+      <span>Include viewport snapshot reference</span>
+    </label>
+    <label class="toggle compact">
+      <input id="capture-full-page" type="checkbox">
+      <span>Capture full page DOM (slower)</span>
+    </label>
+
+    <button id="capture-tab" class="primary">Send visible viewport</button>
+    <button id="pick-element">Pick element on page</button>
+    <button id="capture-selected">Send selected element</button>
+
+    <p class="hint">Requires the Figbridge Figma plugin with Live bridge enabled. Data is posted only to localhost.</p>
+    <pre id="log" aria-live="polite"></pre>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Figbridge
 
-**Figma ↔ code, in both directions.** Free, local, no Dev Mode seat, no account.
+**Figma ↔ code, in both directions.** Free, open source, local, and built for the community.
 
 Figbridge is a Figma plugin + local MCP server. Open the plugin on any file, toggle the **Live bridge**, and any MCP-capable agent (Claude Desktop, Claude Code, Cursor, Continue, Cline…) can read screens, tokens, and components, **import a whole URL into Figma**, **audit the imported design**, **diff it back against the source**, and **emit a patch for the source repo** — over `127.0.0.1`.
 
@@ -13,12 +13,15 @@ Figbridge is a Figma plugin + local MCP server. Open the plugin on any file, tog
 
 ## Why
 
-Figma's own [Dev Mode MCP](https://help.figma.com/hc/en-us/articles/32132100833559) requires a **$25/seat Dev subscription**, runs in the cloud, and emits prescriptive React+Tailwind that poisons an agent's context. Third-party plugins like Anima / Codejet / Builder.io require accounts and run in the cloud.
+Figbridge is built for the community path: free, open source, local, and useful from website capture all the way back to source patches.
 
 Figbridge:
 - **Free.** MIT. Runs entirely on your machine.
 - **No account, no token.** Uses your existing Figma desktop session.
-- **40+ MCP tools.** Read, catalog, write-back, lint, ship an agent handoff bundle, import a live URL into Figma, audit the imported design across 5 dimensions, and round-trip changes back to a source repo as a patch.
+- **45 MCP tools.** Read, catalog, write-back, lint, ship an agent handoff bundle, import a live URL into Figma, audit the imported design across 5 dimensions, and round-trip changes back to a source repo as a patch.
+- **Import diagnostics before you wait.** `preflight_import` flags bot pages, deep DOM, low-res images, SVG-heavy pages, and downloadable font assets before a full import.
+- **Hybrid fallback for hard pages.** `import_url({ hybridSnapshot: true })` can place a full-page screenshot reference under editable layers for video-heavy or generated sites where pixel fidelity matters.
+- **Chrome/Edge current-tab capture.** Load `chrome-extension/` unpacked to send visible viewports, full pages, selected elements, authenticated tabs, localhost, or staging pages directly to the local bridge.
 - **Offline agent bundle.** `get_agent_bundle` produces a zip (hierarchy · tokens · components · AGENTS.md · CHANGES.md) an agent can ship from *without* a live MCP connection.
 - **Deterministic.** No LLM rewrites. What you select is what you get.
 - **Live.** Toggle "Live bridge" and every selection change auto-pushes; agents pull the current selection instantly.
@@ -78,13 +81,25 @@ Use `npx figbridge-mcp init --pin` if you'd rather lock to the currently install
 
 **Act & Handoff (5)** — `get_agent_bundle` · `clone_screen` · `recolor` · `apply_tokens` · `lint_ds`
 
-**Browser (6)** — `import_url` (live URL → Figma frame), `screenshot_url`, `probe_url`, `fingerprint_url`, `verify_text_fidelity`, `measure_fidelity`
+**Browser (11)** — `preflight_import` (risk check before import, including font download URLs), `import_url` (live URL → Figma frame; optional `hybridSnapshot` screenshot reference), `import_responsive_set` (desktop / tablet / mobile and optional light / dark theme captures), `import_url_batch` (bulk URL imports), `screenshot_url`, `probe_url`, `fingerprint_url`, `audit_interactions` (hover / focus discovery), `verify_text_fidelity`, `measure_fidelity`, `audit_regression` (baseline URL vs candidate URL frontend/UI regression audit)
 
 **Pillar 1 — Round-trip editing (2)** — `diff_to_source` (per-text-node field diff between imported frame and live source) · `generate_patch` (turn the diff into a minimal HTML/JSX/etc patch against a source dir; style swaps get structured CSS-file hints)
 
 **Pillar 2 — Design intelligence audits (5)** — `audit_palette` · `audit_typography` · `audit_a11y` (WCAG 2.x contrast, landmarks, alt text) · `audit_whitespace` (padding/gap rhythm, 4/8-grid conformance) · `audit_mobile` (multi-viewport responsive: horizontal scroll, overflow-x, sub-44px touch targets, sub-12px text)
 
-All audits are pure deterministic measurement — no LLM. They return numeric scores and structured issue lists ready to feed back into a planning loop.
+All audits are pure deterministic measurement — no LLM. They return numeric scores and structured issue lists ready to feed back into a planning loop. `audit_regression` can be used as a local/CI gate before shipping a UI change: it compares screenshots, missing visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
+
+## Chrome current-tab capture
+
+The `chrome-extension/` folder contains an unpacked MV3 extension for authenticated pages:
+
+1. Open `chrome://extensions`, enable **Developer mode**, and load the `chrome-extension/` folder unpacked.
+2. Start Figbridge MCP and open the Figbridge Figma plugin with **Live bridge** enabled.
+3. Use the extension popup to send the visible viewport, opt into full-page DOM capture, pick a page element, or include a viewport screenshot reference beneath editable layers.
+
+Browser captures can group each website or project into its own Figma page, for example `Chrome Capture - Raycast` or `Chrome Capture - Localhost`, so separate projects stay navigable inside one open Figma file.
+
+The extension only posts to `127.0.0.1:7331..7340`; it does not send page data to a cloud service.
 
 ## The agent handoff bundle
 
@@ -122,8 +137,8 @@ Figbridge is the first MCP-native tool that closes the loop in both directions.
                                                          apply or review
 ```
 
-1. **`import_url`** pulls a live URL into a Figma page (multi-page aware via `pageName`).
-2. **Audit** the result with the five Pillar 2 tools to find palette drift, contrast failures, off-grid spacing, mobile breakage.
+1. **`import_url`** pulls a live URL into a Figma page (multi-page aware via `pageName`; section-aware via `rootSelector`).
+2. **Audit** the result with the five Pillar 2 tools to find palette drift, contrast failures, off-grid spacing, mobile breakage. Use **`audit_regression`** to compare production/staging against a local candidate and catch UI/UX regressions before updating Figma or shipping code.
 3. The designer edits the frame in Figma.
 4. **`diff_to_source`** reports exactly which text-node fields diverged from the source URL — characters / fontSize / fontFamily / color / presence.
 5. **`generate_patch`** turns the diff into a minimal before/after edit list against a local source directory. Style swaps get structured hints (token vs literal) instead of blind text replacements.

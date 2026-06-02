@@ -12,7 +12,7 @@ import os from "node:os";
 
 const BIN = "/Users/rp/github/figbridge/mcp/bin/figbridge-mcp.js";
 const NODE = "/opt/homebrew/bin/node";
-const PORT = 7331;
+const PORT = Number(process.env.FIGBRIDGE_PORT || 7331);
 const STORE = path.join(os.homedir(), ".figbridge", "last.json");
 
 function log(...a) { process.stdout.write("• " + a.join(" ") + "\n"); }
@@ -23,7 +23,10 @@ try { fs.rmSync(STORE, { force: true }); } catch {}
 try { fs.rmSync(path.join(os.homedir(), ".figbridge", "history.json"), { force: true }); } catch {}
 
 function startServer() {
-  const child = spawn(NODE, [BIN], { stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(NODE, [BIN], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, FIGBRIDGE_PORT: String(PORT) }
+  });
   const state = { stdoutBuf: "", stderrBuf: "", pending: new Map(), nextId: 1, child };
   child.stderr.on("data", (d) => { state.stderrBuf += d.toString(); });
   child.stdout.on("data", (d) => {
@@ -89,7 +92,7 @@ async function main() {
   log("phase 1: start server, prove it's ready");
   const s1 = startServer();
   if (!(await waitBridge())) fail(`bridge never came up\nstderr:\n${s1.stderrBuf}`);
-  ok("bridge on :7331 is up");
+  ok(`bridge on :${PORT} is up`);
 
   const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
   if (!health.ok) fail("health check failed");

@@ -147,11 +147,38 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
               return outPath;
             };
             if (body.action === "import-url") {
-              const spec = await urlToSpec(args.url, { width: args.width || 1280, name: args.name || null, colorScheme: args.colorScheme || null, sourceDir: args.sourceDir || null });
+              const spec = await urlToSpec(args.url, { width: args.width || 1280, name: args.name || null, colorScheme: args.colorScheme || null, rootSelector: args.rootSelector || "body", sourceDir: args.sourceDir || null });
               // Carry pageName through so the plugin handler can route
               // the imported frame to its own Figma Page.
               if (args.pageName) spec.__pageName = args.pageName;
               if (args.name) spec.name = args.name;
+              if (args.hybridSnapshot) {
+                try {
+                  const b64 = await screenshotUrl(args.url, {
+                    width: args.width || 1280,
+                    fullPage: true,
+                    colorScheme: args.colorScheme || null
+                  });
+                  const snapshot = {
+                    type: "rect",
+                    name: "Hybrid snapshot reference",
+                    x: 0,
+                    y: 0,
+                    width: spec.width || args.width || 1280,
+                    height: spec.height || 1,
+                    imageScaleMode: "FILL",
+                    _imageBytes: "data:image/png;base64," + b64,
+                  };
+                  spec.layout = "NONE";
+                  spec.children = [snapshot].concat(spec.children || []);
+                  spec._hybridSnapshot = {
+                    enabled: true,
+                    note: "Full-page screenshot inserted behind editable layers for high-fidelity visual reference."
+                  };
+                } catch (e) {
+                  spec._hybridSnapshot = { enabled: false, error: e && e.message || String(e) };
+                }
+              }
               // Telemetry: count nodes + features so the response gives
               // visibility into what was captured.
               const telemetry = { nodes: 0, gradients: 0, perSidePadding: 0, xy: 0, shadows: 0, borders: 0, svgs: 0, images: 0, ranges: 0, transforms: 0, blends: 0 };

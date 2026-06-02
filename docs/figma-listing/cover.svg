@@ -50,7 +50,7 @@
     <line x1="260" y1="30" x2="440" y2="30" stroke="#2b3a33"/>
     <text x="350" y="70" text-anchor="middle" font-family="'Fraunces', serif" font-style="italic" font-size="26" fill="#e6dfcc">figbridge-mcp</text>
     <text x="350" y="92" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="13" fill="#7dd3a0">:7331 · HTTP + SSE</text>
-    <text x="350" y="114" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="12" fill="#b9c2bc">17 tools · stdio MCP</text>
+    <text x="350" y="114" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="12" fill="#b9c2bc">45 tools · stdio MCP</text>
 
     <!-- Arrow 2 -->
     <line x1="460" y1="70" x2="520" y2="70" stroke="#0e1a15" stroke-width="1.5" marker-end="url(#arr)"/>

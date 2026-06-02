@@ -1,6 +1,6 @@
 // Exercise every MCP tool. Tools that need a live plugin will return
-// a graceful error (timeout/not-connected); we just assert the server
-// stays up, lists all 18 tools, and never crashes or hangs.
+// a graceful error (timeout/not-connected); we assert the full public
+// tool surface is registered and the server never crashes or hangs.
 //
 // Run: node test/tools-all.mjs
 
@@ -105,9 +105,17 @@ async function main() {
     "select_node", "export_node", "list_screens", "list_components", "describe_screen",
     "export_app_spec", "clone_screen", "recolor", "apply_tokens", "list_assets",
     "lint_ds", "get_agent_bundle", "diff_since",
-    "list_pages", "list_frames", "export_all_pages"
+    "list_pages", "list_frames", "export_all_pages",
+    "preflight_import", "import_url", "import_responsive_set", "import_url_batch",
+    "verify_text_fidelity", "screenshot_url", "visual_diff", "fingerprint_url", "audit_interactions",
+    "audit_mobile", "measure_fidelity", "audit_regression", "probe_url",
+    "diff_to_source", "generate_patch",
+    "audit_palette", "audit_typography", "audit_a11y", "audit_whitespace", "export_frame",
+    "import_from_code", "update_from_code", "run_script", "delete_node"
   ];
   for (const n of expected) if (!names.includes(n)) fail(`missing tool: ${n}`);
+  const unexpected = names.filter((n) => !expected.includes(n));
+  if (unexpected.length) fail(`unexpected tools: ${unexpected.join(", ")}`);
   ok(`all ${expected.length} expected tools registered`);
 
   // Read-side tools that should succeed against the pushed payload.

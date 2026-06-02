@@ -553,7 +553,9 @@ function colorToHex(c) {
 
 function hexToRGB(hex) {
   var h = normalizeHex(hex); if (!h) return null;
-  return { r: parseInt(h.slice(1, 3), 16) / 255, g: parseInt(h.slice(3, 5), 16) / 255, b: parseInt(h.slice(5, 7), 16) / 255 };
+  var out = { r: parseInt(h.slice(1, 3), 16) / 255, g: parseInt(h.slice(3, 5), 16) / 255, b: parseInt(h.slice(5, 7), 16) / 255 };
+  if (h.length === 9) out.a = parseInt(h.slice(7, 9), 16) / 255;
+  return out;
 }
 
 async function applyTextReplacements(root, replacements) {
@@ -711,7 +713,8 @@ function _ifcFillFromValue(val) {
       if (layer.kind === "solid" && layer.color) {
         var rgb1 = hexToRGB(layer.color);
         if (rgb1) {
-          var paint = { type: "SOLID", color: { r: rgb1.r, g: rgb1.g, b: rgb1.b }, opacity: rgb1.a == null ? 1 : rgb1.a };
+          var layerOpacity = typeof layer.alpha === "number" ? layer.alpha : (rgb1.a == null ? 1 : rgb1.a);
+          var paint = { type: "SOLID", color: { r: rgb1.r, g: rgb1.g, b: rgb1.b }, opacity: layerOpacity };
           // Bind to Figma Variable if a token name was carried.
           if (layer.token) {
             try {
@@ -778,6 +781,8 @@ function _ifcParseLinearGradient(s) {
     var p = parts[j].trim();
     var posMatch = p.match(/\s+(-?[\d.]+)%\s*$/);
     var pos = posMatch ? Number(posMatch[1]) / 100 : (j / (parts.length - 1 || 1));
+    if (pos < 0) pos = 0;
+    if (pos > 1) pos = 1;
     var colorPart = posMatch ? p.replace(/\s+-?[\d.]+%\s*$/, "") : p;
     var rgb = hexToRGB(colorPart) || _ifcParseRgbString(colorPart);
     if (!rgb) continue;
@@ -855,7 +860,8 @@ function _ifcStrokeToFills(stroke) {
   if (!stroke || !stroke.color) return null;
   var rgb = hexToRGB(stroke.color);
   if (!rgb) return null;
-  return [{ type: "SOLID", color: { r: rgb.r, g: rgb.g, b: rgb.b }, opacity: rgb.a == null ? 1 : rgb.a }];
+  var opacity = typeof stroke.alpha === "number" ? stroke.alpha : (rgb.a == null ? 1 : rgb.a);
+  return [{ type: "SOLID", color: { r: rgb.r, g: rgb.g, b: rgb.b }, opacity: opacity }];
 }
 
 // Apply common visual props to any node that supports them. Safe — checks
@@ -944,6 +950,22 @@ function _ifcSetSize(node, w, h) {
   }
 }
 
+function _ifcApplyImageBytes(node, dataUrl, scaleMode, warnings, label) {
+  try {
+    var raw = String(dataUrl || "").replace(/^data:[^;]+;base64,/, "");
+    var bin = atob(raw);
+    var u8 = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    var img = figma.createImage(u8);
+    var smode = scaleMode === "FIT" || scaleMode === "CROP" || scaleMode === "TILE" ? scaleMode : "FILL";
+    node.fills = [{ type: "IMAGE", scaleMode: smode, imageHash: img.hash }];
+    return true;
+  } catch (e) {
+    _ifcWarn(warnings, (label || "image") + " decode failed: " + e.message);
+    return false;
+  }
+}
+
 async function _ifcCreateNode(spec, warnings) {
   var type = (spec && spec.type) || "frame";
   if (type === "svg") {
@@ -959,12 +981,18 @@ async function _ifcCreateNode(spec, warnings) {
       _ifcApplyCommonProps(node, spec);
       return node;
     } catch (e) {
-      _ifcWarn(warnings, "svg parse failed: " + e.message);
-      // Fall back to a flat rect.
+      // Fall back to a rasterized SVG if the browser-side extractor
+      // provided one, otherwise degrade to a flat colored rectangle.
       var fb = figma.createRectangle();
       _ifcSetSize(fb, spec.width, spec.height);
-      var c = _ifcFillFromValue(spec._color || "#94a3b8");
-      if (c) fb.fills = c;
+      if (spec._svgImageBytes && _ifcApplyImageBytes(fb, spec._svgImageBytes, "FIT", warnings, "svg fallback image")) {
+        if (spec.name) fb.name = spec.name;
+        return fb;
+      } else {
+        _ifcWarn(warnings, "svg parse failed: " + e.message);
+        var c = _ifcFillFromValue(spec._color || "#94a3b8");
+        if (c) fb.fills = c;
+      }
       if (spec.name) fb.name = spec.name;
       return fb;
     }
@@ -1066,16 +1094,7 @@ async function _ifcCreateNode(spec, warnings) {
     if (spec.name) r.name = spec.name;
     // Image fill takes priority over solid fill if `_imageBytes` (base64 PNG/JPG) was inlined.
     if (spec._imageBytes) {
-      try {
-        var raw = spec._imageBytes.replace(/^data:[^;]+;base64,/, "");
-        var bin = atob(raw);
-        var u8 = new Uint8Array(bin.length);
-        for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-        var img = figma.createImage(u8);
-        var smode = spec.imageScaleMode === "FIT" || spec.imageScaleMode === "CROP" || spec.imageScaleMode === "TILE" ? spec.imageScaleMode : "FILL";
-        r.fills = [{ type: "IMAGE", scaleMode: smode, imageHash: img.hash }];
-        return r;
-      } catch (e) { _ifcWarn(warnings, "image decode failed: " + e.message); }
+      if (_ifcApplyImageBytes(r, spec._imageBytes, spec.imageScaleMode, warnings, "image")) return r;
     }
     var f = _ifcFillFromValue(spec.fill);
     if (f) r.fills = f; else r.fills = [];
@@ -1089,16 +1108,7 @@ async function _ifcCreateNode(spec, warnings) {
   // and was server-side-fetched into _imageBytes.
   var fillApplied = false;
   if (spec._imageBytes) {
-    try {
-      var raw = spec._imageBytes.replace(/^data:[^;]+;base64,/, "");
-      var bin = atob(raw);
-      var u8 = new Uint8Array(bin.length);
-      for (var bi = 0; bi < bin.length; bi++) u8[bi] = bin.charCodeAt(bi);
-      var img = figma.createImage(u8);
-      var bgSm = spec.bgScaleMode === "FIT" || spec.bgScaleMode === "CROP" || spec.bgScaleMode === "TILE" ? spec.bgScaleMode : "FILL";
-      fr.fills = [{ type: "IMAGE", scaleMode: bgSm, imageHash: img.hash }];
-      fillApplied = true;
-    } catch (e) { _ifcWarn(warnings, "frame image decode failed: " + e.message); }
+    fillApplied = _ifcApplyImageBytes(fr, spec._imageBytes, spec.bgScaleMode, warnings, "frame image");
   }
   if (spec.clipsContent && "clipsContent" in fr) {
     try { fr.clipsContent = true; } catch (e) {}
@@ -1403,6 +1413,20 @@ var _ifcCgidByNodeId = {};
 
 async function _ifcComponentize(rootNode, warnings) {
   if (!rootNode || !figma.createComponentFromNode) return 0;
+  function textFingerprint(n) {
+    var out = [];
+    function walkText(x) {
+      if (!x) return;
+      if (x.type === "TEXT" && typeof x.characters === "string") {
+        out.push(x.characters.replace(/\s+/g, " ").trim());
+      }
+      if ("children" in x && x.children) {
+        for (var ti = 0; ti < x.children.length; ti++) walkText(x.children[ti]);
+      }
+    }
+    walkText(n);
+    return out.join("\n");
+  }
   // Walk to find group leaders by looking up each node's id in the
   // sidecar map (set when the node was created).
   var groups = {};
@@ -1417,6 +1441,15 @@ async function _ifcComponentize(rootNode, warnings) {
   for (var k = 0; k < keys.length; k++) {
     var members = groups[keys[k]];
     if (members.length < 2) continue;
+    var firstText = textFingerprint(members[0]);
+    var sameText = true;
+    for (var mt = 1; mt < members.length; mt++) {
+      if (textFingerprint(members[mt]) !== firstText) { sameText = false; break; }
+    }
+    if (!sameText) {
+      _ifcWarn(warnings, "componentize skipped " + keys[k] + ": members have different text content");
+      continue;
+    }
     try {
       var first = members[0];
       var component = figma.createComponentFromNode(first);
@@ -1499,8 +1532,10 @@ async function importFromCode(args) {
   }
   // Post-import: convert repeated-sibling groups into Components + Instances.
   var componentsMade = 0;
-  try { componentsMade = await _ifcComponentize(root, warnings); } catch (e) { _ifcWarn(warnings, "componentize: " + e.message); }
-  return { ok: true, nodeId: root.id, name: root.name, createdCount: count(root), componentsCreated: componentsMade, warnings: warnings };
+  if (args.componentize !== false) {
+    try { componentsMade = await _ifcComponentize(root, warnings); } catch (e) { _ifcWarn(warnings, "componentize: " + e.message); }
+  }
+  return { ok: true, nodeId: root.id, name: root.name, pageId: page.id, pageName: page.name, createdCount: count(root), componentsCreated: componentsMade, warnings: warnings };
 }
 
 async function updateFromCode(args) {

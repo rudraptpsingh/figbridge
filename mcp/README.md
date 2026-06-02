@@ -1,8 +1,8 @@
 # figbridge-mcp
 
-Free, local MCP bridge for Figma. Runs on 127.0.0.1. No account, no cloud, no Dev Mode seat.
+Free, open-source, local MCP bridge for Figma. Runs on 127.0.0.1 and gives MCP agents a practical Figma-to-code loop.
 
-Exposes 40+ MCP tools — read screens, export tokens, lint the design system, recolor, clone frames, **import a live URL into Figma**, audit the imported design (palette / typography / a11y / whitespace / mobile), and **diff back to source code as a patch** — to any client that speaks MCP: Claude Desktop, Claude Code, Cursor, Cline, etc.
+Exposes 45 MCP tools — read screens, export tokens, lint the design system, recolor, clone frames, **import a live URL into Figma**, audit the imported design (palette / typography / a11y / whitespace / mobile), and **diff back to source code as a patch** — to any client that speaks MCP: Claude Desktop, Claude Code, Cursor, Cline, etc.
 
 ## Install
 
@@ -49,13 +49,13 @@ The HTTP+SSE bridge binds `127.0.0.1:7331` by default and auto-falls-back to 733
 
 **Act & Handoff** · `get_agent_bundle` · `clone_screen` · `recolor` · `apply_tokens` · `lint_ds`
 
-**Browser** · `import_url` (live URL → Figma frame) · `screenshot_url` · `probe_url` · `fingerprint_url` · `verify_text_fidelity` · `measure_fidelity`
+**Browser** · `preflight_import` (risk check before import, including font download URLs) · `import_url` (live URL → Figma frame; optional `hybridSnapshot` screenshot reference) · `import_responsive_set` (desktop / tablet / mobile and optional light / dark theme captures) · `import_url_batch` (bulk URL imports) · `screenshot_url` · `probe_url` · `fingerprint_url` · `audit_interactions` (hover / focus discovery) · `verify_text_fidelity` · `measure_fidelity` · `audit_regression` (baseline URL vs candidate URL frontend/UI regression audit)
 
 **Pillar 1 — round-trip editing** · `diff_to_source` (per-text-node field diff between an imported Figma frame and the live source) · `generate_patch` (turn the diff into a minimal HTML/JSX patch against a source dir)
 
 **Pillar 2 — design intelligence audits** · `audit_palette` · `audit_typography` · `audit_a11y` (WCAG 2.x contrast, landmarks, alt text) · `audit_whitespace` (padding/gap rhythm, 4/8-grid conformance) · `audit_mobile` (multi-viewport responsive: horizontal scroll, overflow-x, sub-44px touch targets, sub-12px text)
 
-All audits return deterministic numbers — no LLM rewrites.
+All audits return deterministic numbers — no LLM rewrites. `audit_regression` is the before/after gate: screenshot pixel diff, disappeared visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
 
 ## The agent handoff bundle
 

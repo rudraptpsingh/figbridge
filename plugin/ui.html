@@ -8,27 +8,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,300;1,9..144,400;1,9..144,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   /* ───────────────────────────────────────────────────────────────────
-     Figbridge plugin — cream/ink/rust theme (pairs with docs/index.html).
+     Figbridge plugin — cream/ink/product-accent theme (pairs with docs/index.html).
      Layer navigator keeps Figma-native fidelity; surface borrows the
      editorial type palette from the marketing site.
      ─────────────────────────────────────────────────────────────────── */
   :root {
-    --bg:         #ece9dd;   /* warm stone */
-    --paper:      #f7f4ea;   /* cream card */
-    --paper-2:    #efeadb;   /* sunk cream */
-    --ink:        #0e1a15;   /* ink-green */
-    --ink-2:      #2f3d36;
-    --dim:        #6e7870;
-    --line:       #d4cfc0;
-    --line-2:     #bfb8a6;
-    --accent:     #ad2b1f;   /* deep rust */
-    --accent-2:   #d8c9a3;   /* muted gold */
-    --sel:        #efe4d1;   /* selected row fill (rust-tinted cream) */
-    --sel-ink:    #7a1d14;
-    --code-bg:    #0e1a15;
-    --code-ink:   #e6dfcc;
-    --ok:         #3a6a4a;
-    --err:        #ad2b1f;
+    --bg:         #f4f5ee;   /* site cream */
+    --paper:      #fffdf5;   /* crisp panel */
+    --paper-2:    #eef2e8;   /* sunk cream */
+    --ink:        #070b0f;   /* site ink */
+    --ink-2:      #273036;
+    --dim:        #65707c;
+    --line:       #d8ded1;
+    --line-2:     #aeb7a5;
+    --accent:     #ff6b43;   /* workflow orange */
+    --accent-2:   #b8ff4d;   /* workflow green */
+    --accent-3:   #62b4ff;   /* workflow blue */
+    --sel:        #ecf5ff;   /* selected row fill */
+    --sel-ink:    #070b0f;
+    --code-bg:    #0e1722;
+    --code-ink:   #d8e2ef;
+    --ok:         #3a7f48;
+    --err:        #d7422f;
 
     --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
     --mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -190,33 +191,33 @@
 
   /* View switcher — pill segmented control */
   .view-seg {
-    display: inline-flex; border: 1px solid var(--ink); border-radius: 999px;
-    padding: 2px; background: transparent;
+    display: inline-flex; border: 2px solid var(--ink); border-radius: var(--radius-sm);
+    padding: 2px; background: var(--paper);
   }
   .view-seg button {
     font-family: var(--mono); font-size: 11px; font-weight: 500;
     letter-spacing: 0.06em; text-transform: uppercase;
     border: 0; background: transparent; color: var(--ink);
-    padding: 5px 14px; border-radius: 999px; cursor: pointer;
+    padding: 5px 14px; border-radius: var(--radius-sm); cursor: pointer;
     transition: background .16s, color .16s;
   }
   .view-seg button:hover { color: var(--accent); }
   .view-seg button.active { background: var(--ink); color: var(--paper); }
 
   .btn {
-    height: 30px; padding: 0 14px; border-radius: 999px;
-    background: transparent; color: var(--ink); border: 1px solid var(--ink);
+    height: 30px; padding: 0 14px; border-radius: var(--radius-sm);
+    background: transparent; color: var(--ink); border: 2px solid var(--ink);
     font-family: var(--mono); font-size: 11px; font-weight: 500;
     letter-spacing: 0.04em; cursor: pointer;
     display: inline-flex; align-items: center; gap: 7px;
     transition: background .15s, color .15s, border-color .15s;
   }
-  .btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+  .btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); box-shadow: 4px 4px 0 var(--accent-3); }
   .btn:disabled { color: var(--dim); border-color: var(--line-2); cursor: not-allowed; }
   .btn.primary { background: var(--ink); color: var(--paper); }
-  .btn.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+  .btn.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--ink); color: var(--paper); }
   .btn.ghost { border-color: transparent; }
-  .btn.ghost:hover:not(:disabled) { background: var(--paper-2); color: var(--accent); }
+  .btn.ghost:hover:not(:disabled) { background: var(--paper-2); color: var(--accent); box-shadow: none; }
   .btn.icon-only { width: 30px; padding: 0; justify-content: center; }
   .btn svg { width: 12px; height: 12px; }
 
@@ -376,12 +377,12 @@
   }
 
   .cmd-card {
-    background: var(--paper); border: 1px solid var(--line);
-    border-radius: var(--radius-lg); padding: 14px 16px;
+    background: var(--paper); border: 2px solid var(--line-dark, var(--ink));
+    border-radius: var(--radius); padding: 14px 16px;
     margin-bottom: 10px; transition: border-color .15s, box-shadow .15s;
   }
-  .cmd-card:hover { border-color: var(--line-2); }
-  .cmd-card.open { border-color: var(--ink); }
+  .cmd-card:hover { box-shadow: 6px 6px 0 var(--accent-3); }
+  .cmd-card.open { border-color: var(--ink); box-shadow: 6px 6px 0 var(--accent-2); }
   .cmd-card-top { display: flex; align-items: flex-start; gap: 14px; }
   .cmd-card-body { flex: 1; min-width: 0; }
   .cmd-name {
@@ -399,6 +400,13 @@
     letter-spacing: 0.04em;
   }
   .cmd-slug::before { content: "›  "; color: var(--accent); font-weight: 700; }
+  .cmd-mode {
+    display: inline-block; margin: 6px 0 0 8px; padding: 2px 7px;
+    border: 1px solid var(--line-2); background: var(--paper-2);
+    color: var(--ink-2); border-radius: var(--radius-sm);
+    font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
   .cmd-run {
     flex: 0 0 auto; align-self: center;
   }
@@ -699,7 +707,7 @@
         <div class="commands">
           <div class="commands-head">
             <h3>Commands</h3>
-            <div class="lede">Every MCP tool, one click away — the same verbs Claude uses over the bridge.</div>
+            <div class="lede">Plugin actions, local browser runs, and agent-only MCP tools in one searchable surface.</div>
             <label class="commands-search">
               <svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M11 11L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
               <input id="cmdSearch" type="text" placeholder="Filter…" autocomplete="off" />
@@ -721,7 +729,7 @@
 
 <script>
   // ═══════════════════════════════════════════════════════════════════
-  //  Figbridge plugin panel — cream/ink/rust edition
+  //  Figbridge plugin panel — cream/ink/product-accent edition
   // ═══════════════════════════════════════════════════════════════════
 
   (function initWelcome(){
@@ -803,9 +811,9 @@
     page:      '<svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="1.5" width="9" height="11" rx="1" stroke="currentColor" stroke-width="1"/><path d="M5 5h4M5 7h4M5 9h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>',
     frame:     '<svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="2.5" width="9" height="9" rx="0.5" stroke="currentColor" stroke-width="1"/><path d="M1 4.5h2M1 9.5h2M4.5 1v2M9.5 1v2M1 4.5h2M1 9.5h2M11 4.5h2M11 9.5h2M4.5 11v2M9.5 11v2" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>',
     group:     '<svg viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5"/></svg>',
-    component: '<svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#ad2b1f" stroke-width="1" fill="#efe4d1"/></svg>',
-    compset:   '<svg viewBox="0 0 14 14" fill="none"><path d="M4 1.5L6.5 4L4 6.5L1.5 4L4 1.5Z" stroke="#ad2b1f" stroke-width="1"/><path d="M10 1.5L12.5 4L10 6.5L7.5 4L10 1.5Z" stroke="#ad2b1f" stroke-width="1"/><path d="M4 7.5L6.5 10L4 12.5L1.5 10L4 7.5Z" stroke="#ad2b1f" stroke-width="1"/><path d="M10 7.5L12.5 10L10 12.5L7.5 10L10 7.5Z" stroke="#ad2b1f" stroke-width="1"/></svg>',
-    instance:  '<svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#ad2b1f" stroke-width="1"/></svg>',
+    component: '<svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#ff6b43" stroke-width="1" fill="#ecf5ff"/></svg>',
+    compset:   '<svg viewBox="0 0 14 14" fill="none"><path d="M4 1.5L6.5 4L4 6.5L1.5 4L4 1.5Z" stroke="#ff6b43" stroke-width="1"/><path d="M10 1.5L12.5 4L10 6.5L7.5 4L10 1.5Z" stroke="#ff6b43" stroke-width="1"/><path d="M4 7.5L6.5 10L4 12.5L1.5 10L4 7.5Z" stroke="#ff6b43" stroke-width="1"/><path d="M10 7.5L12.5 10L10 12.5L7.5 10L10 7.5Z" stroke="#ff6b43" stroke-width="1"/></svg>',
+    instance:  '<svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#ff6b43" stroke-width="1"/></svg>',
     text:      '<svg viewBox="0 0 14 14" fill="none"><path d="M3 3h8M7 3v9M5 12h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
     vector:    '<svg viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="3" height="3" stroke="currentColor" stroke-width="1"/><rect x="9" y="9" width="3" height="3" stroke="currentColor" stroke-width="1"/><path d="M4 5l6 5" stroke="currentColor" stroke-width="1"/></svg>',
     shape:     '<svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="2.5" width="9" height="9" stroke="currentColor" stroke-width="1"/></svg>',
@@ -1133,7 +1141,7 @@
   var COMMANDS = [
     // Handoff
     { section: "Handoff", name: "Export current selection", slug: "export_selection", desc: "HTML, CSS, Tailwind and tokens for whatever is selected on the canvas.", args: [], run: function () { setView("output"); parent.postMessage({ pluginMessage: { type: "export-selection" } }, "*"); } },
-    { section: "Handoff", name: "Export all pages", slug: "export_all", desc: "Walk every page in the file, merged into a single handoff.", args: [], run: function () { setView("output"); parent.postMessage({ pluginMessage: { type: "export-all" } }, "*"); } },
+    { section: "Handoff", name: "Export all pages", slug: "export_all_pages", desc: "Walk every page in the file, merged into a single handoff.", args: [], run: function () { setView("output"); parent.postMessage({ pluginMessage: { type: "export-all" } }, "*"); } },
     { section: "Handoff", name: "Build agent handoff bundle", slug: "get_agent_bundle", desc: "Zip with hierarchy, tokens, components, AGENTS.md — what an agent actually needs.", args: [
       { name: "budget", label: "Token budget", kind: "select", choices: ["small","medium","large"], default: "medium" },
       { name: "screenshots", label: "Include screenshots", kind: "bool", default: true },
@@ -1181,7 +1189,113 @@
     ], action: "apply-tokens" },
     { section: "Mutation", name: "Lint design system", slug: "lint_ds", desc: "Find unbound colors, non-grid spacing, orphans, duplicates.", args: [
       { name: "pageId", label: "Page id", kind: "text" }
-    ], action: "lint-ds" }
+    ], action: "lint-ds" },
+
+    // Structure
+    { section: "Structure", name: "List pages", slug: "list_pages", desc: "Show every page in the current Figma file.", args: [], action: "list-pages" },
+    { section: "Structure", name: "List frames", slug: "list_frames", desc: "List top-level layers on the current page or a specific page.", args: [
+      { name: "pageId", label: "Page id", kind: "text" }
+    ], action: "list-frames" },
+
+    // Code to Figma
+    { section: "Code to Figma", name: "Import from code", slug: "import_from_code", desc: "Create editable Figma layers from a JSON spec or raw HTML.", args: [
+      { name: "spec", label: "Spec JSON", kind: "json", placeholder: '{"name":"Imported design","layout":"VERTICAL","children":[]}' },
+      { name: "html", label: "Raw HTML", kind: "textarea", placeholder: "<section>...</section>" },
+      { name: "name", label: "Frame name", kind: "text" },
+      { name: "pageId", label: "Target page id", kind: "text" }
+    ], action: "import-from-code" },
+    { section: "Code to Figma", name: "Update from code", slug: "update_from_code", desc: "Replace an existing frame in place from a JSON spec or HTML.", args: [
+      { name: "nodeId", label: "Existing node id", kind: "text" },
+      { name: "name", label: "Existing frame name", kind: "text" },
+      { name: "spec", label: "Spec JSON", kind: "json" },
+      { name: "html", label: "Raw HTML", kind: "textarea" }
+    ], action: "update-from-code" },
+
+    // Browser capture
+    { section: "Browser capture", name: "Import URL", slug: "import_url", desc: "Render a URL in local Chrome and create editable Figma layers.", args: [
+      { name: "url", label: "URL", kind: "text", required: true, placeholder: "https://example.com" },
+      { name: "width", label: "Viewport width", kind: "number", default: 1280 },
+      { name: "pageName", label: "Figma page name", kind: "text" },
+      { name: "rootSelector", label: "Root selector", kind: "text", placeholder: "body" },
+      { name: "dryRun", label: "Dry run only", kind: "bool", default: true },
+      { name: "hybridSnapshot", label: "Add screenshot reference", kind: "bool", default: false }
+    ], serverAction: "import-url" },
+    { section: "Browser capture", name: "Screenshot URL", slug: "screenshot_url", desc: "Capture a page screenshot through the local bridge.", args: [
+      { name: "url", label: "URL", kind: "text", required: true },
+      { name: "width", label: "Viewport width", kind: "number", default: 1280 },
+      { name: "fullPage", label: "Full page", kind: "bool", default: true },
+      { name: "outPath", label: "Write to path", kind: "text", placeholder: "/tmp/figbridge-page.png" }
+    ], serverAction: "screenshot-url" },
+    { section: "Browser capture", name: "Probe URL", slug: "probe_url", desc: "Run JavaScript in a rendered page to inspect DOM or computed styles.", args: [
+      { name: "url", label: "URL", kind: "text", required: true },
+      { name: "script", label: "Async JS body", kind: "textarea", required: true, placeholder: "return document.title;" },
+      { name: "width", label: "Viewport width", kind: "number", default: 1280 }
+    ], serverAction: "probe-url" },
+    { section: "Browser capture", name: "Fingerprint URL", slug: "fingerprint_url", desc: "Count layout features, colors, fonts, tags, and CSS risks before import.", args: [
+      { name: "url", label: "URL", kind: "text", required: true },
+      { name: "width", label: "Viewport width", kind: "number", default: 1280 }
+    ], serverAction: "fingerprint-url" },
+
+    // Fidelity and audits
+    { section: "Fidelity", name: "Export frame PNG", slug: "export_frame", desc: "Export a Figma frame as PNG for visual comparison.", args: [
+      { name: "nodeId", label: "Node id", kind: "text", required: true },
+      { name: "scale", label: "Scale", kind: "number", default: 1 }
+    ], action: "export-frame" },
+    { section: "Fidelity", name: "Visual diff", slug: "visual_diff", desc: "Write a Chrome screenshot and Figma frame export side by side.", args: [
+      { name: "url", label: "URL", kind: "text", required: true },
+      { name: "nodeId", label: "Figma node id", kind: "text", required: true },
+      { name: "width", label: "Viewport width", kind: "number", default: 1280 },
+      { name: "outDir", label: "Output directory", kind: "text", placeholder: "/tmp" }
+    ], serverAction: "visual-diff" },
+    { section: "Fidelity", name: "Measure fidelity", slug: "measure_fidelity", desc: "Compute pixel similarity between a live URL and exported Figma frame.", args: [
+      { name: "url", label: "URL", kind: "text", required: true },
+      { name: "nodeId", label: "Figma node id", kind: "text", required: true },
+      { name: "width", label: "Viewport width", kind: "number", default: 1280 },
+      { name: "scale", label: "Export scale", kind: "number", default: 1 }
+    ], serverAction: "measure-fidelity" },
+    { section: "Fidelity", name: "Audit palette", slug: "audit_palette", desc: "Measure color usage and near-duplicate palette values.", args: [
+      { name: "nodeId", label: "Node id", kind: "text", required: true }
+    ], action: "audit-palette" },
+    { section: "Fidelity", name: "Audit typography", slug: "audit_typography", desc: "Measure type styles, font-size frequency, and modular scale fit.", args: [
+      { name: "nodeId", label: "Node id", kind: "text", required: true }
+    ], action: "audit-typography" },
+    { section: "Fidelity", name: "Audit accessibility", slug: "audit_a11y", desc: "Check contrast, landmarks, and unnamed image nodes.", args: [
+      { name: "nodeId", label: "Node id", kind: "text", required: true }
+    ], action: "audit-a11y" },
+    { section: "Fidelity", name: "Audit whitespace", slug: "audit_whitespace", desc: "Check padding and gap rhythm against 4/8px grids.", args: [
+      { name: "nodeId", label: "Node id", kind: "text", required: true }
+    ], action: "audit-whitespace" },
+
+    // Advanced
+    { section: "Advanced", name: "Delete node", slug: "delete_node", desc: "Delete a node, list of nodes, or frame by exact name.", args: [
+      { name: "nodeId", label: "Node id", kind: "text" },
+      { name: "nodeIds", label: "Node ids JSON", kind: "json", placeholder: '["1:2","1:3"]' },
+      { name: "name", label: "Exact name or names JSON", kind: "json", placeholder: '"Old capture"' }
+    ], action: "delete-node" },
+    { section: "Advanced", name: "Run script", slug: "run_script", desc: "Evaluate JavaScript in the Figma plugin sandbox.", args: [
+      { name: "script", label: "Async function body", kind: "textarea", required: true, placeholder: "const sel = figma.currentPage.selection[0]; return { id: sel && sel.id };" }
+    ], action: "run-script" },
+
+    // Agent-only MCP tools remain visible so the plugin panel reflects the full MCP surface.
+    { section: "Agent-only", name: "Get current selection", slug: "get_current_selection", desc: "Read the latest pushed payload from your MCP agent.", args: [], guide: "Use `get_current_selection` from your MCP client. The Output tab already shows the same latest export in the plugin." },
+    { section: "Agent-only", name: "Get last export", slug: "get_last_export", desc: "Alias for reading the latest pushed payload.", args: [], guide: "Use `get_last_export` from your MCP client." },
+    { section: "Agent-only", name: "List history", slug: "list_history", desc: "Return recent pushed selections with timestamps.", args: [], guide: "Use `list_history` from your MCP client." },
+    { section: "Agent-only", name: "Get tokens", slug: "get_tokens", desc: "Return tokens, CSS variables, and Tailwind config.", args: [], guide: "Use `get_tokens` from your MCP client, or open the Tokens tab after exporting a layer." },
+    { section: "Agent-only", name: "Bridge status", slug: "bridge_status", desc: "Check bridge health, latest payload, and plugin connection count.", args: [], guide: "Use `bridge_status` from your MCP client. The footer and status dot show the plugin-side bridge state." },
+    { section: "Agent-only", name: "Diff since", slug: "diff_since", desc: "Return history entries after a timestamp.", args: [
+      { name: "sinceMs", label: "Since timestamp", kind: "number", default: 0 }
+    ], guide: "Use `diff_since` from your MCP client with `sinceMs`." },
+    { section: "Agent-only", name: "Preflight import", slug: "preflight_import", desc: "Check a URL for import risks before a full capture.", args: [
+      { name: "url", label: "URL", kind: "text", required: true }
+    ], guide: "Use `preflight_import` from your MCP client. It runs in the Node MCP process and reports browser/import risks." },
+    { section: "Agent-only", name: "Responsive import set", slug: "import_responsive_set", desc: "Capture desktop, tablet, mobile, and optional light/dark variants.", args: [], guide: "Use `import_responsive_set` from your MCP client for multi-viewport captures." },
+    { section: "Agent-only", name: "Bulk URL import", slug: "import_url_batch", desc: "Import multiple URLs into organized Figma pages.", args: [], guide: "Use `import_url_batch` from your MCP client. Prefer `dryRun: true` first for large batches." },
+    { section: "Agent-only", name: "Verify text fidelity", slug: "verify_text_fidelity", desc: "Compare visible live-page text against an imported Figma frame.", args: [], guide: "Use `verify_text_fidelity` from your MCP client after importing a URL." },
+    { section: "Agent-only", name: "Audit interactions", slug: "audit_interactions", desc: "Discover hover/focus capable elements before variant capture.", args: [], guide: "Use `audit_interactions` from your MCP client." },
+    { section: "Agent-only", name: "Audit mobile", slug: "audit_mobile", desc: "Find overflow, tiny touch targets, tiny text, and fixed traps across viewports.", args: [], guide: "Use `audit_mobile` from your MCP client." },
+    { section: "Agent-only", name: "Audit regression", slug: "audit_regression", desc: "Compare baseline and candidate URLs for UI/frontend regressions.", args: [], guide: "Use `audit_regression` from your MCP client or CI with baselineUrl and candidateUrl." },
+    { section: "Agent-only", name: "Diff to source", slug: "diff_to_source", desc: "Compare an edited Figma frame against the freshly extracted source URL.", args: [], guide: "Use `diff_to_source` from your MCP client after importing and editing a frame." },
+    { section: "Agent-only", name: "Generate patch", slug: "generate_patch", desc: "Turn design diffs into a source patch plan in a local repo.", args: [], guide: "Use `generate_patch` from your MCP client; it needs a local sourceDir, so it belongs in the agent workspace." }
   ];
 
   // ── Commands inline panel ──────────────────────────────────────
@@ -1215,14 +1329,16 @@
       var name = document.createElement("div"); name.className = "cmd-name"; name.textContent = cmd.name;
       var desc = document.createElement("div"); desc.className = "cmd-desc"; desc.textContent = cmd.desc;
       var slug = document.createElement("div"); slug.className = "cmd-slug"; slug.textContent = cmd.slug;
-      body.appendChild(name); body.appendChild(desc); body.appendChild(slug);
+      var mode = document.createElement("span"); mode.className = "cmd-mode";
+      mode.textContent = cmd.guide ? "Agent" : (cmd.serverAction ? "Local" : "Plugin");
+      body.appendChild(name); body.appendChild(desc); body.appendChild(slug); body.appendChild(mode);
       top.appendChild(body);
 
       var runBtn = document.createElement("button");
       runBtn.className = "btn primary cmd-run";
       var hasArgs = cmd.args && cmd.args.length;
       var requiredArgs = hasArgs && cmd.args.some(function (a) { return a.required; });
-      runBtn.textContent = hasArgs ? (requiredArgs ? "Configure ›" : "Run") : "Run";
+      runBtn.textContent = cmd.guide ? (hasArgs ? "Details ›" : "Details") : (hasArgs ? (requiredArgs ? "Configure ›" : "Run") : "Run");
       top.appendChild(runBtn);
       card.appendChild(top);
 
@@ -1271,7 +1387,7 @@
         } else if (arg.kind === "number") {
           input = document.createElement("input"); input.type = "number";
           if (arg.default != null) input.value = arg.default;
-        } else if (arg.kind === "json" || arg.kind === "lines") {
+        } else if (arg.kind === "json" || arg.kind === "lines" || arg.kind === "textarea") {
           input = document.createElement("textarea");
           if (arg.placeholder) input.placeholder = arg.placeholder;
         } else {
@@ -1312,6 +1428,7 @@
       else if (k === "number") v = inp.value === "" ? undefined : Number(inp.value);
       else if (k === "json") { if (!inp.value.trim()) return; try { v = JSON.parse(inp.value); } catch (e) { v = inp.value; } }
       else if (k === "lines") v = (inp.value || "").split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+      else if (k === "textarea") v = inp.value === "" ? undefined : inp.value;
       else v = inp.value === "" ? undefined : inp.value;
       if (v !== undefined && v !== "") args[n] = v;
     });
@@ -1330,6 +1447,23 @@
         try { result.textContent = JSON.stringify(body, null, 2); } catch (e) { result.textContent = String(body); }
       }
     });
+  }
+
+  function showGuide(cmd, args, handler) {
+    var body = {
+      ok: true,
+      tool: cmd.slug,
+      mode: "agent-only",
+      message: cmd.guide || "Run this from your MCP client.",
+      providedArgs: args || {}
+    };
+    if (handler) handler(body);
+    else {
+      setView("output");
+      state.data = { html: JSON.stringify(body, null, 2), css: "", tailwindHtml: "", tokens: {}, cssVars: "", tailwindConfig: "" };
+      render();
+      setStatus("ok", "Guide");
+    }
   }
 
   el("cmdSearch").addEventListener("input", function (e) { cmdFilter = e.target.value; renderCommands(); });
@@ -1400,7 +1534,44 @@
     if (handler) _cmdHandlers[cmdId] = handler;
     parent.postMessage({ pluginMessage: { type: "cmd", cmdId: cmdId, action: action, args: args || {} } }, "*");
   }
+  function runServerCommand(action, args, handler) {
+    setStatus("busy", "Running");
+    setFoot("Local command: " + action);
+    function doFetch() {
+      fetch(bridgeBase() + "/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: action, args: args || {}, timeoutMs: 300000 })
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        if (handler) handler(body);
+        else {
+          setView("output");
+          state.data = { html: JSON.stringify(body, null, 2), css: "", tailwindHtml: "", tokens: {}, cssVars: "", tailwindConfig: "" };
+          render();
+        }
+        setStatus(body && body.ok === false ? "err" : "ok", body && body.ok === false ? "Failed" : "Done");
+        setFoot("Local command finished: " + action);
+      })
+      .catch(function (e) {
+        var body = { ok: false, error: e.message };
+        if (handler) handler(body);
+        else {
+          setView("output");
+          state.data = { html: JSON.stringify(body, null, 2), css: "", tailwindHtml: "", tokens: {}, cssVars: "", tailwindConfig: "" };
+          render();
+        }
+        setStatus("err", "Failed");
+        setFoot("Local command failed: " + e.message);
+      });
+    }
+    if (!eventSource) probeBridgePort(function(found){ if (found) updatePortLabel(); doFetch(); });
+    else doFetch();
+  }
   function runCmd(cmd, args, handler) {
+    if (cmd.guide) { showGuide(cmd, args, handler); return; }
+    if (cmd.serverAction) { runServerCommand(cmd.serverAction, args, handler); return; }
     if (cmd.run) { cmd.run(args); return; }
     if (cmd.renderToTab) {
       setView("output");

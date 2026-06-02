@@ -16,28 +16,78 @@ const execFile = promisify(_execFile);
 const SELF_PID = process.pid;
 const PARENT_PID = process.ppid;
 
-async function listFigbridgeProcesses() {
-  // `ps -axo pid=,ppid=,command=` works on macOS + Linux. We pick out
-  // the ones running figbridge-mcp (either the bin or bin/figbridge-mcp.js).
-  const { stdout } = await execFile("ps", ["-axo", "pid=,ppid=,command="]);
-  const procs = [];
+function isFigbridgeCommand(cmd) {
+  return /figbridge-mcp(?:\.js)?(?:@[\w.-]+)?(?:\s|$)/.test(cmd) || /bin\/figbridge-mcp/.test(cmd);
+}
+
+function parseProcessTable(stdout) {
+  const rows = [];
   for (const line of stdout.split("\n")) {
     const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
     if (!m) continue;
-    const [, pidStr, ppidStr, cmd] = m;
-    if (!/figbridge-mcp(\.js)?(\s|$)/.test(cmd) && !/bin\/figbridge-mcp/.test(cmd)) continue;
+    rows.push({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3].trim() });
+  }
+  return rows;
+}
+
+function parentChain(pid, byPid) {
+  const chain = [];
+  const seen = new Set();
+  let cur = byPid.get(pid);
+  while (cur && cur.ppid && !seen.has(cur.ppid)) {
+    seen.add(cur.ppid);
+    const parent = byPid.get(cur.ppid);
+    if (!parent) break;
+    chain.push(parent);
+    cur = parent;
+  }
+  return chain;
+}
+
+function isOwnLauncher(pid, byPid) {
+  if (pid === SELF_PID || pid === PARENT_PID) return true;
+  return parentChain(SELF_PID, byPid).some(p => p.pid === pid);
+}
+
+function isReapableOrphan(proc, byPid) {
+  // Conservative by default: only reap processes whose parent is launchd/init
+  // or whose whole parent chain is figbridge/npm/npx glue. If Codex/Claude
+  // still owns the process, killing it closes the MCP stdio transport and the
+  // next tool call reports "Transport closed".
+  if (proc.ppid === 1 || proc.ppid === 0) return true;
+  const parent = byPid.get(proc.ppid);
+  if (!parent) return true;
+  const chain = parentChain(proc.pid, byPid);
+  if (!chain.length) return true;
+  return chain.every(p =>
+    isFigbridgeCommand(p.cmd) ||
+    /\bnpm\s+exec\b.*figbridge-mcp/.test(p.cmd) ||
+    /\bnpx\b.*figbridge-mcp/.test(p.cmd)
+  );
+}
+
+export function classifyFigbridgeProcesses(stdout, { force = false } = {}) {
+  // `ps -axo pid=,ppid=,command=` works on macOS + Linux. We pick out
+  // the ones running figbridge-mcp (either the bin or bin/figbridge-mcp.js).
+  const rows = parseProcessTable(stdout);
+  const byPid = new Map(rows.map(p => [p.pid, p]));
+  const reapable = [];
+  const active = [];
+  for (const row of rows) {
+    const { pid, cmd } = row;
+    if (!isFigbridgeCommand(cmd)) continue;
     // Skip doctor itself and grep/ps noise
     if (/\bgrep\b|\bps\b/.test(cmd)) continue;
-    const pid = Number(pidStr);
-    if (pid === SELF_PID) continue;
-    // Don't reap our own launcher chain (npx / npm exec / the node binary
-    // that started us). Walking up via ppid would be more thorough but
-    // ppid alone catches the immediate parent, which is the one that'd
-    // cascade-kill us.
-    if (pid === PARENT_PID) continue;
-    procs.push({ pid, ppid: Number(ppidStr), cmd: cmd.trim() });
+    if (isOwnLauncher(pid, byPid)) continue;
+    if (force || isReapableOrphan(row, byPid)) reapable.push(row);
+    else active.push(row);
   }
-  return procs;
+  return { reapable, active };
+}
+
+async function listFigbridgeProcesses(options = {}) {
+  const { stdout } = await execFile("ps", ["-axo", "pid=,ppid=,command="]);
+  return classifyFigbridgeProcesses(stdout, options);
 }
 
 function probeHealth(port, timeoutMs = 400) {
@@ -63,9 +113,13 @@ async function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 export async function reapOrphans({ quiet = false } = {}) {
   const log = quiet ? () => {} : (...a) => process.stderr.write("[figbridge] " + a.join(" ") + "\n");
-  let procs;
-  try { procs = await listFigbridgeProcesses(); }
+  let classified;
+  try { classified = await listFigbridgeProcesses({ force: process.env.FIGBRIDGE_DOCTOR_FORCE === "1" }); }
   catch (e) { log("could not list processes:", e.message); return { found: 0, killed: 0 }; }
+  const procs = classified.reapable;
+  if (classified.active.length) {
+    log(`leaving ${classified.active.length} active figbridge-mcp process${classified.active.length === 1 ? "" : "es"} alone`);
+  }
   if (procs.length === 0) { log("no stale figbridge-mcp processes"); return { found: 0, killed: 0 }; }
   log(`found ${procs.length} figbridge-mcp process${procs.length === 1 ? "" : "es"}:`);
   for (const p of procs) log(`  pid=${p.pid} ppid=${p.ppid}`);

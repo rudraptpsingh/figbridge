@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Figbridge Capture",
+  "version": "0.1.0",
+  "key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDII/BIr3F4UEssDnTvYi7uGFV5mv6qnamsHPrKL+uqWXZDy967zfzunK8Hpjmes5xHo9KDOyIfBSw/oHT6IFzXNIgXQ4rulWTIl2ySHRGB1ly/VD3MdFhk/Hw3j6hODxoTfYqpzZGwugHREqhCMYGT169YbUWLNMlhddMeEu/exQIDAQAB",
+  "description": "Send the current Chrome tab or a selected element to Figbridge on localhost.",
+  "action": {
+    "default_title": "Figbridge Capture",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1:*/*",
+    "http://localhost:*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-capture.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

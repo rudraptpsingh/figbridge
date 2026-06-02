@@ -38,6 +38,41 @@ async function walk(dir, depth, files) {
 }
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function escapeHtmlText(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function normalizedTextMap(buf) {
+  const chars = [];
+  const sourceIdx = [];
+  let inTag = false;
+  let pendingSpace = false;
+  let pendingIdx = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const ch = buf[i];
+    if (ch === "<") { inTag = true; continue; }
+    if (ch === ">") { inTag = false; continue; }
+    if (inTag) continue;
+    if (/\s/.test(ch)) {
+      if (!pendingSpace && chars.length) {
+        pendingSpace = true;
+        pendingIdx = i;
+      }
+      continue;
+    }
+    if (pendingSpace) {
+      chars.push(" ");
+      sourceIdx.push(pendingIdx);
+      pendingSpace = false;
+    }
+    chars.push(ch);
+    sourceIdx.push(i);
+  }
+  return { text: chars.join("").trim(), sourceIdx, leadingTrim: chars.join("").length - chars.join("").trimStart().length };
+}
 
 async function findOccurrences(files, needle, extSet) {
   const hits = [];
@@ -51,6 +86,32 @@ async function findOccurrences(files, needle, extSet) {
     const before = buf.slice(Math.max(0, idx - 40), idx);
     const after = buf.slice(idx + needle.length, idx + needle.length + 40);
     hits.push({ file: f, snippet: before + "⟪" + needle + "⟫" + after, count: buf.split(needle).length - 1 });
+  }
+  return hits;
+}
+
+async function findRenderedTextOccurrences(files, needle, extSet) {
+  const hits = [];
+  const normalizedNeedle = String(needle || "").replace(/\s+/g, " ").trim();
+  if (!normalizedNeedle) return hits;
+  for (const f of files) {
+    const ext = path.extname(f).toLowerCase();
+    if (extSet && !extSet.has(ext)) continue;
+    let buf;
+    try { buf = await fs.readFile(f, "utf8"); } catch { continue; }
+    if (!/[<>]/.test(buf)) continue;
+    const mapped = normalizedTextMap(buf);
+    const idx = mapped.text.indexOf(normalizedNeedle);
+    if (idx < 0) continue;
+    const mapStart = idx + mapped.leadingTrim;
+    const mapEnd = mapStart + normalizedNeedle.length - 1;
+    const start = mapped.sourceIdx[mapStart];
+    const end = mapped.sourceIdx[mapEnd] + 1;
+    if (start == null || end == null || end <= start) continue;
+    const before = buf.slice(Math.max(0, start - 40), start);
+    const exactSource = buf.slice(start, end);
+    const after = buf.slice(end, end + 40);
+    hits.push({ file: f, snippet: before + "⟪" + exactSource + "⟫" + after, before: exactSource, after: escapeHtmlText(needle === normalizedNeedle ? needle : normalizedNeedle), count: 1, rendered: true });
   }
   return hits;
 }
@@ -86,6 +147,22 @@ export async function generatePatch({ changes, sourceDir }) {
       }
       const hits = await findOccurrences(allFiles, oldStr, TEXT_FILE_EXT);
       if (!hits.length) {
+        const renderedHits = await findRenderedTextOccurrences(allFiles, oldStr, TEXT_FILE_EXT);
+        if (renderedHits.length) {
+          for (const hit of renderedHits) {
+            const rel = path.relative(sourceDir, hit.file);
+            edits.push({
+              file: rel,
+              field: "characters",
+              before: hit.before,
+              after: escapeHtmlText(newStr),
+              context: hit.snippet,
+              mode: "rendered-text",
+            });
+            diffChunks.push(unifiedHunk(rel, hit.before, escapeHtmlText(newStr)));
+          }
+          continue;
+        }
         notes.push({ ...ch, hint: `no occurrence of "${oldStr}" found in ${sourceDir}` });
         continue;
       }
