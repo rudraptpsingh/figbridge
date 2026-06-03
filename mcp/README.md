@@ -31,6 +31,7 @@ Flags / commands:
 
 - `init --pin` — lock Claude to the currently installed copy (opts out of auto-updates).
 - `--version` — print the installed version.
+- `bridge` — start only the local HTTP+SSE bridge and keep it alive after stdin closes. Use for persistent local agent sessions and direct `POST /command` calls.
 - `doctor` — reap orphan `figbridge-mcp` processes (a failed shutdown can leave :7331 held), and probe 7331..7340 for live bridges. Run if Claude shows "Server disconnected" or the plugin can't connect.
 
 ## MCP registry
@@ -40,6 +41,14 @@ Also listed on the official [Model Context Protocol registry](https://registry.m
 ## Ports
 
 The HTTP+SSE bridge binds `127.0.0.1:7331` by default and auto-falls-back to 7332..7340 if something's already holding it. The Figma plugin probes the same range. Override the preferred starting port with `FIGBRIDGE_PORT=NNNN`.
+
+For direct local workflows that should survive short-lived terminal sessions, run:
+
+```
+npx figbridge-mcp bridge
+```
+
+Normal MCP mode exits when stdin closes so MCP clients can clean up correctly. Bridge-only mode is intentionally persistent and exits only on process signals.
 
 ## Tools
 

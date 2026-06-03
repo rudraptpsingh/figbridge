@@ -21,6 +21,12 @@ if (arg === "init" || arg === "update") {
     process.stderr.write(`[figbridge] doctor failed: ${e && e.stack || e}\n`);
     process.exit(1);
   });
+} else if (arg === "bridge" || arg === "--bridge" || arg === "daemon") {
+  const { mainBridgeOnly } = await import("../src/server.js");
+  mainBridgeOnly().catch((e) => {
+    process.stderr.write(`[figbridge] bridge failed: ${e && e.stack || e}\n`);
+    process.exit(1);
+  });
 } else if (arg === "--version" || arg === "-v" || arg === "version") {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
@@ -32,6 +38,9 @@ if (arg === "init" || arg === "update") {
 
 Usage:
   figbridge-mcp                Start the MCP server (used by Claude Desktop).
+  figbridge-mcp bridge         Start only the local HTTP+SSE bridge and keep it
+                               alive after stdin closes. Use for persistent
+                               local agent sessions / direct /command calls.
   figbridge-mcp init           Wire up Claude Desktop — writes an entry that
                                always pulls the latest version on launch.
   figbridge-mcp init --pin     Pin to the currently installed version

@@ -61,6 +61,14 @@ npx figbridge-mcp doctor
 
 It reaps orphan `figbridge-mcp` processes and reports which ports are alive. The bridge auto-falls-back to 7332..7340 if 7331 is held, and the plugin auto-probes the same range — so "port in use" won't block you. `FIGBRIDGE_PORT=NNNN` overrides the preferred starting port.
 
+For long local agent sessions that drive Figma through `POST /command`, run a persistent bridge:
+
+```bash
+npx figbridge-mcp bridge
+```
+
+This starts only the local HTTP+SSE bridge and keeps it alive after stdin closes. Use this when a desktop/terminal tool starts short-lived commands but you want the Figma plugin connection to remain stable across multiple agent actions.
+
 ### Updating
 
 `init` writes a config that runs `npx -y figbridge-mcp@latest`, so every Claude Desktop launch pulls the current version — **no action needed** after a new release.

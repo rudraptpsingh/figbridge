@@ -46,20 +46,12 @@ function asText(obj) {
   return { content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] };
 }
 
-export async function main() {
-  const preferredPort = Number(process.env.FIGBRIDGE_PORT || 7331);
-  const { server: bridgeServer, port } = await startBridge(preferredPort, log);
-
-  // ── Clean shutdown ──────────────────────────────────────────
-  // Claude Desktop closes our stdin when it wants us to exit. If we
-  // don't notice we become a zombie holding :7331 and the next launch
-  // lands on the port-fallback path (still works, but we'd leak a
-  // process per relaunch). Exit on stdin EOF and on signals.
+function installSignalShutdown(bridgeServer, log, label = "shutting down") {
   let shuttingDown = false;
   function shutdown(reason) {
     if (shuttingDown) return;
     shuttingDown = true;
-    log(`shutting down: ${reason}`);
+    log(`${label}: ${reason}`);
     try {
       // SSE keepalive sockets hold the server open. close() alone waits
       // for them to drain — which never happens. closeAllConnections()
@@ -72,11 +64,31 @@ export async function main() {
     // Hard-exit fallback in case something still holds the loop open.
     setTimeout(() => process.exit(0), 200).unref();
   }
-  process.stdin.on("end", () => shutdown("stdin end"));
-  process.stdin.on("close", () => shutdown("stdin close"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT",  () => shutdown("SIGINT"));
   process.on("SIGHUP",  () => shutdown("SIGHUP"));
+  return shutdown;
+}
+
+export async function mainBridgeOnly() {
+  const preferredPort = Number(process.env.FIGBRIDGE_PORT || 7331);
+  const { server: bridgeServer, port } = await startBridge(preferredPort, log);
+  installSignalShutdown(bridgeServer, log);
+  log(`persistent bridge ready on :${port}`);
+}
+
+export async function main() {
+  const preferredPort = Number(process.env.FIGBRIDGE_PORT || 7331);
+  const { server: bridgeServer, port } = await startBridge(preferredPort, log);
+
+  // ── Clean shutdown ──────────────────────────────────────────
+  // Claude Desktop closes our stdin when it wants us to exit. If we
+  // don't notice we become a zombie holding :7331 and the next launch
+  // lands on the port-fallback path (still works, but we'd leak a
+  // process per relaunch). Exit on stdin EOF and on signals.
+  const shutdown = installSignalShutdown(bridgeServer, log);
+  process.stdin.on("end", () => shutdown("stdin end"));
+  process.stdin.on("close", () => shutdown("stdin close"));
 
   const server = new McpServer({ name: "figbridge", version: PKG_VERSION });
 
