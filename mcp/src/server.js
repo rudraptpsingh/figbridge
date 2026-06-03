@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { getLatest, getHistory, getHistorySince } from "./store.js";
-import { startBridge, sendCommand, clientCount } from "./bridge.js";
+import { startBridge, sendCommand, clientCount, getProxyPort } from "./bridge.js";
 
 const FORMATS = ["html", "css", "tailwind", "tokens", "cssVars", "tailwindConfig", "all"];
 
@@ -56,10 +56,13 @@ function installSignalShutdown(bridgeServer, log, label = "shutting down") {
       // SSE keepalive sockets hold the server open. close() alone waits
       // for them to drain — which never happens. closeAllConnections()
       // (Node 18.2+) severs idle + active sockets so close() resolves.
-      if (typeof bridgeServer.closeAllConnections === "function") {
-        bridgeServer.closeAllConnections();
+      // bridgeServer is null in proxy mode (we attached to a shared bridge).
+      if (bridgeServer) {
+        if (typeof bridgeServer.closeAllConnections === "function") {
+          bridgeServer.closeAllConnections();
+        }
+        bridgeServer.close();
       }
-      bridgeServer.close();
     } catch {}
     // Hard-exit fallback in case something still holds the loop open.
     setTimeout(() => process.exit(0), 200).unref();
@@ -132,10 +135,23 @@ export async function main() {
     {},
     async () => {
       const p = getLatest();
+      // In proxy mode the plugin is attached to the shared bridge, not us —
+      // read the real client count from it so pluginConnected is accurate.
+      const proxy = getProxyPort();
+      let connected = clientCount();
+      if (proxy) {
+        try {
+          const r = await fetch(`http://127.0.0.1:${proxy}/health`);
+          const body = await r.json();
+          connected = body.clients ?? 0;
+        } catch {
+          connected = 0;
+        }
+      }
       return asText({
-        bridge: { port, running: true },
-        pluginConnected: clientCount() > 0,
-        connectedClients: clientCount(),
+        bridge: { port, running: true, proxy: proxy || null },
+        pluginConnected: connected > 0,
+        connectedClients: connected,
         hasLatest: !!p,
         latest: p ? { pageName: p.pageName, nodeNames: p.nodeNames, capturedAt: p.capturedAt, fingerprint: p._fingerprint } : null
       });

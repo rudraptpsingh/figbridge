@@ -27,7 +27,28 @@ function broadcast(event, data) {
 // ── Command queue (agent → plugin round-trip) ────────────────
 const pending = new Map(); // cmdId → { resolve, reject, timer }
 
+// Proxy mode: when this process did NOT win the canonical port (another
+// figbridge bridge already owns it + the plugin's SSE connection), every
+// command is forwarded over HTTP to that shared bridge instead of being
+// broadcast to our own — empty — client set. This is what kills the
+// split-brain where N Claude sessions each spawn a bridge but the plugin
+// is only attached to one of them.
+let proxyPort = null;
+export function setProxyPort(p) { proxyPort = p; }
+export function getProxyPort() { return proxyPort; }
+
 export function sendCommand(action, args, timeoutMs = 5000) {
+  if (proxyPort) {
+    return fetch(`http://127.0.0.1:${proxyPort}/command`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, args, timeoutMs }),
+    }).then(async (r) => {
+      const body = await r.json().catch(() => ({ ok: false, error: "proxy: bad JSON from shared bridge" }));
+      if (body && body.ok === false) throw new Error(body.error || `command "${action}" failed`);
+      return body;
+    });
+  }
   if (clients.size === 0) {
     return Promise.reject(new Error("Figbridge plugin is not connected. Open the plugin in Figma and toggle Live bridge on."));
   }
@@ -265,18 +286,46 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
     send(res, 404, { error: "not found" });
   });
 
+  // Is the process holding `port` one of our own bridges? If so we attach to
+  // it (proxy mode) instead of starting a competing isolated bridge — that's
+  // the permanent fix for the multi-session split-brain.
+  const probeFigbridge = async (port) => {
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 600);
+      const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: ac.signal });
+      clearTimeout(t);
+      if (!r.ok) return false;
+      const body = await r.json().catch(() => ({}));
+      return body && body.name === "figbridge-bridge";
+    } catch {
+      return false;
+    }
+  };
+
   return new Promise((resolve, reject) => {
     let attempt = 0;
     let settled = false;
     const onError = (e) => {
       if (settled) return;
       if (e && e.code === "EADDRINUSE" && attempt < portRange) {
-        const stale = preferredPort + attempt;
-        attempt++;
-        const next = preferredPort + attempt;
-        log(`port ${stale} in use, trying ${next}`);
-        // server is still usable; re-listen on the next port
-        setImmediate(() => { if (!settled) server.listen(next, "127.0.0.1"); });
+        const inUse = preferredPort + attempt;
+        // Attach to an existing figbridge bridge rather than fork a rival.
+        void probeFigbridge(inUse).then((isFig) => {
+          if (settled) return;
+          if (isFig) {
+            settled = true;
+            server.removeListener("error", onError);
+            setProxyPort(inUse);
+            log(`attaching to existing figbridge bridge on ${inUse} (proxy mode)`);
+            resolve({ server: null, port: inUse, proxy: true });
+            return;
+          }
+          attempt++;
+          const next = preferredPort + attempt;
+          log(`port ${inUse} in use (not figbridge), trying ${next}`);
+          if (!settled) server.listen(next, "127.0.0.1");
+        });
         return;
       }
       settled = true;
