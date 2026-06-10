@@ -39,7 +39,7 @@ function find(deltas, pred) { return deltas.find(pred); }
   };
   const B = {
     type: "frame", name: "Card", layout: "HORIZONTAL", spacing: 8,
-    padding: { top: 24, right: 24, bottom: 24, left: 16 }, fill: "#fafafa", cornerRadius: 12,
+    padding: { top: 24, right: 24, bottom: 24, left: 16 }, fill: "#e0e0e0", cornerRadius: 12,
     stroke: { color: "#cccccc", width: 1 },
     children: [
       { type: "text", name: "Title", characters: "Sunset Shoot", fontSize: 18, fontWeight: 700, fontFamily: "Inter", color: "#111111" },
@@ -49,8 +49,8 @@ function find(deltas, pred) { return deltas.find(pred); }
   const r = diffSpecs(A, B, { labelA: "mockup", labelB: "app" });
   assert(r.ok === false, "differing specs should produce ok:false");
 
-  // color: fill changed
-  assert(find(r.deltas, d => d.kind === "color" && d.field === "fill" && d.a === "#ffffff" && d.b === "#fafafa"), "fill color delta missing", JSON.stringify(r.deltas));
+  // color: fill changed (perceptible)
+  assert(find(r.deltas, d => d.kind === "color" && d.field === "fill" && d.a === "#ffffff" && d.b === "#e0e0e0"), "fill color delta missing", JSON.stringify(r.deltas));
   // color: stroke changed
   assert(find(r.deltas, d => d.kind === "color" && d.field === "stroke"), "stroke color delta missing", JSON.stringify(r.deltas));
   // copy changed
@@ -205,6 +205,21 @@ function find(deltas, pred) { return deltas.find(pred); }
   const cmp = compareStyleProfiles(styleProfile(cine), styleProfile(flat));
   assert(cmp.gaps.some(g => g.signal === "gradients"), "style gap should flag missing gradients", JSON.stringify(cmp.gaps));
   assert(cmp.gaps.some(g => g.signal === "glowShadows"), "style gap should flag missing glow");
+}
+
+// ── Perceptual colour gate (ΔE) ──
+{
+  // imperceptible: #ffffff vs #fafafa (ΔE < JND) → suppressed
+  const A = { type: "text", name: "T", characters: "x", color: "#ffffff" };
+  const B = { type: "text", name: "T", characters: "x", color: "#fafafa" };
+  assert(diffSpecs(A, B).summary.total === 0, "imperceptible colour diff (#ffffff vs #fafafa) should be suppressed", JSON.stringify(diffSpecs(A, B).deltas));
+
+  // perceptible: #111111 vs #777777 → fires, reports deltaE above JND
+  const C = { type: "text", name: "T", characters: "x", color: "#111111" };
+  const D = { type: "text", name: "T", characters: "x", color: "#777777" };
+  const cd = find(diffSpecs(C, D).deltas, d => d.kind === "color" && d.field === "color");
+  assert(cd, "perceptible colour diff should fire", JSON.stringify(diffSpecs(C, D).deltas));
+  assert(typeof cd.deltaE === "number" && cd.deltaE > 2.3, "should report deltaE above JND", JSON.stringify(cd));
 }
 
 console.log(`PASS  diffSpecs unit tests (${passed} assertions).`);

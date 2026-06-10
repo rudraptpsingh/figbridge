@@ -58,6 +58,41 @@ function normHex(c) {
   return s || null;
 }
 
+// ── Perceptual colour (CIE Lab + ΔE76) ──────────────────────────────────────
+// Exact-hex equality treats #ffffff vs #fafafa as a "difference" though it's
+// imperceptible. ΔE gates on perceptibility instead, killing that false-positive
+// noise. JND ≈ 2.3 in ΔE76.
+const COLOR_JND = 2.3;
+function hexToRgb(h) {
+  const s = String(h).trim().replace(/^#/, "");
+  if (!/^[0-9a-f]{6}$/i.test(s)) return null;
+  return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+}
+function srgbToLin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+function rgbToLab([r, g, b]) {
+  const R = srgbToLin(r), G = srgbToLin(g), B = srgbToLin(b);
+  let X = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
+  let Y = (R * 0.2126 + G * 0.7152 + B * 0.0722);
+  let Z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  X = f(X); Y = f(Y); Z = f(Z);
+  return [116 * Y - 16, 500 * (X - Y), 200 * (Y - Z)];
+}
+function deltaE76(l1, l2) {
+  return Math.sqrt((l1[0] - l2[0]) ** 2 + (l1[1] - l2[1]) ** 2 + (l1[2] - l2[2]) ** 2);
+}
+// Two colour signatures differ *perceptibly*? When both are plain 6-hex, gate on
+// ΔE; otherwise (alpha / gradient / structure in the sig) use exact inequality.
+function perceptibleColorDiff(av, bv) {
+  if (av === bv) return { differ: false, deltaE: null };
+  const ra = hexToRgb(av), rb = hexToRgb(bv);
+  if (ra && rb) {
+    const dE = deltaE76(rgbToLab(ra), rgbToLab(rb));
+    return { differ: dE > COLOR_JND, deltaE: dE };
+  }
+  return { differ: true, deltaE: null };
+}
+
 // Full fill signature — captures solid colour AND translucency (glass) AND
 // gradients (cinematic/clay). Spec fills are a hex string, a gradient string,
 // or an array of paint layers ([{kind:'solid',color,alpha}, {kind:'linear-gradient',value}, ...]).
@@ -175,6 +210,15 @@ function compareField(field, a, b, rule, path, name) {
     // Surface only meaningful presence flips: color/copy appearing/vanishing,
     // and elevation gained/lost (a card that lost its shadow, an element faded).
     if (rule.kind !== "color" && rule.kind !== "copy" && rule.kind !== "elevation") return null;
+  }
+  // Perceptual colour gate: suppress imperceptible colour diffs (ΔE < JND) and
+  // report ΔE when both sides are plain hex.
+  if (rule.kind === "color" && av != null && bv != null) {
+    const pc = perceptibleColorDiff(av, bv);
+    if (!pc.differ) return null;
+    const d = { path, name, kind: rule.kind, field, a: av, b: bv, severity: rule.severity };
+    if (pc.deltaE != null) d.deltaE = Math.round(pc.deltaE * 10) / 10;
+    return d;
   }
   if (typeof av === "number" && typeof bv === "number") {
     if (Math.abs(av - bv) <= (rule.tol || 0)) return null;
