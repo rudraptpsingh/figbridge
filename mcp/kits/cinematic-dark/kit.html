@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>figbridge kit · Cinematic-Dark</title>
+<link rel="stylesheet" href="_kit.css">
+<style>
+  body{padding:48px 40px 80px;}
+  .gallery{max-width:1180px;margin:0 auto;}
+  header.hero{margin-bottom:40px;}
+  .sig{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;}
+  .sig .badge{background:rgba(124,108,252,.14);color:var(--accent-iris-bright);}
+  section{margin:34px 0;padding:22px 24px;background:rgba(20,20,22,.5);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);}
+  section > .label-tiny{margin-bottom:16px;display:block;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px;align-items:start;}
+  .cell{display:flex;flex-direction:column;align-items:flex-start;gap:8px;}
+  .cap{font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;}
+  .ico-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:10px;}
+  .ico-cell{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;background:var(--el-1);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);color:var(--text-secondary);}
+  .ico-cell .nm{font-size:9px;color:var(--text-tertiary);}
+  .type-row{display:flex;align-items:baseline;gap:16px;margin-bottom:12px;}
+  .type-row .meta{font-size:10px;color:var(--text-tertiary);font-family:var(--font-mono);}
+  .swatch{height:54px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);display:flex;align-items:flex-end;padding:6px 8px;font-size:9px;color:var(--text-secondary);font-family:var(--font-mono);}
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M9.94 14.06A2 2 0 0 0 8.5 12.62L2.36 11.04a.5.5 0 0 1 0-.96L8.5 8.5a2 2 0 0 0 1.44-1.44l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14A2 2 0 0 0 15.5 8.5l6.14 1.58a.5.5 0 0 1 0 .96L15.5 12.62a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></symbol>
+  <symbol id="i-chevdown" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+
+<div class="gallery">
+  <header class="hero">
+    <div class="label-tiny">figbridge base kit</div>
+    <h1 class="display glow-text">Cinematic&nbsp;Dark</h1>
+    <p class="dim body" style="max-width:620px;margin-top:10px">Deep near-black canvases punctuated by intentional light. Atmospheric depth, glow shadows, gradient accent beams, glass surfaces. Every value is a token in <span class="mono">tokens.json</span>.</p>
+    <div class="sig">
+      <span class="badge">near-black #0a0a0a</span><span class="badge">elevation ladder</span><span class="badge">glow shadows</span>
+      <span class="badge">gradient beams</span><span class="badge">header tracking</span><span class="badge">glass</span>
+    </div>
+  </header>
+
+  <!-- TYPOGRAPHY -->
+  <section>
+    <span class="label-tiny">Typography scale</span>
+    <div class="type-row"><span class="display">Display</span><span class="meta">40 / 700 / -.02em</span></div>
+    <div class="type-row"><span class="large-title">Large title</span><span class="meta">26 / 700 / -.02em</span></div>
+    <div class="type-row"><span class="title">Title</span><span class="meta">17 / 600 / -.01em</span></div>
+    <div class="type-row"><span class="body">Body — pick your best shots from the session.</span><span class="meta">14 / 400</span></div>
+    <div class="type-row"><span class="label-tiny">Label · uppercase</span><span class="meta">11 / 600 / .07em / upper</span></div>
+    <div class="type-row"><span class="mono">SF Mono · 312 selected</span><span class="meta">12 / 500 / tabular</span></div>
+  </section>
+
+  <!-- COLOR + ELEVATION -->
+  <section>
+    <span class="label-tiny">Color &amp; elevation ladder</span>
+    <div class="grid">
+      <div class="swatch" style="background:var(--photo-stage)">photo-stage</div>
+      <div class="swatch el-0">el-0</div><div class="swatch el-1">el-1</div>
+      <div class="swatch el-2">el-2</div><div class="swatch el-3">el-3</div>
+      <div class="swatch" style="background:var(--accent-iris);color:#0a0a0a">iris</div>
+      <div class="swatch" style="background:var(--accent-success);color:#06210f">success</div>
+      <div class="swatch" style="background:var(--accent-danger)">danger</div>
+      <div class="swatch" style="background:var(--accent-warning);color:#241a05">warning</div>
+      <div class="swatch" style="background:var(--accent-info)">info</div>
+    </div>
+  </section>
+
+  <!-- ICONS -->
+  <section>
+    <span class="label-tiny">Icons · lucide sprite (stroke, currentColor)</span>
+    <div class="ico-grid">
+      <div class="ico-cell"><svg class="ico"><use href="#i-search"/></svg><span class="nm">search</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-filter"/></svg><span class="nm">filter</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-share"/></svg><span class="nm">share</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-check"/></svg><span class="nm">check</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-x"/></svg><span class="nm">x</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-plus"/></svg><span class="nm">plus</span></div>
+      <div class="ico-cell" style="color:var(--accent-iris-bright)"><svg class="ico"><use href="#i-spark"/></svg><span class="nm">spark</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-bell"/></svg><span class="nm">bell</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-gear"/></svg><span class="nm">gear</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-export"/></svg><span class="nm">export</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-dots"/></svg><span class="nm">dots</span></div>
+      <div class="ico-cell"><svg class="ico"><use href="#i-chevdown"/></svg><span class="nm">chev</span></div>
+    </div>
+  </section>
+
+  <!-- BUTTONS -->
+  <section>
+    <span class="label-tiny">Buttons · variants</span>
+    <div class="wrap" style="margin-bottom:18px">
+      <button class="btn btn-primary"><svg class="ico sm" style="stroke:#000"><use href="#i-export"/></svg> Primary</button>
+      <button class="btn btn-iris"><svg class="ico sm" style="stroke:#0a0a0a"><use href="#i-spark"/></svg> Iris</button>
+      <button class="btn btn-success"><svg class="ico sm"><use href="#i-check"/></svg> Success</button>
+      <button class="btn btn-danger"><svg class="ico sm"><use href="#i-x"/></svg> Danger</button>
+      <button class="btn btn-secondary">Secondary</button>
+      <button class="btn btn-ghost">Ghost</button>
+      <button class="btn-xs">XS button</button>
+      <button class="icon-btn"><svg class="ico"><use href="#i-dots"/></svg></button>
+    </div>
+    <span class="label-tiny">Button · interaction states</span>
+    <div class="wrap" style="margin-top:12px">
+      <div class="cell"><button class="btn btn-primary">Export</button><span class="cap">default</span></div>
+      <div class="cell"><button class="btn btn-primary" style="background:#f0f0f0">Export</button><span class="cap">hover</span></div>
+      <div class="cell"><button class="btn btn-primary" style="box-shadow:0 0 0 2px var(--app-bg),0 0 0 4px var(--focus-ring),0 0 18px rgba(124,108,252,.4)">Export</button><span class="cap">focus</span></div>
+      <div class="cell"><button class="btn btn-primary" style="transform:scale(.97);background:#e6e6e6">Export</button><span class="cap">active</span></div>
+      <div class="cell"><button class="btn btn-primary" disabled>Export</button><span class="cap">disabled</span></div>
+    </div>
+  </section>
+
+  <!-- BADGES + CHIPS -->
+  <section>
+    <span class="label-tiny">Badges, pills &amp; status</span>
+    <div class="wrap" style="margin-bottom:18px">
+      <span class="badge badge-success"><svg class="ico sm"><use href="#i-check"/></svg> Selected</span>
+      <span class="badge badge-danger">Rejected</span>
+      <span class="badge badge-warning">Needs review</span>
+      <span class="badge badge-info">Syncing</span>
+      <span class="badge badge-iris">AI</span>
+      <span class="badge badge-neutral">Draft</span>
+      <span class="badge badge-neutral">Comments <span class="count">3</span></span>
+      <span class="status"><span class="dot"></span> Backed up</span>
+    </div>
+    <span class="label-tiny">Filter chips</span>
+    <div class="wrap" style="margin-top:12px">
+      <span class="chip"><svg class="ico sm"><use href="#i-filter"/></svg> All photos</span>
+      <span class="chip on">Selects <span class="ct">312</span></span>
+      <span class="chip">Faces <span class="ct">8</span></span>
+      <span class="chip">Sharp only</span>
+    </div>
+  </section>
+
+  <!-- INPUTS + CONTROLS -->
+  <section>
+    <span class="label-tiny">Inputs &amp; controls</span>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
+      <label class="search field"><svg class="ico sm"><use href="#i-search"/></svg><input class="field" style="border:0;padding:0;background:transparent" placeholder="Search shoots…"></label>
+      <input class="field" placeholder="Project name">
+      <select class="field"><option>Wedding</option><option>Portrait</option></select>
+      <textarea class="field" placeholder="Notes…"></textarea>
+    </div>
+    <div class="wrap" style="margin-top:18px;gap:24px">
+      <div class="cell"><div class="switch on"></div><span class="cap">switch · on</span></div>
+      <div class="cell"><div class="switch"></div><span class="cap">switch · off</span></div>
+      <div class="cell"><div class="seg"><button class="on">Loupe</button><button>Grid</button><button>Pulse</button></div><span class="cap">segmented</span></div>
+      <div class="cell"><div class="row"><span class="check on"><svg class="ico sm"><use href="#i-check"/></svg></span><span class="check"></span></div><span class="cap">checkbox</span></div>
+      <div class="cell"><div class="row"><span class="radio on"></span><span class="radio"></span></div><span class="cap">radio</span></div>
+    </div>
+  </section>
+
+  <!-- CARDS -->
+  <section>
+    <span class="label-tiny">Cards · elevation &amp; depth</span>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+      <div class="card"><div class="title">Base card</div><div class="dim" style="font-size:12px;margin-top:4px">el-1 · subtle border</div></div>
+      <div class="card card-hover"><div class="title">Hover card</div><div class="dim" style="font-size:12px;margin-top:4px">lifts on hover →</div></div>
+      <div class="card selected"><div class="title">Selected</div><div class="dim" style="font-size:12px;margin-top:4px">iris border + glow</div></div>
+      <div class="card glass"><div class="title">Glass</div><div class="dim" style="font-size:12px;margin-top:4px">backdrop blur</div></div>
+      <div class="card beam"><div class="title">Beam</div><div class="dim" style="font-size:12px;margin-top:4px">gradient-accent border</div></div>
+    </div>
+  </section>
+
+  <!-- MISC -->
+  <section>
+    <span class="label-tiny">Tabs · kbd · avatars · feedback</span>
+    <div class="tabs" style="margin-bottom:18px"><span class="tab on">Comments</span><span class="tab">People</span><span class="tab">Activity</span></div>
+    <div class="wrap" style="gap:24px;align-items:flex-start">
+      <div class="cell"><div class="row"><span class="kbd">⌘</span><span class="kbd">K</span><span class="kbd">↵</span></div><span class="cap">kbd</span></div>
+      <div class="cell"><div class="avatar-stack"><span class="avatar iris">RS</span><span class="avatar green">MA</span><span class="avatar amber">JK</span></div><span class="cap">avatar stack</span></div>
+      <div class="cell"><span class="pop">Approve this set <span class="kbd">A</span></span><span class="cap">tooltip</span></div>
+      <div class="cell"><span class="dot-live"></span><span class="cap">live dot</span></div>
+      <div class="cell"><div class="spinner"></div><span class="cap">spinner</span></div>
+    </div>
+    <div class="col" style="margin-top:20px;gap:14px;max-width:380px">
+      <div class="cell" style="width:100%"><div class="ratio" style="width:100%"><i class="sel" style="width:62%"></i><i class="rej" style="width:18%"></i><i class="left" style="width:20%"></i></div><span class="cap">select / reject ratio</span></div>
+      <div class="cell" style="width:100%"><div class="progress" style="width:100%"><i style="width:68%"></i></div><span class="cap">progress · glow</span></div>
+      <div class="cell" style="width:100%"><div class="skel" style="width:100%;height:40px"></div><span class="cap">skeleton</span></div>
+      <div class="divider glow" style="width:100%"></div>
+    </div>
+  </section>
+</div>
+</body></html>
