@@ -627,7 +627,7 @@ export async function main() {
 
   server.tool(
     "match_mockup",
-    "Closed visual-diff loop — the grounded feedback signal for making a running app match an HTML mockup. Renders BOTH the mockup and the app, returns (a) per-viewport pixel similarity + hotspot regions and (b) a prioritized, categorized punch-list of exact field-level differences (copy/color/typography/spacing/elevation/icon/structure) with the node path for each. Pass `sourceDir` to make it codebase-aware: each punch-list item then carries the `sourceFile` to edit (resolved via the app's data-testid → source) and a `tokenHint` when a literal value should become a design token. Writes side-by-side PNGs to disk (Read them to see the diff). The mockup is the ground truth — no Figma round-trip. WORKFLOW: implement → match_mockup → fix the highest-severity punchList items in their named sourceFile → rebuild → match_mockup again. Repeat until `pass` is true (worst visual score ≥ minScore AND punchList empty). Serve the mockup over file:// or a local static server; point appUrl at the dev build.",
+    "Closed visual-diff loop — the grounded feedback signal for making a running app match an HTML mockup. Renders BOTH the mockup and the app, returns (a) per-viewport pixel similarity + hotspot regions and (b) a prioritized, categorized punch-list of exact field-level differences (copy/color/typography/spacing/elevation/icon/structure) with the node path for each. Pass `sourceDir` to make it codebase-aware: each punch-list item then carries the `sourceFile` to edit (resolved via the app's data-testid → source) and a `tokenHint` when a literal value should become a design token. Also returns a perceptual SSIM score per viewport (tolerant of anti-aliasing) and writes three legible diff artifacts per viewport you Read() to SEE the drift: `overlayPng` (onion-skin), `montagePng` (mockup | app | overlay), `boxedPng` (app with red diff boxes). Color deltas are gated on perceptual ΔE so imperceptible shifts don't show as noise. The mockup is the ground truth — no Figma round-trip. WORKFLOW: implement → match_mockup → fix the highest-severity punchList items in their named sourceFile → rebuild → match_mockup again. Repeat until `pass` is true (worst visual score ≥ minScore AND punchList empty). Serve the mockup over file:// or a local static server; point appUrl at the dev build.",
     {
       mockupUrl: z.string().describe("URL of the target HTML mockup (ground truth). file:// or local http both work."),
       appUrl: z.string().describe("URL of the running app to bring into alignment, e.g. http://localhost:3000/screen."),
@@ -664,6 +664,57 @@ export async function main() {
           tokenCount: Object.keys(idx.tokens.nameToVal).length,
           byTestid: idx.byTestid, byComponent: idx.byComponent, tokens: idx.tokens,
         });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "measure_layout",
+    "Mathematical layout metrics for a URL — numbers an agent can reason over directly (more actionable than a screenshot). Returns the inferred GRID (column/row count, column pitch, gutter, cell size, size-regularity) from the dominant repeated component; ALIGNMENT (count of shared vertical/horizontal edge lines + a snap score); SPACING (detected base unit e.g. 8px, the spacing scale, % off-grid); the repeated-COMPONENT groups with instance counts; and an XY-CUT block segmentation (depth, leaf count, and the largest whitespace seams = the structural splits like sidebar|content|inspector). Deterministic, no model.",
+    {
+      url: z.string().describe("Page URL — http(s) or file://."),
+      width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
+      rootSelector: z.string().optional().describe("CSS selector to scope to a subtree. Default body.")
+    },
+    async ({ url, width, rootSelector }) => {
+      try {
+        const { measureLayout } = await import("./browser.js");
+        return asText(await measureLayout(url, { width: width || 1280, rootSelector }));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "demarcate",
+    "Demarcate a page's components — numerically AND visually. Returns the same mathematical layout metrics as measure_layout, plus writes a PNG with every repeated-component group boxed in its own colour (so the component boundaries and the grid are unmistakable). Use to SEE and MEASURE the structure of a mockup or a rendered app in one call.",
+    {
+      url: z.string().describe("Page URL — http(s) or file://."),
+      width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
+      outDir: z.string().optional().describe("Directory to write the demarcation PNG into. Default /tmp."),
+      prefix: z.string().optional().describe("Filename prefix. Default 'demarcate'."),
+      rootSelector: z.string().optional().describe("CSS selector to scope to a subtree. Default body.")
+    },
+    async ({ url, width, outDir, prefix, rootSelector }) => {
+      try {
+        const { demarcate } = await import("./browser.js");
+        return asText(await demarcate(url, { width: width || 1280, outDir, prefix, rootSelector }));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "diff_images",
+    "Compare two image files (any PNGs — Figma exports, mockup screenshots, rendered pages). Returns a raw-pixel score (0-100), a perceptual SSIM score (0-1, tolerant of anti-aliasing / sub-pixel shifts), hotspot diff regions, and writes three legible artifacts to disk that you Read() to SEE the difference: `overlay` (onion-skin — image B with image A at 50% on top), `montage` (A | B | overlay side-by-side, colour-coded), `boxed` (B with red boxes on the diff regions). The general-purpose visual comparator — use when you have two images and no DOM.",
+    {
+      imageA: z.string().describe("Absolute path to the first/reference PNG."),
+      imageB: z.string().describe("Absolute path to the second/candidate PNG."),
+      outDir: z.string().optional().describe("Directory to write the artifacts into. Default /tmp."),
+      prefix: z.string().optional().describe("Filename prefix. Default 'imgdiff'.")
+    },
+    async ({ imageA, imageB, outDir, prefix }) => {
+      try {
+        const { diffImages } = await import("./browser.js");
+        return asText(await diffImages(imageA, imageB, { outDir, prefix }));
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );

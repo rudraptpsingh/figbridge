@@ -859,6 +859,8 @@
       if (!cn) continue;
       const _tid0 = child.getAttribute('data-testid') || child.getAttribute('data-test-id') || child.getAttribute('data-component');
       if (_tid0) cn._testid = _tid0;
+      const _r0 = child.getBoundingClientRect();
+      if (_r0.width && _r0.height) cn._rect = { x: Math.round(_r0.left), y: Math.round(_r0.top), w: Math.round(_r0.width), h: Math.round(_r0.height) };
       const b = nodeBoundsForParent(child, cn);
       if (b.width > 0 && b.height > 0) {
         minX = Math.min(minX, b.left);
@@ -1398,6 +1400,10 @@
       // mockup-vs-app diff can resolve each node back to its source file.
       const _tid = child.getAttribute('data-testid') || child.getAttribute('data-test-id') || child.getAttribute('data-component');
       if (_tid) cn._testid = _tid;
+      // Absolute (document-relative; page is scrolled to 0) geometry for the
+      // layout-metrics math: grid / alignment / spacing / component pitch.
+      const _r = child.getBoundingClientRect();
+      if (_r.width && _r.height) cn._rect = { x: Math.round(_r.left), y: Math.round(_r.top), w: Math.round(_r.width), h: Math.round(_r.height) };
       const cr = nodeBoundsForParent(child, cn);
       const childCs0 = window.getComputedStyle(child);
       if (childCs0.position === 'absolute' || childCs0.position === 'fixed') hasAbsoluteChild = true;
