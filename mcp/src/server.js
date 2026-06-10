@@ -626,6 +626,71 @@ export async function main() {
   );
 
   server.tool(
+    "match_mockup",
+    "Closed visual-diff loop — the grounded feedback signal for making a running app match an HTML mockup. Renders BOTH the mockup and the app, returns (a) per-viewport pixel similarity + hotspot regions and (b) a prioritized, categorized punch-list of exact field-level differences (copy/color/typography/spacing/elevation/icon/structure) with the node path for each. Pass `sourceDir` to make it codebase-aware: each punch-list item then carries the `sourceFile` to edit (resolved via the app's data-testid → source) and a `tokenHint` when a literal value should become a design token. Writes side-by-side PNGs to disk (Read them to see the diff). The mockup is the ground truth — no Figma round-trip. WORKFLOW: implement → match_mockup → fix the highest-severity punchList items in their named sourceFile → rebuild → match_mockup again. Repeat until `pass` is true (worst visual score ≥ minScore AND punchList empty). Serve the mockup over file:// or a local static server; point appUrl at the dev build.",
+    {
+      mockupUrl: z.string().describe("URL of the target HTML mockup (ground truth). file:// or local http both work."),
+      appUrl: z.string().describe("URL of the running app to bring into alignment, e.g. http://localhost:3000/screen."),
+      sourceDir: z.string().optional().describe("Absolute path to the app source root. When set, each punch-list item is resolved to its sourceFile (via the app's data-testid / component name) and color/spacing literals get a design-token hint — so figbridge provides code accordingly."),
+      widths: z.array(z.coerce.number()).optional().describe("Viewport widths to compare. Default [1280, 768, 375]."),
+      minScore: z.coerce.number().optional().describe("Minimum acceptable per-viewport visual score to count as a match. Default 96."),
+      rootSelector: z.string().optional().describe("CSS selector to scope the structured spec diff to a subtree (e.g. 'main'). Default body."),
+      outDir: z.string().optional().describe("Directory to write the comparison PNGs into. Default /tmp."),
+      prefix: z.string().optional().describe("Filename prefix for the PNGs. Default 'match'."),
+      settleMs: z.coerce.number().optional().describe("Delay after load before capture. Default 1200ms.")
+    },
+    async ({ mockupUrl, appUrl, sourceDir, widths, minScore, rootSelector, outDir, prefix, settleMs }) => {
+      try {
+        const { matchMockup } = await import("./browser.js");
+        return asText(await matchMockup(mockupUrl, appUrl, { sourceDir, widths, minScore, rootSelector, outDir, prefix, settleMs }));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "map_components",
+    "Index an app's source tree so figbridge understands the codebase it's generating against. Returns the maps that let a mockup-vs-app diff name the file to edit: data-testid / data-component → { file, line }, component-name → file, and :root design tokens (value ↔ var name). Run once to inspect the mapping, or just pass `sourceDir` to match_mockup which builds it internally. Returns { ok, fileCount, byTestid, byComponent, tokens }.",
+    {
+      sourceDir: z.string().describe("Absolute path to the app source root (e.g. the repo's src/).")
+    },
+    async ({ sourceDir }) => {
+      try {
+        const { buildSourceIndex } = await import("./source-index.js");
+        const idx = await buildSourceIndex(sourceDir);
+        return asText({
+          ok: idx.ok, sourceDir: idx.sourceDir, fileCount: idx.fileCount,
+          testidCount: Object.keys(idx.byTestid).length,
+          componentCount: Object.keys(idx.byComponent).length,
+          tokenCount: Object.keys(idx.tokens.nameToVal).length,
+          byTestid: idx.byTestid, byComponent: idx.byComponent, tokens: idx.tokens,
+        });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "diff_specs",
+    "Fast structured-only diff between two rendered URLs (no screenshots). Extracts a computed-style spec from each and reports a categorized, severity-sorted punch-list of exact field-level differences: copy (text), color (fill/text/stroke), typography (font family/size/weight/…), spacing (layout/gap/padding/align/radius/size), and structure (nodes present on one side only). Use for tight refine loops where you only need the 'what differs' list and not pixels — match_mockup wraps this plus a pixel diff. Returns { ok, summary, deltas }.",
+    {
+      mockupUrl: z.string().describe("URL of the reference / ground-truth page (the 'a' side)."),
+      appUrl: z.string().describe("URL of the page being aligned (the 'b' side)."),
+      width: z.coerce.number().optional().describe("Viewport width for both. Default 1280."),
+      rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
+    },
+    async ({ mockupUrl, appUrl, width, rootSelector }) => {
+      try {
+        const { urlToSpec } = await import("./browser.js");
+        const { diffSpecs } = await import("./spec-diff.js");
+        const [a, b] = await Promise.all([
+          urlToSpec(mockupUrl, { width: width || 1280, rootSelector, embedImages: false }),
+          urlToSpec(appUrl, { width: width || 1280, rootSelector, embedImages: false }),
+        ]);
+        return asText(diffSpecs(a, b, { labelA: "mockup", labelB: "app" }));
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "probe_url",
     "Render a URL in headless Chrome and run an arbitrary JS snippet inside the page. Use to inspect the live DOM / computed styles when planning an extraction. Replaces external chrome-devtools-mcp.evaluate_script. Snippet is the async-function body; use `return` for the result. Returns { ok, result }.",
     {
