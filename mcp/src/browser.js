@@ -11,6 +11,8 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { diffSpecs, styleProfile, compareStyleProfiles } from "./spec-diff.js";
 import { buildSourceIndex, resolveSource, tokenHint } from "./source-index.js";
+import { annotateDiff, ssim, demarcatePng } from "./image-tools.js";
+import { layoutMetrics, diffLayoutMetrics, demarcationBoxes } from "./layout-metrics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXTRACTOR_PATHS = [
@@ -1213,9 +1215,15 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
     const appPath = path.join(outDir, `${prefix}-${width}-app.png`);
     await writeFile(mockPath, mock.screenshot).catch(() => {});
     await writeFile(appPath, app.screenshot).catch(() => {});
+    // Perceptual SSIM (filters AA/shift noise) + legible diff artifacts the
+    // agent can Read(): onion-skin overlay, side-by-side montage, boxed regions.
+    let ssimScore = null, artifacts = {};
+    try { ssimScore = await ssim(mock.screenshot, app.screenshot); } catch (e) {}
+    try { artifacts = await annotateDiff({ mockPng: mock.screenshot, appPng: app.screenshot, regions: diff.regions, outDir, prefix: `${prefix}-${width}` }); } catch (e) {}
     visual.push({
       width,
       score: diff.score,
+      ssim: ssimScore,
       diffPercent: diff.diffPercent,
       regions: diff.regions,
       pageSizeDelta: {
@@ -1224,6 +1232,9 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
       },
       mockupPng: mockPath,
       appPng: appPath,
+      overlayPng: artifacts.overlay || null,
+      montagePng: artifacts.montage || null,
+      boxedPng: artifacts.boxed || null,
     });
   }
 
@@ -1232,6 +1243,7 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
   let specSummary = null;
   let specError = null;
   let styleGap = null;
+  let layoutGap = null;
   try {
     const [mockSpec, appSpec] = await Promise.all([
       urlToSpec(mockupUrl, { width: specWidth, rootSelector: opts.rootSelector, embedImages: false, settleMs }),
@@ -1240,6 +1252,9 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
     // Design-language fingerprint: does the app reproduce the mockup's *style*
     // (gradients, glow, glass blur), not just its copy/colour/spacing?
     styleGap = compareStyleProfiles(styleProfile(mockSpec), styleProfile(appSpec));
+    // Mathematical structure: grid columns / pitch / alignment / spacing-unit
+    // deltas — numbers the agent acts on directly.
+    try { layoutGap = diffLayoutMetrics(layoutMetrics(mockSpec), layoutMetrics(appSpec)); } catch (e) {}
     const sd = diffSpecs(mockSpec, appSpec, { labelA: "mockup", labelB: "app", maxDeltas: opts.maxDeltas || 300 });
     specSummary = sd.summary;
     punchList = sd.deltas.map((d) => {
@@ -1264,6 +1279,8 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
   }
 
   const worstVisualScore = visual.reduce((min, v) => Math.min(min, v.score), 100);
+  const ssimVals = visual.map((v) => v.ssim).filter((s) => s != null);
+  const worstSsim = ssimVals.length ? Math.min(...ssimVals) : null;
   const pass = worstVisualScore >= minScore && punchList.length === 0;
   const mappedCount = punchList.filter((d) => d.sourceFile).length;
   const source = sourceIndex
@@ -1278,6 +1295,7 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
     threshold: { minScore },
     summary: {
       worstVisualScore,
+      worstSsim,
       visualPass: worstVisualScore >= minScore,
       punchListItems: punchList.length,
       byKind: specSummary ? specSummary.byKind : null,
@@ -1289,12 +1307,63 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
     specSummary,
     specError,
     styleGap,
+    layoutGap,
     source,
     // Tell the agent exactly what to do next — this is the loop instruction.
     nextAction: pass
       ? "MATCH. Worst visual score ≥ threshold and punch-list empty. Done."
-      : `NOT a match yet. Fix the highest-severity punchList items (copy/color/structure first) — each item names its sourceFile to edit${source ? "" : " (pass sourceDir to resolve files automatically)"}, and tokenHint when a literal should become a design token. Rebuild, then call match_mockup again. Repeat until pass=true (worst visual score ≥ ${minScore} AND punchList empty).`,
+      : `NOT a match yet. Read visual[].montagePng (mockup | app | overlay onion-skin) and boxedPng to SEE the drift, then fix the highest-severity punchList items (copy/color/structure first) — each item names its sourceFile to edit${source ? "" : " (pass sourceDir to resolve files automatically)"}, and tokenHint when a literal should become a design token. Rebuild, then call match_mockup again. Repeat until pass=true (worst visual score ≥ ${minScore} AND punchList empty).`,
   };
+}
+
+/**
+ * Diff two image FILES (any PNGs — Figma exports, mockup screenshots, etc.):
+ * raw-pixel score + perceptual SSIM + hotspot regions, and write the three
+ * legible artifacts (overlay / montage / boxed). The general-purpose,
+ * ImageMagick-style image comparator.
+ */
+export async function diffImages(pathA, pathB, opts = {}) {
+  const a = await readFile(pathA), b = await readFile(pathB);
+  const diff = await diffPngs(a, b);
+  let ssimScore = null, artifacts = {};
+  try { ssimScore = await ssim(a, b); } catch (e) {}
+  const outDir = opts.outDir || "/tmp", prefix = opts.prefix || "imgdiff";
+  try { artifacts = await annotateDiff({ mockPng: a, appPng: b, regions: diff.regions, outDir, prefix }); } catch (e) {}
+  return {
+    ok: true, score: diff.score, ssim: ssimScore, diffPercent: diff.diffPercent,
+    dimensions: diff.dimensions, regions: diff.regions,
+    overlay: artifacts.overlay || null, montage: artifacts.montage || null, boxed: artifacts.boxed || null,
+  };
+}
+
+/**
+ * Mathematical layout metrics for one URL — inferred grid (columns / rows /
+ * pitch / gutter), alignment lines, spacing base-unit + scale, repeated-
+ * component groups, and an XY-cut block segmentation. Numbers, not pixels.
+ */
+export async function measureLayout(url, opts = {}) {
+  const spec = await urlToSpec(url, { width: opts.width || 1280, rootSelector: opts.rootSelector, embedImages: false, settleMs: opts.settleMs });
+  return layoutMetrics(spec);
+}
+
+/**
+ * Demarcate components visually + numerically: returns the layout metrics AND
+ * writes a PNG with each repeated-component group boxed in its own colour and
+ * the inferred grid columns drawn as lines.
+ */
+export async function demarcate(url, opts = {}) {
+  const width = opts.width || 1280;
+  const [png, spec] = await Promise.all([
+    screenshotUrl(url, { width, fullPage: true, settleMs: opts.settleMs }),
+    urlToSpec(url, { width, rootSelector: opts.rootSelector, embedImages: false, settleMs: opts.settleMs }),
+  ]);
+  const metrics = layoutMetrics(spec);
+  const boxes = demarcationBoxes(spec);
+  const outDir = opts.outDir || "/tmp", prefix = opts.prefix || "demarcate";
+  const outPath = path.join(outDir, `${prefix}.png`);
+  let demarcationPng = null;
+  try { demarcationPng = await demarcatePng({ basePng: png, boxes, outPath }); } catch (e) {}
+  return { ok: true, metrics, componentBoxes: boxes.length, demarcationPng };
 }
 
 function resizePngNearest(PNG, src, width, height) {

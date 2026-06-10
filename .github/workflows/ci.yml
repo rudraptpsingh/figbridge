@@ -51,6 +51,12 @@ jobs:
       - name: Source-index unit tests
         run: node test/source-index.mjs
 
+      - name: Image-tools unit tests
+        run: node test/image-tools.mjs
+
+      - name: Layout-metrics unit tests
+        run: node test/layout-metrics.mjs
+
       - name: Real-world scenarios
         run: node test/scenarios.mjs
 
