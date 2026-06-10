@@ -18,7 +18,7 @@ Figbridge is built for the community path: free, open source, local, and useful 
 Figbridge:
 - **Free.** MIT. Runs entirely on your machine.
 - **No account, no token.** Uses your existing Figma desktop session.
-- **45 MCP tools.** Read, catalog, write-back, lint, ship an agent handoff bundle, import a live URL into Figma, audit the imported design across 5 dimensions, and round-trip changes back to a source repo as a patch.
+- **48 MCP tools.** Read, catalog, write-back, lint, ship an agent handoff bundle, import a live URL into Figma, audit the imported design across 5 dimensions, round-trip changes back to a source repo as a patch, and run a closed visual-diff loop that brings a running app into line with its mockup.
 - **Import diagnostics before you wait.** `preflight_import` flags bot pages, deep DOM, low-res images, SVG-heavy pages, and downloadable font assets before a full import.
 - **Hybrid fallback for hard pages.** `import_url({ hybridSnapshot: true })` can place a full-page screenshot reference under editable layers for video-heavy or generated sites where pixel fidelity matters.
 - **Chrome/Edge current-tab capture.** Load `chrome-extension/` unpacked to send visible viewports, full pages, selected elements, authenticated tabs, localhost, or staging pages directly to the local bridge.
@@ -95,7 +95,9 @@ Use `npx figbridge-mcp init --pin` if you'd rather lock to the currently install
 
 **Pillar 2 — Design intelligence audits (5)** — `audit_palette` · `audit_typography` · `audit_a11y` (WCAG 2.x contrast, landmarks, alt text) · `audit_whitespace` (padding/gap rhythm, 4/8-grid conformance) · `audit_mobile` (multi-viewport responsive: horizontal scroll, overflow-x, sub-44px touch targets, sub-12px text)
 
-All audits are pure deterministic measurement — no LLM. They return numeric scores and structured issue lists ready to feed back into a planning loop. `audit_regression` can be used as a local/CI gate before shipping a UI change: it compares screenshots, missing visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
+**Pillar 3 — Match the mockup (3)** — `match_mockup` (closed render → diff → refine loop: renders a running app and its target mockup, returns per-viewport visual scores plus a prioritized punch-list of copy / color / typography / spacing / elevation / icon / structure differences, a design-language style fingerprint, and — with `sourceDir` — the source file to edit for each item) · `diff_specs` (fast structured field-level diff between two rendered URLs) · `map_components` (index an app's source tree — data-testid / component → file, plus design tokens — so diffs name the file to change and the token a literal should become)
+
+All audits are pure deterministic measurement — no model calls. They return numeric scores and structured issue lists ready to feed back into a planning loop. `audit_regression` can be used as a local/CI gate before shipping a UI change: it compares screenshots, missing visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
 
 ## Chrome current-tab capture
 
