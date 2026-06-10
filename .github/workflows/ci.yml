@@ -45,6 +45,12 @@ jobs:
       - name: Render pipeline unit tests
         run: node test-agent/run.js
 
+      - name: Spec-diff unit tests
+        run: node test/spec-diff.mjs
+
+      - name: Source-index unit tests
+        run: node test/source-index.mjs
+
       - name: Real-world scenarios
         run: node test/scenarios.mjs
 

@@ -857,6 +857,8 @@
       const child = node;
       const cn = nodeForElement(child, opts, depth + 1);
       if (!cn) continue;
+      const _tid0 = child.getAttribute('data-testid') || child.getAttribute('data-test-id') || child.getAttribute('data-component');
+      if (_tid0) cn._testid = _tid0;
       const b = nodeBoundsForParent(child, cn);
       if (b.width > 0 && b.height > 0) {
         minX = Math.min(minX, b.left);
@@ -1392,6 +1394,10 @@
       const child = node;
       const cn = nodeForElement(child, opts, depth + 1);
       if (!cn) continue;
+      // Carry the app's component anchor (data-testid / data-component) so a
+      // mockup-vs-app diff can resolve each node back to its source file.
+      const _tid = child.getAttribute('data-testid') || child.getAttribute('data-test-id') || child.getAttribute('data-component');
+      if (_tid) cn._testid = _tid;
       const cr = nodeBoundsForParent(child, cn);
       const childCs0 = window.getComputedStyle(child);
       if (childCs0.position === 'absolute' || childCs0.position === 'fixed') hasAbsoluteChild = true;

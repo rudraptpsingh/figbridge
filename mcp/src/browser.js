@@ -5,10 +5,12 @@
 // chrome-devtools-mcp + figbridge + a shell script. Now figbridge is the
 // single mediator — one MCP call replaces the dance.
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { existsSync } from "node:fs";
+import { diffSpecs, styleProfile, compareStyleProfiles } from "./spec-diff.js";
+import { buildSourceIndex, resolveSource, tokenHint } from "./source-index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXTRACTOR_PATHS = [
@@ -1162,6 +1164,136 @@ export async function auditRegression(baselineUrl, candidateUrl, opts = {}) {
     responsive: { baseline: baselineMobile.summary, candidate: candidateMobile.summary, delta: responsiveDelta },
     featureDrift: drift,
     issues,
+  };
+}
+
+/**
+ * Closed visual-diff loop: render an HTML mockup and the running app, then
+ * report (a) per-viewport pixel similarity + hotspot regions ("where") and
+ * (b) a structured, categorized punch-list of field-level differences from
+ * a spec-vs-spec diff ("what exactly"). This is the grounded feedback signal
+ * an agent iterates against to make the app match the mockup — the missing
+ * piece that turns blind retries into a convergent refine loop.
+ *
+ * Both inputs are URLs: serve the mockup over file:// or a local static
+ * server, and point appUrl at the dev build. The mockup is the ground truth.
+ *
+ * @param {string} mockupUrl  URL of the target HTML mockup (ground truth).
+ * @param {string} appUrl     URL of the running app to bring into alignment.
+ * @param {object} [opts]     { widths, minScore, outDir, prefix, settleMs,
+ *                              specWidth, rootSelector, maxDeltas, componentMap }
+ */
+export async function matchMockup(mockupUrl, appUrl, opts = {}) {
+  const widths = opts.widths && opts.widths.length ? opts.widths : [1280, 768, 375];
+  const minScore = opts.minScore == null ? 96 : Number(opts.minScore);
+  const settleMs = opts.settleMs || 1200;
+  const outDir = opts.outDir || "/tmp";
+  const prefix = opts.prefix || "match";
+  const specWidth = opts.specWidth || Math.max(...widths);
+  const componentMap = opts.componentMap || null; // { sigOrName: { file } } override
+
+  // Codebase awareness: index the app source so each punch-list item can name
+  // the file to edit and the token a literal should become.
+  let sourceIndex = null;
+  if (opts.sourceDir) {
+    try { sourceIndex = await buildSourceIndex(opts.sourceDir); } catch (e) { sourceIndex = null; }
+  }
+
+  await mkdir(outDir, { recursive: true }).catch(() => {});
+
+  // ── Pixel layer: screenshot both at each viewport, diff, write PNGs ──
+  const visual = [];
+  for (const width of widths) {
+    const [mock, app] = await Promise.all([
+      captureRegressionPage(mockupUrl, width, { settleMs }),
+      captureRegressionPage(appUrl, width, { settleMs }),
+    ]);
+    const diff = await diffPngs(mock.screenshot, app.screenshot);
+    const mockPath = path.join(outDir, `${prefix}-${width}-mockup.png`);
+    const appPath = path.join(outDir, `${prefix}-${width}-app.png`);
+    await writeFile(mockPath, mock.screenshot).catch(() => {});
+    await writeFile(appPath, app.screenshot).catch(() => {});
+    visual.push({
+      width,
+      score: diff.score,
+      diffPercent: diff.diffPercent,
+      regions: diff.regions,
+      pageSizeDelta: {
+        width: Math.round((app.metrics.width || 0) - (mock.metrics.width || 0)),
+        height: Math.round((app.metrics.height || 0) - (mock.metrics.height || 0)),
+      },
+      mockupPng: mockPath,
+      appPng: appPath,
+    });
+  }
+
+  // ── Structured layer: spec-vs-spec diff at the primary width ──
+  let punchList = [];
+  let specSummary = null;
+  let specError = null;
+  let styleGap = null;
+  try {
+    const [mockSpec, appSpec] = await Promise.all([
+      urlToSpec(mockupUrl, { width: specWidth, rootSelector: opts.rootSelector, embedImages: false, settleMs }),
+      urlToSpec(appUrl, { width: specWidth, rootSelector: opts.rootSelector, embedImages: false, settleMs }),
+    ]);
+    // Design-language fingerprint: does the app reproduce the mockup's *style*
+    // (gradients, glow, glass blur), not just its copy/colour/spacing?
+    styleGap = compareStyleProfiles(styleProfile(mockSpec), styleProfile(appSpec));
+    const sd = diffSpecs(mockSpec, appSpec, { labelA: "mockup", labelB: "app", maxDeltas: opts.maxDeltas || 300 });
+    specSummary = sd.summary;
+    punchList = sd.deltas.map((d) => {
+      const out = { ...d };
+      // explicit override map first, then the auto-built source index
+      if (componentMap) {
+        const hit = componentMap[d.name] || componentMap[(d.name || "").replace(/^[.#]/, "")];
+        if (hit && hit.file) { out.sourceFile = hit.file; out.via = "componentMap"; }
+      }
+      if (!out.sourceFile && sourceIndex) {
+        const src = resolveSource(d, sourceIndex);
+        if (src) { out.sourceFile = src.file; if (src.line) out.sourceLine = src.line; out.via = src.via; }
+      }
+      if (sourceIndex) {
+        const th = tokenHint(d, sourceIndex);
+        if (th) out.tokenHint = `${th.token} (= ${th.value})`;
+      }
+      return out;
+    });
+  } catch (e) {
+    specError = e.message;
+  }
+
+  const worstVisualScore = visual.reduce((min, v) => Math.min(min, v.score), 100);
+  const pass = worstVisualScore >= minScore && punchList.length === 0;
+  const mappedCount = punchList.filter((d) => d.sourceFile).length;
+  const source = sourceIndex
+    ? { sourceDir: opts.sourceDir, fileCount: sourceIndex.fileCount, testids: Object.keys(sourceIndex.byTestid).length, tokens: Object.keys(sourceIndex.tokens.nameToVal).length, mappedDeltas: mappedCount }
+    : null;
+
+  return {
+    ok: true,
+    pass,
+    mockupUrl,
+    appUrl,
+    threshold: { minScore },
+    summary: {
+      worstVisualScore,
+      visualPass: worstVisualScore >= minScore,
+      punchListItems: punchList.length,
+      byKind: specSummary ? specSummary.byKind : null,
+      high: specSummary ? specSummary.high : null,
+      mappedToSource: source ? mappedCount : null,
+    },
+    visual,
+    punchList,
+    specSummary,
+    specError,
+    styleGap,
+    source,
+    // Tell the agent exactly what to do next — this is the loop instruction.
+    nextAction: pass
+      ? "MATCH. Worst visual score ≥ threshold and punch-list empty. Done."
+      : `NOT a match yet. Fix the highest-severity punchList items (copy/color/structure first) — each item names its sourceFile to edit${source ? "" : " (pass sourceDir to resolve files automatically)"}, and tokenHint when a literal should become a design token. Rebuild, then call match_mockup again. Repeat until pass=true (worst visual score ≥ ${minScore} AND punchList empty).`,
   };
 }
 
