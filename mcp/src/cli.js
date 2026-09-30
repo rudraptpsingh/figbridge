@@ -50,6 +50,9 @@ async function connect() {
   await client.connect(clientT);
   const close = async () => {
     try { await client.close(); } catch {}
+    // Close a headless browser a tool opened, or its temp profile
+    // (puppeteer_dev_chrome_profile-*) is left behind in TEMP.
+    try { await (await import("./browser.js")).shutdown(); } catch {}
     if (bridgeServer) {
       try { bridgeServer.closeAllConnections && bridgeServer.closeAllConnections(); } catch {}
       await new Promise((r) => bridgeServer.close(() => r()));
