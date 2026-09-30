@@ -116,6 +116,7 @@ async function main() {
     "preflight_import", "import_url", "import_responsive_set", "import_url_batch",
     "verify_text_fidelity", "screenshot_url", "visual_diff", "fingerprint_url", "audit_interactions",
     "audit_mobile", "measure_fidelity", "audit_regression", "match_mockup", "measure_layout", "demarcate", "diff_images", "diff_specs", "map_components", "probe_url",
+    "connect_components", "get_code_connect", "lint_connect",
     "diff_to_source", "generate_patch",
     "audit_palette", "audit_typography", "audit_a11y", "audit_whitespace", "export_frame",
     "import_from_code", "update_from_code", "run_script", "delete_node"

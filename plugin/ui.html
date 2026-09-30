@@ -599,6 +599,7 @@
     border-bottom: 1px solid var(--line-2); padding-bottom: 1px;
   }
   .welcome .row2 a:hover { color: var(--accent); border-color: var(--accent); }
+  .tab.mapped::after { content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 5px; border-radius: 50%; background: currentColor; vertical-align: middle; }
 </style>
 </head>
 <body>
@@ -689,6 +690,7 @@
           <div class="tab" data-tab="swift">SwiftUI</div>
           <div class="tab" data-tab="tokens">Tokens</div>
           <div class="tab" data-tab="tailwindConfig">Config</div>
+          <div class="tab" data-tab="connect" title="Code Connect: the mapped code component for the selected instance (figbridge.connect.json)">Code</div>
           <span class="tab-spacer"></span>
           <button class="tab-dl" id="tabCopy" title="Copy tab contents">
             <svg viewBox="0 0 12 12" fill="none"><rect x="3.5" y="3.5" width="6" height="7" rx="0.8" stroke="currentColor" stroke-width="1.1"/><path d="M5.5 2h3.5a1 1 0 0 1 1 1v4.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
@@ -850,7 +852,8 @@
       tailwind: state.data.tailwindHtml == null ? "" : state.data.tailwindHtml,
       swift: state.data.swift == null ? "" : state.data.swift,
       tokens: JSON.stringify(state.data.tokens || {}, null, 2) + "\n\n/* CSS variables */\n" + (state.data.cssVars || ""),
-      tailwindConfig: state.data.tailwindConfig || ""
+      tailwindConfig: state.data.tailwindConfig || "",
+      connect: codeConnectText(state.data)
     };
     _fullText = map[state.tab] || "";
     var bytes = _fullText.length;
@@ -1070,7 +1073,8 @@
       tailwind: state.data.tailwindHtml || "",
       swift: state.data.swift || "",
       tokens: JSON.stringify(state.data.tokens || {}, null, 2) + "\n\n/* CSS variables */\n" + (state.data.cssVars || ""),
-      tailwindConfig: state.data.tailwindConfig || ""
+      tailwindConfig: state.data.tailwindConfig || "",
+      connect: state.data.codeConnect && state.data.codeConnect.snippet ? state.data.codeConnect.snippet : ""
     };
     return map[state.tab] || "";
   }
@@ -1080,7 +1084,7 @@
       base = String(state.data.nodeNames[0]).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "figbridge";
     }
     var ext = { html: "html", css: "css", tailwind: "tailwind.html", swift: "swift",
-                tokens: "tokens.json", tailwindConfig: "tailwind.config.js" }[state.tab] || "txt";
+                tokens: "tokens.json", tailwindConfig: "tailwind.config.js", connect: "tsx" }[state.tab] || "txt";
     return base + "." + ext;
   }
   el("tabCopy").addEventListener("click", function () {
@@ -1676,6 +1680,34 @@
     } catch (e) { setFoot("EventSource error: " + e.message); }
   }
   function closeEventStream() { if (eventSource) { try { eventSource.close(); } catch (e) {}; eventSource = null; } }
+  // ── Code Connect ────────────────────────────────────────────────
+  // For a selected instance, ask the bridge to map it through the repo's
+  // figbridge.connect.json and show the snippet in the "Code" tab — the
+  // Dev Mode Code Connect panel, without a Dev seat.
+  function codeConnectText(data) {
+    var cc = data.codeConnect;
+    if (!data.codeConnectNode) return "// Code Connect: select one component instance.";
+    if (!cc) return "// Code Connect: looking up " + (data.codeConnectNode.componentSet ? data.codeConnectNode.componentSet.name : data.codeConnectNode.name) + "…";
+    if (cc.ok && cc.snippet) {
+      var head = "// " + cc.figma.name + " → " + cc.code.source + (cc.unmappedFigmaProps && cc.unmappedFigmaProps.length ? "\n// not mapped: " + cc.unmappedFigmaProps.join(", ") : "");
+      return head + "\n\n" + cc.snippet + "\n";
+    }
+    return "// Code Connect: " + (cc.error || "not mapped") + "\n// Map it with the connect_components MCP tool (figbridge.connect.json in your repo).";
+  }
+  function fetchCodeConnect(data) {
+    if (!data || !data.codeConnectNode) return;
+    var node = data.codeConnectNode;
+    fetch(bridgeBase() + "/code-connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ node: node, fileKey: data.fileKey || null }) })
+      .then(function (r) { return r.json(); })
+      .catch(function (e) { return { ok: false, error: "bridge offline (" + e.message + ")" }; })
+      .then(function (cc) {
+        if (state.data !== data) return; // selection moved on
+        data.codeConnect = cc;
+        var tab = document.querySelector(".tab[data-tab=\"connect\"]");
+        if (tab) tab.classList.toggle("mapped", !!(cc && cc.ok));
+        if (state.tab === "connect") render();
+      });
+  }
   function postCmdResult(cmdId, body) {
     return fetch(bridgeBase() + "/command/" + cmdId + "/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(function () {});
   }
@@ -1719,6 +1751,7 @@
         state.data = msg; render();
         setStatus("ok", "Done"); setFoot("Exported " + (msg.nodeNames || []).join(", "));
         if (state.bridge) pushToBridge(msg);
+        fetchCodeConnect(msg);
         break;
       }
       case "auto-push": {
@@ -1728,6 +1761,7 @@
         state.data = msg; render();
         setStatus("ok", "Live"); setFoot("Pushed " + (msg.nodeNames || []).join(", "));
         if (state.bridge) pushToBridge(msg);
+        fetchCodeConnect(msg);
         break;
       }
       case "selection-pending": {

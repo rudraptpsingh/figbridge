@@ -668,6 +668,126 @@ export async function main() {
     }
   );
 
+  // ── Code Connect (local, free) ─────────────────────────────
+  // A figbridge.connect.json in the consuming repo maps Figma components to
+  // code components + props. See README "Code Connect without a Dev seat".
+  const parseJsonArg = (label, raw) => {
+    if (raw == null || raw === "") return null;
+    if (typeof raw !== "string") return raw;
+    try { return JSON.parse(raw); } catch (e) { throw new Error(`${label} is not valid JSON: ${e.message}`); }
+  };
+
+  server.tool(
+    "connect_components",
+    "Create or update Code Connect entries in a figbridge.connect.json committed in the consuming repo — the free, local equivalent of Figma Code Connect. Each entry maps a Figma component (file key + node id + name + a snapshot of its properties) to a code component (source path, export, import statement) and maps Figma variant / boolean / text / instance-swap properties to React props. Pass `entries` to upsert hand-written entries, and/or seed suggestions from Figma components (`figmaComponents` JSON, or `fromPlugin: true` to read them from the open file): the component description's `Code: src/…tsx` line, its `Test id:` (via the map_components source index) or its name picks the file; exports and props are read from the TSX and variant values are matched against the props' string-literal unions. Existing entries are kept unless `overwrite`. Runs lint_connect after writing. Returns { ok, connectFile, added, updated, suggestions, lint }.",
+    {
+      connectFile: z.string().optional().describe("Path to the connect file. Default: figbridge.connect.json found from the current directory upwards, else created in the current directory."),
+      fileKey: z.string().optional().describe("Figma file key the components live in."),
+      entries: z.string().optional().describe("JSON array of entries to insert or replace (keyed by figma.nodeId)."),
+      figmaComponents: z.string().optional().describe("JSON array of Figma components to suggest entries for: [{ nodeId, name, description?, properties? }] where properties is Figma's componentPropertyDefinitions ({ 'Style': { type: 'VARIANT', variantOptions: [...] }, 'Label#1:2': { type: 'TEXT' } })."),
+      fromPlugin: z.coerce.boolean().optional().describe("Read the component list (with descriptions and properties) from the open Figma file via the Figbridge plugin."),
+      sourceDir: z.string().optional().describe("Source root to index for data-testid / component-name matches. Default: the connect file's directory."),
+      imports: z.string().optional().describe("JSON object of path-prefix rewrites for generated imports, e.g. {\"src/\":\"@/\"}. Stored in the file."),
+      overwrite: z.coerce.boolean().optional().describe("Let suggestions replace existing entries. Default false (hand edits win)."),
+      dryRun: z.coerce.boolean().optional().describe("Return what would change without writing."),
+    },
+    async ({ connectFile, fileKey, entries, figmaComponents, fromPlugin, sourceDir, imports, overwrite, dryRun }) => {
+      try {
+        const cc = await import("./code-connect.js");
+        const pathMod = await import("node:path");
+        const { existsSync } = await import("node:fs");
+        const file = cc.findConnectFile({ connectFile, fileKey }) || pathMod.resolve(cc.CONNECT_FILE);
+        const root = pathMod.dirname(file);
+        const connect = existsSync(file) ? cc.readConnect(file) : cc.emptyConnect(fileKey);
+        if (fileKey && !connect.fileKey) connect.fileKey = fileKey;
+        const importMap = parseJsonArg("imports", imports);
+        if (importMap) connect.imports = importMap;
+
+        const added = [], updated = [];
+        const given = parseJsonArg("entries", entries) || [];
+        if (!Array.isArray(given)) throw new Error("entries must be a JSON array");
+        const r1 = cc.upsertEntries(connect, given);
+        added.push(...r1.added); updated.push(...r1.updated);
+
+        let comps = parseJsonArg("figmaComponents", figmaComponents);
+        const notes = [];
+        if (fromPlugin) {
+          const r = await sendCommand("list-components", { includeProperties: true }, 30000);
+          comps = (comps || []).concat(r.components || []);
+          if ((r.components || []).length && !r.components.some((c) => c.properties)) notes.push("The open plugin predates property-aware listing — re-run the Figbridge plugin to pick up the new code.js.");
+        }
+        const suggestions = [];
+        if (comps && comps.length) {
+          const { buildSourceIndex } = await import("./source-index.js");
+          const index = await buildSourceIndex(sourceDir ? pathMod.resolve(sourceDir) : root);
+          const fresh = [];
+          for (const c of comps) {
+            const exists = cc.resolveEntry(connect, { componentSet: { id: c.nodeId, name: c.name } });
+            const s = cc.suggestEntry(c, { root, index, fileKey: connect.fileKey, connect });
+            if (!s || !s.entry) { suggestions.push({ figma: c.name, nodeId: c.nodeId, status: "no-match", notes: s ? s.notes : ["no source file found"] }); continue; }
+            if (exists && !overwrite) { suggestions.push({ figma: c.name, nodeId: c.nodeId, status: "kept-existing", suggested: s.entry }); continue; }
+            fresh.push(s.entry);
+            suggestions.push({ figma: c.name, nodeId: c.nodeId, status: exists ? "replaced" : "added", confidence: s.confidence, via: s.via, source: s.entry.code.source, export: s.entry.code.export, notes: s.notes });
+          }
+          const r2 = cc.upsertEntries(connect, fresh);
+          added.push(...r2.added); updated.push(...r2.updated);
+        }
+        if (!dryRun) { cc.writeConnect(file, connect); cc.rememberConnectFile(connect.fileKey, file); }
+        const lint = cc.lintConnect(connect, { root });
+        return asText({ ok: true, connectFile: file, dryRun: !!dryRun, added, updated, entryCount: connect.components.length, suggestions, notes, lint: { ok: lint.ok, errors: lint.errors, warningCount: lint.warnings.length } });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "get_code_connect",
+    "Code Connect for a Figma node, like Dev Mode's Code Connect panel: resolves an instance to its main component and component set, finds the entry in figbridge.connect.json, maps the instance's current variant / boolean / text / instance-swap values to props, and returns a ready-to-paste JSX snippet with its import. Target: `nodeId`, or the current selection (from the last plugin push, else asked live). Offline: pass `node` as JSON { nodeId, name, componentSet: { id, name }, mainComponent: { id, name }, properties: { 'Style': { type: 'VARIANT', value: 'Primary' }, 'Label#59:128': { type: 'TEXT', value: 'Export' } } }. Returns { ok, figma, code, props, children, snippet, unmappedFigmaProps }.",
+    {
+      nodeId: z.string().optional().describe("Figma node id of an instance, variant or component set. Omit to use the current selection."),
+      node: z.string().optional().describe("Offline node info as JSON (see description) — no plugin needed."),
+      connectFile: z.string().optional().describe("Path to figbridge.connect.json. Default: remembered for the Figma file, else found from the current directory upwards."),
+    },
+    async ({ nodeId, node, connectFile }) => {
+      try {
+        const cc = await import("./code-connect.js");
+        let info = parseJsonArg("node", node);
+        if (!info && !nodeId) {
+          const latest = getLatest();
+          if (latest && latest.codeConnectNode) info = latest.codeConnectNode;
+        }
+        if (!info) {
+          const r = await sendCommand("run-script", { script: cc.nodeInfoScript(nodeId || null) }, 15000);
+          info = r && r.result;
+          if (!info || info.ok === false) return asText({ ok: false, error: (info && info.error) || (r && r.error) || "could not read the node from Figma" });
+        }
+        const file = cc.findConnectFile({ connectFile, fileKey: info.fileKey });
+        if (!file) return asText({ ok: false, error: "No figbridge.connect.json found. Pass connectFile, or create one with connect_components." });
+        const result = cc.getCodeConnect(cc.readConnect(file), info);
+        return asText({ ...result, connectFile: file });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "lint_connect",
+    "Verify figbridge.connect.json cannot rot: every entry's source file and export exist, every mapped prop exists on the component (TS/TSX props are read, including interfaces, extends, Omit, forwardRef and imported literal unions), every mapped enum value is still in the prop's string-literal union, and every mapped Figma property / variant value is still in the entry's Figma snapshot. Returns { ok, checked, errors, warnings }. `figbridge-mcp call lint_connect` exits non-zero when ok is false, so it can gate CI.",
+    {
+      connectFile: z.string().optional().describe("Path to figbridge.connect.json. Default: found from the current directory upwards."),
+      root: z.string().optional().describe("Directory that code.source paths are relative to. Default: the connect file's directory."),
+    },
+    async ({ connectFile, root }) => {
+      try {
+        const cc = await import("./code-connect.js");
+        const pathMod = await import("node:path");
+        const file = cc.findConnectFile({ connectFile });
+        if (!file) return asText({ ok: false, error: "No figbridge.connect.json found. Pass connectFile." });
+        const connect = cc.readConnect(file);
+        const res = cc.lintConnect(connect, { root: root ? pathMod.resolve(root) : pathMod.dirname(file) });
+        return asText({ ...res, connectFile: file });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   server.tool(
     "measure_layout",
     "Mathematical layout metrics for a URL — numbers an agent can reason over directly (more actionable than a screenshot). Returns the inferred GRID (column/row count, column pitch, gutter, cell size, size-regularity) from the dominant repeated component; ALIGNMENT (count of shared vertical/horizontal edge lines + a snap score); SPACING (detected base unit e.g. 8px, the spacing scale, % off-grid); the repeated-COMPONENT groups with instance counts; and an XY-CUT block segmentation (depth, leaf count, and the largest whitespace seams = the structural splits like sidebar|content|inspector). Deterministic, no model.",

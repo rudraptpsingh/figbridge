@@ -242,7 +242,14 @@ async function exportPayload(nodes, pageName) {
   var html = buildHTML(nodes, label);
   var tok = await tokPromise;
   var fileKey = figma.fileKey || null;
+  // Code Connect: describe a single selected instance/component so the bridge
+  // can map it through figbridge.connect.json (UI "Code" tab, get_code_connect).
+  var ccNode = null;
+  if (nodes && nodes.length === 1) {
+    try { ccNode = await codeConnectInfo(nodes[0]); } catch (e) { ccNode = null; }
+  }
   return {
+    codeConnectNode: ccNode,
     fileKey: fileKey,
     fileName: figma.root.name,
     pageName: pageName,
@@ -434,6 +441,58 @@ async function listScreens(opts) {
   return out;
 }
 
+// Description + componentPropertyDefinitions, for connect_components suggestions.
+function withComponentProps(row, node, opts) {
+  if (!opts || !opts.includeProperties) return row;
+  row.description = node.description || "";
+  row.fileKey = figma.fileKey || null;
+  try {
+    var defs = node.componentPropertyDefinitions || {};
+    var props = {};
+    for (var k in defs) {
+      var d = defs[k];
+      props[k] = { type: d.type, defaultValue: d.defaultValue };
+      if (d.variantOptions) props[k].variantOptions = d.variantOptions;
+    }
+    row.properties = props;
+  } catch (e) { row.properties = {}; }
+  return row;
+}
+
+// Code Connect: what a node is, in terms a connect entry can match — its
+// component set / main component and current property values. Same shape as
+// nodeInfoScript() in mcp/src/code-connect.js.
+async function codeConnectInfo(node) {
+  if (!node) return null;
+  var comp = null, set = null;
+  if (node.type === "INSTANCE") comp = await node.getMainComponentAsync();
+  else if (node.type === "COMPONENT") comp = node;
+  else if (node.type === "COMPONENT_SET") { set = node; comp = node.defaultVariant; }
+  else return null;
+  if (comp && comp.parent && comp.parent.type === "COMPONENT_SET") set = comp.parent;
+  var info = { nodeId: node.id, type: node.type, name: node.name, fileKey: figma.fileKey || null, properties: {} };
+  if (comp) info.mainComponent = { id: comp.id, name: comp.name };
+  if (set) info.componentSet = { id: set.id, name: set.name };
+  var k;
+  if (node.type === "INSTANCE") {
+    var cp = node.componentProperties || {};
+    for (k in cp) info.properties[k] = { type: cp[k].type, value: cp[k].value };
+  } else {
+    var defs = (set || comp).componentPropertyDefinitions || {};
+    for (k in defs) info.properties[k] = { type: defs[k].type, value: defs[k].defaultValue };
+    var vp = comp && comp.variantProperties ? comp.variantProperties : {};
+    for (k in vp) info.properties[k] = { type: "VARIANT", value: vp[k] };
+  }
+  for (k in info.properties) {
+    var p = info.properties[k];
+    if (p.type === "INSTANCE_SWAP" && p.value) {
+      var sw = await figma.getNodeByIdAsync(p.value);
+      if (sw) p.name = sw.name;
+    }
+  }
+  return info;
+}
+
 async function listComponents(opts) {
   opts = opts || {};
   var includeVariants = !!opts.includeVariants;
@@ -450,14 +509,14 @@ async function listComponents(opts) {
           if (v.type === "COMPONENT") variants.push({ nodeId: v.id, name: v.name, width: Math.round(v.width), height: Math.round(v.height) });
         }
       }
-      out.push({ nodeId: n.id, name: n.name, kind: "COMPONENT_SET", variantCount: (n.children || []).length, variants: includeVariants ? variants : undefined });
+      out.push(withComponentProps({ nodeId: n.id, name: n.name, kind: "COMPONENT_SET", variantCount: (n.children || []).length, variants: includeVariants ? variants : undefined }, n, opts));
       seen[n.id] = true;
       continue;
     }
     if (n.type === "COMPONENT" && !seen[n.id]) {
       // Only top-level components (not children of COMPONENT_SET)
       if (!n.parent || n.parent.type !== "COMPONENT_SET") {
-        out.push({ nodeId: n.id, name: n.name, kind: "COMPONENT", width: Math.round(n.width), height: Math.round(n.height) });
+        out.push(withComponentProps({ nodeId: n.id, name: n.name, kind: "COMPONENT", width: Math.round(n.width), height: Math.round(n.height) }, n, opts));
       }
       continue;
     }
