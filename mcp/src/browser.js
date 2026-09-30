@@ -9,6 +9,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { diffSpecs, styleProfile, compareStyleProfiles } from "./spec-diff.js";
 import { buildSourceIndex, resolveSource, tokenHint } from "./source-index.js";
 import { annotateDiff, ssim, demarcatePng } from "./image-tools.js";
@@ -23,10 +24,42 @@ const EXTRACTOR_PATHS = [
 const CHROME_PATHS = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
   "/usr/bin/google-chrome",
   "/usr/bin/chromium",
   "/usr/bin/chromium-browser",
+  "/usr/bin/microsoft-edge",
 ];
+
+// Windows installs live under Program Files / LocalAppData; Edge ships with
+// every Windows 10/11 box, so it is the reliable fallback there.
+export function chromeCandidates(platform = process.platform, env = process.env) {
+  if (platform !== "win32") return CHROME_PATHS.slice();
+  const roots = [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA]
+    .concat(["C:\\Program Files", "C:\\Program Files (x86)"]);
+  const rel = [
+    "Google\\Chrome\\Application\\chrome.exe",
+    "Chromium\\Application\\chrome.exe",
+    "Microsoft\\Edge\\Application\\msedge.exe",
+  ];
+  const out = [];
+  for (const r of rel) {
+    for (const root of roots) {
+      if (!root) continue;
+      const p = path.win32.join(root, r);
+      if (!out.includes(p)) out.push(p);
+    }
+  }
+  return out;
+}
+
+export function findChrome(platform = process.platform, env = process.env, exists = existsSync) {
+  if (env.FIGBRIDGE_CHROME) return env.FIGBRIDGE_CHROME;
+  for (const p of chromeCandidates(platform, env)) if (exists(p)) return p;
+  throw new Error(
+    "No Chrome/Chromium/Edge found. Install Google Chrome or set FIGBRIDGE_CHROME=/path/to/chrome."
+  );
+}
 
 let _puppeteer = null;
 let _browser = null; // reused across calls in one MCP session
@@ -42,14 +75,6 @@ async function loadPuppeteer() {
       "puppeteer-core not installed. From figbridge/mcp/ run: npm i puppeteer-core"
     );
   }
-}
-
-function findChrome() {
-  if (process.env.FIGBRIDGE_CHROME) return process.env.FIGBRIDGE_CHROME;
-  for (const p of CHROME_PATHS) if (existsSync(p)) return p;
-  throw new Error(
-    "No Chrome/Chromium found. Install Google Chrome or set FIGBRIDGE_CHROME=/path/to/chrome."
-  );
 }
 
 async function getBrowser() {
@@ -1189,7 +1214,7 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
   const widths = opts.widths && opts.widths.length ? opts.widths : [1280, 768, 375];
   const minScore = opts.minScore == null ? 96 : Number(opts.minScore);
   const settleMs = opts.settleMs || 1200;
-  const outDir = opts.outDir || "/tmp";
+  const outDir = opts.outDir || tmpdir();
   const prefix = opts.prefix || "match";
   const specWidth = opts.specWidth || Math.max(...widths);
   const componentMap = opts.componentMap || null; // { sigOrName: { file } } override
@@ -1327,7 +1352,7 @@ export async function diffImages(pathA, pathB, opts = {}) {
   const diff = await diffPngs(a, b);
   let ssimScore = null, artifacts = {};
   try { ssimScore = await ssim(a, b); } catch (e) {}
-  const outDir = opts.outDir || "/tmp", prefix = opts.prefix || "imgdiff";
+  const outDir = opts.outDir || tmpdir(), prefix = opts.prefix || "imgdiff";
   try { artifacts = await annotateDiff({ mockPng: a, appPng: b, regions: diff.regions, outDir, prefix }); } catch (e) {}
   return {
     ok: true, score: diff.score, ssim: ssimScore, diffPercent: diff.diffPercent,
@@ -1359,7 +1384,7 @@ export async function demarcate(url, opts = {}) {
   ]);
   const metrics = layoutMetrics(spec);
   const boxes = demarcationBoxes(spec);
-  const outDir = opts.outDir || "/tmp", prefix = opts.prefix || "demarcate";
+  const outDir = opts.outDir || tmpdir(), prefix = opts.prefix || "demarcate";
   const outPath = path.join(outDir, `${prefix}.png`);
   let demarcationPng = null;
   try { demarcationPng = await demarcatePng({ basePng: png, boxes, outPath }); } catch (e) {}

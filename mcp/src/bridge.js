@@ -1,5 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import os from "node:os";
 import { setLatest, getLatest } from "./store.js";
 
 const CORS_HEADERS = {
@@ -242,7 +243,7 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
               const b64chrome = await screenshotUrl(args.url, { width: args.width || 1280, fullPage: true });
               const figR = await sendCommand("export-frame", { nodeId: args.nodeId, scale: args.scale || 0.5 }, 60000);
               if (!figR || !figR.ok) return send(res, 200, { ok: false, error: "figma export failed", figmaError: figR && figR.error });
-              const outDir = args.outDir || "/tmp";
+              const outDir = args.outDir || os.tmpdir();
               const chromePath = path.join(outDir, (args.prefix || "diff") + "-chrome.png");
               const figmaPath  = path.join(outDir, (args.prefix || "diff") + "-figma.png");
               await writeMaybe(b64chrome, chromePath);

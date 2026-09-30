@@ -500,20 +500,20 @@ export async function main() {
 
   server.tool(
     "visual_diff",
-    "One-call visual reference: take a live Chrome screenshot of `url` AND export the Figma frame at `nodeId`, write both PNGs to `outDir` (default /tmp), and return their paths. Hand the paths to the Read tool to view side-by-side. Replaces the chrome-devtools-mcp + python-decode + manual-write dance.",
+    "One-call visual reference: take a live Chrome screenshot of `url` AND export the Figma frame at `nodeId`, write both PNGs to `outDir` (default: OS temp dir), and return their paths. Hand the paths to the Read tool to view side-by-side. Replaces the chrome-devtools-mcp + python-decode + manual-write dance.",
     {
       url: z.string().describe("Live page URL."),
       nodeId: z.string().describe("Figma node id of the imported frame."),
       width: z.coerce.number().optional().describe("Chrome viewport width. Default 1280."),
       scale: z.coerce.number().optional().describe("Figma export scale. Default 0.5."),
-      outDir: z.string().optional().describe("Directory to write PNGs into. Default /tmp."),
+      outDir: z.string().optional().describe("Directory to write PNGs into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix. Default 'diff'.")
     },
     async ({ url, nodeId, width, scale, outDir, prefix }) => {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/command`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "visual-diff", args: { url, nodeId, width: width || 1280, scale: scale || 0.5, outDir: outDir || "/tmp", prefix: prefix || "diff" }, timeoutMs: 120000 })
+          body: JSON.stringify({ action: "visual-diff", args: { url, nodeId, width: width || 1280, scale: scale || 0.5, outDir: outDir || null, prefix: prefix || "diff" }, timeoutMs: 120000 })
         });
         return asText(await r.json());
       } catch (e) { return asText({ ok: false, error: e.message }); }
@@ -635,7 +635,7 @@ export async function main() {
       widths: z.array(z.coerce.number()).optional().describe("Viewport widths to compare. Default [1280, 768, 375]."),
       minScore: z.coerce.number().optional().describe("Minimum acceptable per-viewport visual score to count as a match. Default 96."),
       rootSelector: z.string().optional().describe("CSS selector to scope the structured spec diff to a subtree (e.g. 'main'). Default body."),
-      outDir: z.string().optional().describe("Directory to write the comparison PNGs into. Default /tmp."),
+      outDir: z.string().optional().describe("Directory to write the comparison PNGs into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix for the PNGs. Default 'match'."),
       settleMs: z.coerce.number().optional().describe("Delay after load before capture. Default 1200ms.")
     },
@@ -690,7 +690,7 @@ export async function main() {
     {
       url: z.string().describe("Page URL — http(s) or file://."),
       width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
-      outDir: z.string().optional().describe("Directory to write the demarcation PNG into. Default /tmp."),
+      outDir: z.string().optional().describe("Directory to write the demarcation PNG into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix. Default 'demarcate'."),
       rootSelector: z.string().optional().describe("CSS selector to scope to a subtree. Default body.")
     },
@@ -708,7 +708,7 @@ export async function main() {
     {
       imageA: z.string().describe("Absolute path to the first/reference PNG."),
       imageB: z.string().describe("Absolute path to the second/candidate PNG."),
-      outDir: z.string().optional().describe("Directory to write the artifacts into. Default /tmp."),
+      outDir: z.string().optional().describe("Directory to write the artifacts into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix. Default 'imgdiff'.")
     },
     async ({ imageA, imageB, outDir, prefix }) => {
