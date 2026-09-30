@@ -490,13 +490,14 @@ export function createServer(port) {
     {
       url: z.string().describe("Page URL."),
       width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
+      height: z.coerce.number().optional().describe("Viewport height. Default depends on width (900 / 1024 / 812). With fullPage:false, set width+height to a component's size to compare it 1:1 with a Figma component screenshot."),
       fullPage: z.coerce.boolean().optional().describe("Capture the whole page vs just the viewport. Default true."),
       outPath: z.string().optional().describe("Absolute filesystem path to write the PNG to. When set, response includes { path } and omits base64.")
     },
-    async ({ url, width, fullPage, outPath }) => {
+    async ({ url, width, height, fullPage, outPath }) => {
       try {
         const { screenshotUrl } = await import("./browser.js");
-        const b64 = await screenshotUrl(url, { width: width || 1280, fullPage: fullPage !== false });
+        const b64 = await screenshotUrl(url, { width: width || 1280, height: height || undefined, fullPage: fullPage !== false });
         if (outPath) {
           const fs = await import("node:fs/promises"); const path = await import("node:path");
           await fs.mkdir(path.dirname(outPath), { recursive: true }).catch(() => {});

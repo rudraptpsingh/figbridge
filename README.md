@@ -99,6 +99,8 @@ Use `npx figbridge-mcp init --pin` if you'd rather lock to the currently install
 
 **Pillar 3 — Match the mockup (3)** — `match_mockup` (closed render → diff → refine loop: renders a running app and its target mockup, returns per-viewport visual scores plus a prioritized punch-list of copy / color / typography / spacing / elevation / icon / structure differences, a design-language style fingerprint, and — with `sourceDir` — the source file to edit for each item) · `diff_specs` (fast structured field-level diff between two rendered URLs) · `map_components` (index an app's source tree — data-testid / component → file, plus design tokens — so diffs name the file to change and the token a literal should become)
 
+**Component check against Figma.** Screenshot one variant with any Figma exporter (plugin `export_frame`, or a Figma MCP screenshot), render the same component at its size with `screenshot_url` (`width` + `height`, `fullPage: false`), then `diff_images` both: you get a score, SSIM and a montage PNG. Serve a kit page that renders every variant (e.g. a `?kit` route) and point `match_mockup` at it for whole-sheet runs.
+
 All audits are pure deterministic measurement — no model calls. They return numeric scores and structured issue lists ready to feed back into a planning loop. `audit_regression` can be used as a local/CI gate before shipping a UI change: it compares screenshots, missing visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
 
 ## Chrome current-tab capture
