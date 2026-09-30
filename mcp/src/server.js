@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import { getLatest, getHistory, getHistorySince } from "./store.js";
 import { startBridge, sendCommand, clientCount, getProxyPort } from "./bridge.js";
@@ -93,6 +93,16 @@ export async function main() {
   process.stdin.on("end", () => shutdown("stdin end"));
   process.stdin.on("close", () => shutdown("stdin close"));
 
+  const server = createServer(port);
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  log(`figbridge-mcp ready (stdio + bridge on :${port})`);
+}
+
+// Build the MCP server with every tool registered. `port` is the bridge port
+// the Figma plugin talks to (our own, or the shared one in proxy mode). Used by
+// main() over stdio and by the `call` CLI over an in-memory transport.
+export function createServer(port) {
   const server = new McpServer({ name: "figbridge", version: PKG_VERSION });
 
   server.tool(
@@ -1134,11 +1144,9 @@ export async function main() {
     async ({ sinceMs }) => asText({ since: sinceMs, entries: getHistorySince(sinceMs) })
   );
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  log(`figbridge-mcp ready (stdio + bridge on :${port})`);
+  return server;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((e) => { log("fatal:", e && e.stack || e); process.exit(1); });
 }
