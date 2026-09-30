@@ -2,7 +2,7 @@
 
 Free, open-source, local MCP bridge for Figma. Runs on 127.0.0.1 and gives MCP agents a practical Figma-to-code loop.
 
-Exposes 48 MCP tools — read screens, export tokens, lint the design system, recolor, clone frames, **import a live URL into Figma**, audit the imported design (palette / typography / a11y / whitespace / mobile), **diff back to source code as a patch**, and **match a running app to its mockup** with a codebase-aware visual-diff loop — to any client that speaks MCP: Claude Desktop, Claude Code, Cursor, Cline, etc.
+Exposes 54 MCP tools — read screens, export tokens, lint the design system, recolor, clone frames, **import a live URL into Figma**, audit the imported design (palette / typography / a11y / whitespace / mobile), **diff back to source code as a patch**, **map Figma components to code like Code Connect (no Dev seat needed)**, and **match a running app to its mockup** with a codebase-aware visual-diff loop — to any client that speaks MCP: Claude Desktop, Claude Code, Cursor, Cline, etc.
 
 ## Install
 
@@ -31,6 +31,7 @@ Flags / commands:
 
 - `init --pin` — lock Claude to the currently installed copy (opts out of auto-updates).
 - `--version` — print the installed version.
+- `call <tool> [json | @file | -]` — call one tool without an MCP client and print its JSON; exits 1 on `ok: false`. `tools` lists them. E.g. `npx figbridge-mcp call lint_connect '{}'` in CI.
 - `bridge` — start only the local HTTP+SSE bridge and keep it alive after stdin closes. Use for persistent local agent sessions and direct `POST /command` calls.
 - `doctor` — reap orphan `figbridge-mcp` processes (a failed shutdown can leave :7331 held), and probe 7331..7340 for live bridges. Run if Claude shows "Server disconnected" or the plugin can't connect.
 
@@ -65,6 +66,8 @@ Normal MCP mode exits when stdin closes so MCP clients can clean up correctly. B
 **Pillar 2 — design intelligence audits** · `audit_palette` · `audit_typography` · `audit_a11y` (WCAG 2.x contrast, landmarks, alt text) · `audit_whitespace` (padding/gap rhythm, 4/8-grid conformance) · `audit_mobile` (multi-viewport responsive: horizontal scroll, overflow-x, sub-44px touch targets, sub-12px text)
 
 All audits return deterministic numbers — no model rewrites. `audit_regression` is the before/after gate: screenshot pixel diff, disappeared visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
+
+**Code Connect** · `connect_components` (seed / edit a `figbridge.connect.json` in your repo: Figma component → code component, props map, example) · `get_code_connect` (the mapped component, props and a ready-to-paste JSX snippet for an instance — also shown in the plugin's Code tab) · `lint_connect` (fails when a file, export, prop, literal value or Figma property in the map no longer exists). Details: [Code Connect without a Dev seat](https://github.com/rudraptpsingh/figbridge#code-connect-without-a-dev-seat).
 
 **Pillar 3 — match the mockup** · `match_mockup` (closed render → diff → refine loop: renders a running app and its target mockup, returns per-viewport visual scores, a prioritized punch-list of copy / color / typography / spacing / elevation / icon / structure differences, a design-language style fingerprint, and — with `sourceDir` — the source file to edit for each item) · `diff_specs` (fast structured field-level diff between two rendered URLs) · `map_components` (index an app's source tree — data-testid / component → file, plus design tokens — so diffs name the file to change and the token a literal should become)
 

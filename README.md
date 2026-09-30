@@ -18,7 +18,7 @@ Figbridge is built for the community path: free, open source, local, and useful 
 Figbridge:
 - **Free.** MIT. Runs entirely on your machine.
 - **No account, no token.** Uses your existing Figma desktop session.
-- **48 MCP tools.** Read, catalog, write-back, lint, ship an agent handoff bundle, import a live URL into Figma, audit the imported design across 5 dimensions, round-trip changes back to a source repo as a patch, and run a closed visual-diff loop that brings a running app into line with its mockup.
+- **54 MCP tools.** Read, catalog, write-back, lint, map Figma components to code (Code Connect without a Dev seat), ship an agent handoff bundle, import a live URL into Figma, audit the imported design across 5 dimensions, round-trip changes back to a source repo as a patch, and run a closed visual-diff loop that brings a running app into line with its mockup.
 - **Import diagnostics before you wait.** `preflight_import` flags bot pages, deep DOM, low-res images, SVG-heavy pages, and downloadable font assets before a full import.
 - **Hybrid fallback for hard pages.** `import_url({ hybridSnapshot: true })` can place a full-page screenshot reference under editable layers for video-heavy or generated sites where pixel fidelity matters.
 - **Chrome/Edge current-tab capture.** Load `chrome-extension/` unpacked to send visible viewports, full pages, selected elements, authenticated tabs, localhost, or staging pages directly to the local bridge.
@@ -95,6 +95,8 @@ Use `npx figbridge-mcp init --pin` if you'd rather lock to the currently install
 
 **Pillar 2 — Design intelligence audits (5)** — `audit_palette` · `audit_typography` · `audit_a11y` (WCAG 2.x contrast, landmarks, alt text) · `audit_whitespace` (padding/gap rhythm, 4/8-grid conformance) · `audit_mobile` (multi-viewport responsive: horizontal scroll, overflow-x, sub-44px touch targets, sub-12px text)
 
+**Code Connect (3)** — `connect_components` (seed / edit `figbridge.connect.json`: Figma component → code component + props) · `get_code_connect` (mapped component, props and a ready-to-paste JSX snippet for an instance) · `lint_connect` (CI gate: files, exports, props, literal values and Figma properties all still exist). See [Code Connect without a Dev seat](#code-connect-without-a-dev-seat).
+
 **Pillar 3 — Match the mockup (3)** — `match_mockup` (closed render → diff → refine loop: renders a running app and its target mockup, returns per-viewport visual scores plus a prioritized punch-list of copy / color / typography / spacing / elevation / icon / structure differences, a design-language style fingerprint, and — with `sourceDir` — the source file to edit for each item) · `diff_specs` (fast structured field-level diff between two rendered URLs) · `map_components` (index an app's source tree — data-testid / component → file, plus design tokens — so diffs name the file to change and the token a literal should become)
 
 All audits are pure deterministic measurement — no model calls. They return numeric scores and structured issue lists ready to feed back into a planning loop. `audit_regression` can be used as a local/CI gate before shipping a UI change: it compares screenshots, missing visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
@@ -110,6 +112,79 @@ The `chrome-extension/` folder contains an unpacked MV3 extension for authentica
 Browser captures can group each website or project into its own Figma page, for example `Chrome Capture - Raycast` or `Chrome Capture - Localhost`, so separate projects stay navigable inside one open Figma file.
 
 The extension only posts to `127.0.0.1:7331..7340`; it does not send page data to a cloud service.
+
+## Code Connect without a Dev seat
+
+Figma Code Connect needs a Dev or Full seat on an Organization or Enterprise plan. Figbridge does the same job locally, for free, from a map you commit next to your code.
+
+**1. The map — `figbridge.connect.json` in your repo.** One entry per Figma component:
+
+```json
+{
+  "version": 1,
+  "fileKey": "WwO2ckSkwjOeusmEQwWrus",
+  "imports": { "src/": "@/" },
+  "components": [{
+    "figma": { "fileKey": "WwO2ckSkwjOeusmEQwWrus", "nodeId": "59:944", "name": "Button",
+               "properties": { "Style": { "type": "VARIANT", "options": ["Primary", "Secondary", "Quiet", "Destructive"] } } },
+    "code":  { "source": "src/components/primitives/Button.tsx", "export": "Button",
+               "import": "import { Button } from '@/components/primitives/Button'" },
+    "props": {
+      "variant":  { "figma": "Style", "type": "enum", "values": { "Primary": "primary", "Secondary": "secondary" } },
+      "loading":  { "figma": "State", "type": "enum", "values": { "Loading": true } },
+      "icon":     { "figma": "Icon", "type": "instance", "as": "component", "when": "Show icon", "importFrom": "lucide-react" },
+      "children": { "figma": "Label", "type": "text" },
+      "testId":   { "type": "static", "expr": "testId" }
+    }
+  }]
+}
+```
+
+| Prop `type` | Code Connect twin | Maps |
+|---|---|---|
+| `enum` | `figma.enum` | a variant value → a prop value (`values`; unmapped values drop the prop). Several rows can read one variant, e.g. `State=Loading` → `loading`, `State=Disabled` → `disabled`. |
+| `boolean` | `figma.boolean` | a boolean property → `true` / omitted, or through `values` |
+| `text` | `figma.string` | a text property → a string prop, or JSX `children` |
+| `instance` | `figma.instance` | an instance-swap → `{Download}` (`as: "component"`) or `{<Download />}`; `importFrom` adds the import |
+| `static` | — | a fixed `value`, or an `expr` placeholder for props Figma has no property for |
+
+`when` gates any prop on a Figma boolean (`"Show icon"`). Figma names are matched without their `#12:34` suffix. An optional `example` template takes `{{props}}`, `{{children}}`, `{{propName}}` and raw `{{figma.Label}}` values, for components whose code shape differs from the Figma one (a segment in Figma, a `Segmented` with `options` in code).
+
+**2. Seed it.** `connect_components` writes entries for you: the component description's `Code: src/…tsx` line, its `Test id:` (through the `map_components` index) or its name picks the file and export; props come from the TSX, and variant values are matched against each prop's string-literal union. Hand edits are kept unless you pass `overwrite`.
+
+```bash
+# from the open Figma file (plugin running), with @/ imports
+npx figbridge-mcp call connect_components '{"fromPlugin": true, "imports": "{\"src/\":\"@/\"}"}'
+```
+
+**3. Use it.** Select an instance in Figma and open the plugin's **Code** tab: the mapped component, its current props and a ready-to-paste snippet, like Dev Mode's panel. Agents call `get_code_connect` (a `nodeId`, the current selection, or an offline `node` description):
+
+```tsx
+// get_code_connect on a Button instance (Style=Secondary, Show icon, Icon=download, Label "Export 186")
+import { Button } from '@/components/primitives/Button'
+import { Download } from 'lucide-react'
+
+<Button icon={Download} variant="secondary" size="m" testId={testId}>Export 186</Button>
+```
+
+**4. Keep it true.** `lint_connect` fails when a source file, export or prop is gone, when a mapped value left the prop's literal union (including unions imported from another module, or `(typeof STATES)[number]`), or when a mapped Figma property or variant value is no longer in the entry's Figma snapshot. Put it in CI:
+
+```bash
+npx figbridge-mcp call lint_connect '{}'    # exit 1 when the map has rotted
+```
+
+## Call tools from a shell or CI
+
+Every tool runs without an MCP client:
+
+```bash
+npx figbridge-mcp tools                                   # list tools
+npx figbridge-mcp call map_components '{"sourceDir":"src"}'
+npx figbridge-mcp call get_code_connect @args.json        # args from a file
+echo '{"url":"http://localhost:5173"}' | npx figbridge-mcp call audit_mobile -
+```
+
+It prints the tool's JSON and exits 1 when the result is `ok: false`. When a Figbridge bridge is already running (Claude, or `figbridge-mcp bridge`), plugin tools go through it to the open Figma plugin.
 
 ## The agent handoff bundle
 
@@ -182,7 +257,9 @@ cd mcp && npm install && npm test        # integration smoke test
 node test-agent/run.js                   # 130 unit tests on the render pipeline
 node test/scenarios.mjs                  # 54 real-world scenario checks
 node test/real-figma.mjs                 # 43 checks against a parsed real .fig
-node test/tools-all.mjs                  # 21-tool MCP surface + e2e
+node test/tools-all.mjs                  # full MCP tool surface + e2e
+node test/code-connect.mjs               # Code Connect: props reader, suggest, snippets, lint
+node test/cli.mjs                        # figbridge-mcp call / tools
 node --check plugin/code.js              # plugin syntax check
 ```
 
