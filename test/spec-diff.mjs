@@ -316,6 +316,12 @@ function find(deltas, pred) { return deltas.find(pred); }
   assert(missing.coverage.matched === 2, "missing anchor must not reduce matched coverage");
   assert(missing.coverage.unmatched.length === 1, "missing anchor must be reported");
   assert(missing.ok === false, "missing anchor must keep result non-PASS");
+  const unmeasured = diffAnchoredSpecs(figma, app, [
+    { name: "stage", mockupId: "21:409", appTestid: "cull-center-column", fields: ["width", "fontSize"] },
+  ]);
+  assert(unmeasured.coverage.unmeasured.length === 1, "requested value missing on both sides must be reported", JSON.stringify(unmeasured.coverage));
+  assert(unmeasured.coverage.unmeasured[0].field === "fontSize", "identify the requested field");
+  assert(unmeasured.ok === false, "unmeasured explicit field must keep result non-PASS");
   let duplicateRejected = false;
   try { diffAnchoredSpecs(figma, app, [anchors[0], anchors[0]]); }
   catch { duplicateRejected = true; }

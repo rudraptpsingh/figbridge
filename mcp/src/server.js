@@ -856,7 +856,7 @@ export function createServer(port) {
 
   server.tool(
     "diff_specs",
-    "Exact structured diff between a rendered design URL and app URL, or captured JSON specs from a native Electron/Playwright state. Provide exactly one URL or spec path per side; mixed URL/spec inputs work. Use anchors when Figma and app layer trees differ: each explicit Figma node id or name pairs with one app data-testid, and missing/ambiguous pairs remain non-PASS. Reports copy, color, typography, spacing, size and viewport x/y drift. Pass sourceDir to resolve app nodes through data-testid and figbridge.connect.json, inspect authored dimensions, and compare Figma dimensions with generated tokens. Returns { ok, summary, deltas, coverage?, tokenDrift }.",
+    "Exact structured diff between a rendered design URL and app URL, or captured JSON specs from a native Electron/Playwright state. Provide exactly one URL or spec path per side; mixed URL/spec inputs work. Use anchors when Figma and app layer trees differ: each explicit Figma node id or name pairs with one app data-testid. Missing/ambiguous pairs and explicitly requested fields missing from either spec remain non-PASS and appear in coverage. Reports copy, color, typography, spacing, size and viewport x/y drift. Pass sourceDir to resolve app nodes through data-testid and figbridge.connect.json, inspect authored dimensions, and compare Figma dimensions with generated tokens. Returns { ok, summary, deltas, coverage?, tokenDrift }.",
     {
       mockupUrl: z.string().optional().describe("URL of the rendered design reference. Use this or mockupSpecPath."),
       mockupSpecPath: z.string().optional().describe("Absolute path to a captured FigBridge design spec JSON. Use this or mockupUrl."),
@@ -871,7 +871,7 @@ export function createServer(port) {
         mockupName: z.string().optional(),
         appTestid: z.string(),
         fields: z.array(z.string()).min(1).optional(),
-      })).min(1).optional().describe("Explicit Figma-node ↔ app-testid pairs when the design and DOM have different nesting. Optional fields limits a pair to inspected values, e.g. x/y/width/height for geometry. Every anchor must resolve uniquely; unmatched pairs are reported in coverage and prevent PASS."),
+      })).min(1).optional().describe("Explicit Figma-node ↔ app-testid pairs when the design and DOM have different nesting. Optional fields limits a pair to inspected values, e.g. x/y/width/height for geometry. Every anchor must resolve uniquely, and every requested field must exist on both sides; coverage reports gaps and prevents PASS."),
       sourceDir: z.string().optional().describe("Absolute source root containing app code, optional figbridge.connect.json, and design tokens."),
       rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
     },

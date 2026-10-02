@@ -363,7 +363,16 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     return nodes;
   };
   const aNodes = collect(mockup), bNodes = collect(app);
-  const pairedA = [], pairedB = [], unmatched = [];
+  const pairedA = [], pairedB = [], unmatched = [], unmeasured = [];
+  let requestedFields = 0, measuredFields = 0;
+  const hasMeasurement = (node, field) => {
+    if (field === "state") return Object.hasOwn(node, "_state") && node._state !== undefined;
+    if (field === "x" || field === "y")
+      return Number.isFinite(node._rect?.[field] ?? node[field]);
+    if (field === "width" || field === "height")
+      return Number.isFinite(node._rect?.[field === "width" ? "w" : "h"] ?? node[field]);
+    return Object.hasOwn(node, field) && node[field] !== undefined;
+  };
   const projected = (node, name, selectedFields) => {
     const rect = node._rect;
     const { children, ...nodeFields } = node;
@@ -411,15 +420,24 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
         appTestid: anchor.appTestid, mockupMatches: aa.length, appMatches: bb.length });
       continue;
     }
+    for (const field of anchor.fields || []) {
+      requestedFields++;
+      const mockupMeasured = hasMeasurement(aa[0], field);
+      const appMeasured = hasMeasurement(bb[0], field);
+      if (mockupMeasured && appMeasured) measuredFields++;
+      else unmeasured.push({ name: anchor.name, field, mockupMeasured, appMeasured });
+    }
     pairedA.push(projected(aa[0], anchor.name, anchor.fields));
     pairedB.push(projected(bb[0], anchor.name, anchor.fields));
   }
   const result = diffSpecs(
     { type: "frame", name: "anchors", children: pairedA },
     { type: "frame", name: "anchors", children: pairedB }, opts);
-  result.coverage = { requested: anchors.length, matched: pairedA.length, unmatched };
+  result.coverage = { requested: anchors.length, matched: pairedA.length, unmatched,
+    requestedFields, measuredFields, unmeasured };
   result.summary.unmatchedAnchors = unmatched.length;
-  result.ok = result.ok && unmatched.length === 0;
+  result.summary.unmeasuredFields = unmeasured.length;
+  result.ok = result.ok && unmatched.length === 0 && unmeasured.length === 0;
   return result;
 }
 
