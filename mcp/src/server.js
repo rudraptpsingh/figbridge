@@ -856,23 +856,26 @@ export function createServer(port) {
 
   server.tool(
     "diff_specs",
-    "Fast structured-only diff between two rendered URLs (no screenshots). Reports copy, color, typography, spacing, size and viewport x/y drift. Pass sourceDir to resolve app nodes through data-testid and figbridge.connect.json, inspect the authored dimension literal, and compare checked-in Figma dimensions with generated tokens. A codeChange is emitted only for a unique matching literal; dynamic layout stays unresolved. Returns { ok, summary, deltas, tokenDrift }.",
+    "Exact structured diff between a rendered design URL and app URL, or captured JSON specs from a native Electron/Playwright state. Provide exactly one URL or spec path per side; mixed URL/spec inputs work. Reports copy, color, typography, spacing, size and viewport x/y drift. Pass sourceDir to resolve app nodes through data-testid and figbridge.connect.json, inspect authored dimensions, and compare Figma dimensions with generated tokens. Returns { ok, summary, deltas, tokenDrift }.",
     {
-      mockupUrl: z.string().describe("URL of the reference / ground-truth page (the 'a' side)."),
-      appUrl: z.string().describe("URL of the page being aligned (the 'b' side)."),
+      mockupUrl: z.string().optional().describe("URL of the rendered design reference. Use this or mockupSpecPath."),
+      mockupSpecPath: z.string().optional().describe("Absolute path to a captured FigBridge design spec JSON. Use this or mockupUrl."),
+      appUrl: z.string().optional().describe("URL of the rendered app. Use this or appSpecPath."),
+      appSpecPath: z.string().optional().describe("Absolute path to a FigBridge DOM spec JSON captured in the actual Electron/Playwright state. Use this or appUrl."),
       width: z.coerce.number().optional().describe("Viewport width for both. Default 1280."),
       maxDeltas: z.coerce.number().int().min(1).max(10000).optional().describe("Maximum issues returned. Default 500; summary.omitted reports any hidden by the cap."),
       tolerant: z.boolean().optional().describe("Suppress sub-JND colours and small numeric drift. Default false: report exact comparable values."),
       sourceDir: z.string().optional().describe("Absolute source root containing app code, optional figbridge.connect.json, and design tokens."),
       rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
     },
-    async ({ mockupUrl, appUrl, width, maxDeltas, tolerant, sourceDir, rootSelector }) => {
+    async ({ mockupUrl, mockupSpecPath, appUrl, appSpecPath, width, maxDeltas, tolerant, sourceDir, rootSelector }) => {
       try {
         const { urlToSpec } = await import("./browser.js");
+        const { loadComparisonSpec } = await import("./comparison-input.js");
         const { diffSpecs } = await import("./spec-diff.js");
         const [a, b] = await Promise.all([
-          urlToSpec(mockupUrl, { width: width || 1280, rootSelector, embedImages: false }),
-          urlToSpec(appUrl, { width: width || 1280, rootSelector, embedImages: false }),
+          loadComparisonSpec({ url: mockupUrl, specPath: mockupSpecPath }, { width: width || 1280, rootSelector, embedImages: false }, urlToSpec),
+          loadComparisonSpec({ url: appUrl, specPath: appSpecPath }, { width: width || 1280, rootSelector, embedImages: false }, urlToSpec),
         ]);
         const result = diffSpecs(a, b, { labelA: "mockup", labelB: "app", maxDeltas, tolerant });
         if (sourceDir) {
