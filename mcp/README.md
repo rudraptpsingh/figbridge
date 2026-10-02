@@ -71,6 +71,8 @@ All audits return deterministic numbers — no model rewrites. `audit_regression
 
 **Pillar 3 — match the mockup** · `match_mockup` (matched-state pixel and structured comparison, including viewport position and size) · `diff_specs` (fast structured comparison; pass `sourceDir` to see mapped TSX class rules and exact dimension edits when a unique literal exists) · `map_components` (data-testid and `figbridge.connect.json` source mapping, plus Figma-exported versus generated dimension-token drift). Dynamic dimensions stay unresolved until inspected.
 
+For an actionable design review, compare the same viewport, content and UI state. `match_mockup` compares two rendered URLs; it does not inspect a native Electron window or reconstruct Figma layer values from a screenshot. Export the Figma state as an inspectable reference and capture the app's matching state. The report now pairs uniquely named siblings before positional fallback, reports explicit `data-state` mismatches, and includes `summary.omittedIssues` when a delta cap hides findings. A failed or truncated structured comparison cannot return `pass: true`. Repeated generic nodes, image content and dynamic layout still require inspection; treat an unmatched state as review evidence, not a certified whole-screen match.
+
 Base style kits ship under `kits/` (tokens + primitives per design language; cinematic-dark first) so design and code production start from a known-good, tokens-driven foundation.
 
 ## The agent handoff bundle

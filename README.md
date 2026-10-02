@@ -103,6 +103,8 @@ Use `npx figbridge-mcp init --pin` if you'd rather lock to the currently install
 
 **Find the sizing rule in code.** For a matched design HTML view and app state, pass the repo root as `sourceDir` to `match_mockup` or `diff_specs`. Deltas include viewport x/y and size. FigBridge resolves a `data-testid` plus `data-state` (or `figbridge.connect.json` component name) to a source file and shows the nearby JSX class. When the current dimension has one matching authored literal, `codeChange` gives the exact line, current rule, and suggested replacement; otherwise it leaves the edit unresolved. It also compares Figma-exported float variables in `tokens.json` with generated `v2Tokens.json` and reports `tokenDrift`. A screenshot by itself only supports the pixel comparison, and different photos or UI states cannot certify a whole-screen match.
 
+The structured diff now keeps uniquely named siblings aligned when the app inserts a bar or panel, reports differing explicit `data-state` markers, and discloses omitted findings if the punch list reaches its cap. A missing or incomplete structured comparison cannot pass on pixel score alone. The two URLs still need matching content/state and an inspectable design export; FigBridge does not read a native Electron DOM or infer Figma token values from a PNG.
+
 All audits are pure deterministic measurement — no model calls. They return numeric scores and structured issue lists ready to feed back into a planning loop. `audit_regression` can be used as a local/CI gate before shipping a UI change: it compares screenshots, missing visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
 
 ## Chrome current-tab capture

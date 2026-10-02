@@ -63,11 +63,20 @@ try {
   assert(pl.some(d => d.kind === "spacing"), "punch-list should catch the gap change", JSON.stringify(pl));
   assert(/match_mockup again|NOT a match/.test(r.nextAction), "nextAction should prescribe the loop when not matching", r.nextAction);
 
+  const capped = await matchMockup(url("/mockup"), url("/app"), { widths: [768], minScore: 0, maxDeltas: 1, settleMs: 150 });
+  assert(capped.specSummary.truncated && capped.summary.omittedIssues > 0 && !capped.summary.structuredComplete && !capped.pass,
+    "capped issue reports must remain REVIEW even when pixel threshold allows the image", JSON.stringify(capped.summary));
+
   // ── Identical pages: should pass cleanly ──
   const same = await matchMockup(url("/mockup"), url("/mockup"), { widths: [768], minScore: 96, settleMs: 150 });
   assert((same.punchList || []).length === 0, "identical pages should yield an empty punch-list", JSON.stringify(same.punchList));
   assert(same.summary.worstVisualScore >= 96, "identical pages should score >= threshold", JSON.stringify(same.summary));
   assert(same.pass === true, "identical pages should pass", JSON.stringify(same.summary));
+
+  const missingRoot = await matchMockup(url("/mockup"), url("/mockup"), {
+    widths: [768], minScore: 96, settleMs: 150, rootSelector: "#missing-design-state",
+  });
+  assert(missingRoot.pass === false && missingRoot.specError, "a failed structured comparison cannot certify a visual match", JSON.stringify(missingRoot.summary));
 
   // ── Codebase-aware: sourceDir resolves deltas to files + token hints ──
   srcDir = await mkdtemp(path.join(tmpdir(), "figapp-"));

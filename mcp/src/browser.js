@@ -1290,7 +1290,8 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
   const worstVisualScore = visual.reduce((min, v) => Math.min(min, v.score), 100);
   const ssimVals = visual.map((v) => v.ssim).filter((s) => s != null);
   const worstSsim = ssimVals.length ? Math.min(...ssimVals) : null;
-  const pass = worstVisualScore >= minScore && punchList.length === 0;
+  const structuredComplete = !specError && specSummary && !specSummary.truncated;
+  const pass = Boolean(structuredComplete && worstVisualScore >= minScore && punchList.length === 0);
   const mappedCount = punchList.filter((d) => d.sourceFile).length;
   const codeChangeCount = punchList.filter((d) => d.codeChange).length;
   const source = sourceIndex
@@ -1307,6 +1308,8 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
       worstVisualScore,
       worstSsim,
       visualPass: worstVisualScore >= minScore,
+      structuredComplete: Boolean(structuredComplete),
+      omittedIssues: specSummary ? specSummary.omitted : null,
       punchListItems: punchList.length,
       byKind: specSummary ? specSummary.byKind : null,
       high: specSummary ? specSummary.high : null,
@@ -1321,9 +1324,13 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
     layoutGap,
     source,
     // Tell the agent exactly what to do next — this is the loop instruction.
-    nextAction: pass
-      ? "MATCH. Worst visual score ≥ threshold and punch-list empty. Done."
-      : `NOT a match yet. Read visual[].montagePng and boxedPng, then inspect the highest-severity punchList items. With sourceDir, mapped items include sourceFile and authoredStyle; codeChange appears only for a unique dimension literal, while tokenDrift identifies generated values that differ from the Figma export. Resolve unmatched content/state before a whole-screen verdict. Rebuild and compare again (worst visual score ≥ ${minScore} and punchList empty).`,
+    nextAction: specError
+      ? `REVIEW. Structured comparison failed: ${specError}. Fix the reference/app state capture before judging the visual score.`
+      : specSummary?.truncated
+        ? `REVIEW. ${specSummary.omitted} structured issue(s) were omitted by maxDeltas; increase the limit or scope rootSelector before a complete verdict.`
+        : pass
+          ? "MATCH. Worst visual score ≥ threshold and punch-list empty. Done."
+          : `NOT a match yet. Read visual[].montagePng and boxedPng, then inspect the highest-severity punchList items. With sourceDir, mapped items include sourceFile and authoredStyle; codeChange appears only for a unique dimension literal, while tokenDrift identifies generated values that differ from the Figma export. Resolve unmatched content/state before a whole-screen verdict. Rebuild and compare again (worst visual score ≥ ${minScore} and punchList empty).`,
   };
 }
 

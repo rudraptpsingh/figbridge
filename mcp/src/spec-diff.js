@@ -11,6 +11,7 @@
 //   elevation   — box-shadow (the depth/elevation ladder), opacity, backdrop blur
 //   icon        — SVG glyph identity (wrong/missing icon)
 //   structure   — nodes present on one side but not the other
+//   state       — explicit data-state markers disagree
 //
 // This generalizes the plugin-side `diff-frame-vs-spec` (Figma-node-vs-spec)
 // to spec-vs-spec, so we can diff a rendered app against a mockup without a
@@ -20,6 +21,7 @@ const SEVERITY = { high: 3, med: 2, low: 1 };
 
 // Per-field category + severity. Anything not listed is ignored.
 const FIELD_RULES = {
+  state: { kind: "state", severity: "high" },
   // copy
   characters: { kind: "copy", severity: "high" },
   // color
@@ -184,6 +186,7 @@ function iconSig(node) {
 function compareField(field, a, b, rule, path, name) {
   let av, bv;
   switch (field) {
+    case "state": av = a._state; bv = b._state; break;
     case "fill": av = fillSig(a.fill); bv = fillSig(b.fill); break;
     case "stroke": av = strokeSig(a.stroke); bv = strokeSig(b.stroke); break;
     case "outline": av = outlineSig(a.outline); bv = outlineSig(b.outline); break;
@@ -213,6 +216,7 @@ function compareField(field, a, b, rule, path, name) {
   // diffs cover node presence; a present-vs-absent fill is usually noise).
   if (av == null || bv == null) {
     if (av == null && bv == null) return null;
+    if (rule.kind === "state") return null; // one-sided marker is not a comparable state
     // Surface only meaningful presence flips: color/copy appearing/vanishing,
     // and elevation gained/lost (a card that lost its shadow, an element faded).
     if (rule.kind !== "color" && rule.kind !== "copy" && rule.kind !== "elevation") return null;
@@ -234,23 +238,37 @@ function compareField(field, a, b, rule, path, name) {
   return { path, name, kind: rule.kind, field, a: av, b: bv, severity: rule.severity };
 }
 
-// Pair children of two frames by (type, ordinal-within-type): 1st text ↔ 1st
-// text, 2nd frame ↔ 2nd frame, etc. Stable when structure matches (the
-// mockup-vs-app fidelity case) and naturally surfaces copy/colour/spacing
-// diffs on otherwise-aligned nodes. Unpaired nodes become structure deltas.
+// Match unique named siblings before ordinal pairing. A newly inserted frame
+// must not steal the following frame's identity and turn one structure issue
+// into a run of bogus geometry/copy issues. Generic or repeated names retain
+// the positional fallback because their identity is genuinely ambiguous.
 function pairChildren(aChildren, bChildren) {
   const pairs = [], onlyA = [], onlyB = [];
-  const bByType = {};
-  (bChildren || []).forEach((n) => { (bByType[n.type] = bByType[n.type] || []).push({ n, used: false }); });
-  const seen = {};
-  for (const an of aChildren || []) {
-    const t = an.type;
-    const ord = (seen[t] = (seen[t] || 0)); seen[t]++;
-    const bucket = bByType[t] || [];
-    if (bucket[ord]) { pairs.push([an, bucket[ord].n]); bucket[ord].used = true; }
-    else onlyA.push(an);
-  }
-  for (const t of Object.keys(bByType)) for (const e of bByType[t]) if (!e.used) onlyB.push(e.n);
+  const aa = aChildren || [], bb = bChildren || [];
+  const usedA = new Set(), usedB = new Set();
+  const key = (n) => n && n.name ? `${n.type}\u0000${n.name}` : null;
+  const counts = (nodes) => {
+    const out = new Map();
+    for (const n of nodes) { const k = key(n); if (k) out.set(k, (out.get(k) || 0) + 1); }
+    return out;
+  };
+  const aCounts = counts(aa), bCounts = counts(bb);
+  const bUnique = new Map();
+  bb.forEach((n, i) => { const k = key(n); if (k && bCounts.get(k) === 1) bUnique.set(k, i); });
+  aa.forEach((an, ai) => {
+    const k = key(an), bi = k && aCounts.get(k) === 1 ? bUnique.get(k) : undefined;
+    if (bi !== undefined) { pairs.push([an, bb[bi]]); usedA.add(ai); usedB.add(bi); }
+  });
+  const bByType = new Map();
+  bb.forEach((n, i) => { if (!usedB.has(i)) { const bucket = bByType.get(n.type) || []; bucket.push(i); bByType.set(n.type, bucket); } });
+  aa.forEach((an, ai) => {
+    if (usedA.has(ai)) return;
+    const bucket = bByType.get(an.type) || [];
+    const bi = bucket.shift();
+    if (bi === undefined) onlyA.push(an);
+    else { pairs.push([an, bb[bi]]); usedB.add(bi); }
+  });
+  bb.forEach((n, i) => { if (!usedB.has(i)) onlyB.push(n); });
   return { pairs, onlyA, onlyB };
 }
 
@@ -273,9 +291,15 @@ export function diffSpecs(specA, specB, opts = {}) {
   const labelB = opts.labelB || "b";
   const deltas = [];
   let nodesCompared = 0;
+  let totalFound = 0;
+  const byKind = { state: 0, color: 0, typography: 0, copy: 0, spacing: 0, elevation: 0, icon: 0, structure: 0 };
+  let high = 0, med = 0, low = 0;
 
   function emit(d) {
-    if (deltas.length < maxDeltas) deltas.push(d);
+    totalFound++;
+    byKind[d.kind] = (byKind[d.kind] || 0) + 1;
+    if (d.severity === "high") high++; else if (d.severity === "med") med++; else low++;
+    deltas.push(d);
   }
 
   function walk(a, b, path, depth, inheritedTestid, inheritedState) {
@@ -306,24 +330,20 @@ export function diffSpecs(specA, specB, opts = {}) {
   // Highest severity first, then by category, so the agent fixes the loudest
   // mismatches first.
   deltas.sort((x, y) => SEVERITY[y.severity] - SEVERITY[x.severity] || x.kind.localeCompare(y.kind));
-
-  const byKind = { color: 0, typography: 0, copy: 0, spacing: 0, elevation: 0, icon: 0, structure: 0 };
-  let high = 0, med = 0, low = 0;
-  for (const d of deltas) {
-    byKind[d.kind] = (byKind[d.kind] || 0) + 1;
-    if (d.severity === "high") high++; else if (d.severity === "med") med++; else low++;
-  }
+  const reported = deltas.slice(0, maxDeltas);
 
   return {
-    ok: deltas.length === 0,
+    ok: totalFound === 0,
     summary: {
-      total: deltas.length,
-      truncated: deltas.length >= maxDeltas,
+      total: reported.length,
+      totalFound,
+      omitted: totalFound - reported.length,
+      truncated: totalFound > reported.length,
       nodesCompared,
       byKind,
       high, med, low,
     },
-    deltas,
+    deltas: reported,
   };
 }
 

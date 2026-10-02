@@ -85,6 +85,51 @@ function find(deltas, pred) { return deltas.find(pred); }
   assert(find(r2.deltas, d => d.kind === "structure" && d.field === "extra"), "extra-node structure delta absent", JSON.stringify(r2.deltas));
 }
 
+// An inserted sibling must not make every following component look changed.
+{
+  const target = { type: "frame", name: "Loupe", children: [
+    { type: "frame", name: "Photo", _rect: { x: 320, y: 138 }, width: 900, height: 554 },
+    { type: "text", name: "Caption", characters: "Reception" },
+  ] };
+  const app = { type: "frame", name: "Loupe", children: [
+    { type: "frame", name: "Timeline", _testid: "trip-quick-nav", _rect: { x: 320, y: 56 }, width: 900, height: 45 },
+    { type: "frame", name: "Photo", _testid: "loupe-photo", _rect: { x: 320, y: 165 }, width: 900, height: 554 },
+    { type: "text", name: "Caption", characters: "Reception" },
+  ] };
+  const r = diffSpecs(target, app);
+  assert(find(r.deltas, d => d.kind === "structure" && d.field === "extra" && d.name === "Timeline" && d.testid === "trip-quick-nav"), "inserted Timeline should be an extra structure issue", JSON.stringify(r.deltas));
+  assert(find(r.deltas, d => d.field === "y" && d.a === 138 && d.b === 165 && d.testid === "loupe-photo"), "Photo should retain its identity and report 27px y shift", JSON.stringify(r.deltas));
+  assert(!find(r.deltas, d => d.field === "characters" || d.name === "Caption"), "unchanged Caption should not be mispaired", JSON.stringify(r.deltas));
+}
+
+// A capped report must disclose every omitted issue; exactly-at-cap is complete.
+{
+  const a = { type: "frame", name: "Root", children: [
+    { type: "text", name: "A", characters: "one" },
+    { type: "text", name: "B", characters: "two" },
+  ] };
+  const b = { type: "frame", name: "Root", children: [
+    { type: "text", name: "A", characters: "wrong one" },
+    { type: "text", name: "B", characters: "wrong two" },
+  ] };
+  const capped = diffSpecs(a, b, { maxDeltas: 1 });
+  assert(capped.summary.totalFound === 2 && capped.summary.omitted === 1 && capped.summary.truncated && capped.summary.byKind.copy === 2,
+    "cap must disclose omitted issues and count all discovered categories", JSON.stringify(capped.summary));
+  const exact = diffSpecs(a, b, { maxDeltas: 2 });
+  assert(exact.summary.totalFound === 2 && exact.summary.omitted === 0 && !exact.summary.truncated, "exact cap should remain complete", JSON.stringify(exact.summary));
+  const priority = diffSpecs({ type: "frame", name: "R", width: 100, children: [{ type: "text", name: "Copy", characters: "A" }] },
+    { type: "frame", name: "R", width: 110, children: [{ type: "text", name: "Copy", characters: "B" }] }, { maxDeltas: 1 });
+  assert(priority.deltas[0].kind === "copy", "cap should retain highest-severity issue even when found later", JSON.stringify(priority.deltas));
+}
+
+// Explicit state markers must be compared before a whole-screen verdict.
+{
+  const target = { type: "frame", name: "Review", _state: "synced", children: [] };
+  const app = { type: "frame", name: "Review", _state: "signed-out", children: [] };
+  const r = diffSpecs(target, app);
+  assert(find(r.deltas, d => d.kind === "state" && d.field === "state" && d.a === "synced" && d.b === "signed-out"), "explicit unmatched state should be reported", JSON.stringify(r.deltas));
+}
+
 // ── Numeric tolerance: sub-tolerance differences are ignored ──
 {
   const A = { type: "text", name: "T", characters: "hi", fontSize: 16 };
