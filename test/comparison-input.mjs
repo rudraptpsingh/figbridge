@@ -10,7 +10,7 @@ const dir = await mkdtemp(join(tmpdir(), 'figbridge-spec-input-'));
 try {
   const path = join(dir, 'electron.json');
   const spec = { type: 'frame', name: 'Native Cull', width: 1440, height: 900, children: [
-    { type: 'text', name: 'Export', characters: 'Export 186', fontSize: 12 },
+    { type: 'text', name: 'Export', _figmaId: 'figma:export', characters: 'Export 186', fontSize: 12 },
   ] };
   await writeFile(path, JSON.stringify(spec));
   const fromFile = await loadComparisonSpec({ specPath: path }, { width: 1440 }, () => {
@@ -30,7 +30,7 @@ try {
   await assert.rejects(loadComparisonSpec({ specPath: empty }, {}, async () => spec), /empty/);
   const actual = join(dir, 'actual.json');
   await writeFile(actual, JSON.stringify({ ...spec, children: [
-    { type: 'text', name: 'Export', characters: 'Export 0', fontSize: 13 },
+    { type: 'text', name: 'Export', _testid: 'top-bar-export', characters: 'Export 0', fontSize: 13 },
   ] }));
   const args = join(dir, 'args.json');
   await writeFile(args, JSON.stringify({ mockupSpecPath: path, appSpecPath: actual }));
@@ -41,7 +41,26 @@ try {
   const report = JSON.parse(cli.stdout);
   assert(report.deltas.some((d) => d.field === 'characters' && d.a === 'Export 186' && d.b === 'Export 0'));
   assert(report.deltas.some((d) => d.field === 'fontSize' && d.a === 12 && d.b === 13));
-  console.log('comparison input: 9 checks passed');
+  await writeFile(args, JSON.stringify({ mockupSpecPath: path, appSpecPath: actual, anchors: [
+    { name: 'Export', mockupId: 'figma:export', appTestid: 'top-bar-export' },
+  ] }));
+  const anchored = spawnSync(process.execPath,
+    [join(import.meta.dirname, '..', 'mcp', 'bin', 'figbridge-mcp.js'), 'call', 'diff_specs', `@${args}`],
+    { encoding: 'utf8' });
+  assert.equal(anchored.status, 1, anchored.stderr);
+  const anchoredReport = JSON.parse(anchored.stdout);
+  assert.equal(anchoredReport.coverage.matched, 1);
+  assert(anchoredReport.deltas.some((d) => d.testid === 'top-bar-export' && d.field === 'characters'));
+  await writeFile(args, JSON.stringify({ mockupSpecPath: path, appSpecPath: actual, anchors: [
+    { name: 'Missing', mockupId: 'figma:missing', appTestid: 'top-bar-export' },
+  ] }));
+  const missingAnchor = spawnSync(process.execPath,
+    [join(import.meta.dirname, '..', 'mcp', 'bin', 'figbridge-mcp.js'), 'call', 'diff_specs', `@${args}`],
+    { encoding: 'utf8' });
+  const missingReport = JSON.parse(missingAnchor.stdout);
+  assert.equal(missingReport.ok, false);
+  assert.equal(missingReport.coverage.unmatched.length, 1);
+  console.log('comparison input: 13 checks passed');
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

@@ -856,7 +856,7 @@ export function createServer(port) {
 
   server.tool(
     "diff_specs",
-    "Exact structured diff between a rendered design URL and app URL, or captured JSON specs from a native Electron/Playwright state. Provide exactly one URL or spec path per side; mixed URL/spec inputs work. Reports copy, color, typography, spacing, size and viewport x/y drift. Pass sourceDir to resolve app nodes through data-testid and figbridge.connect.json, inspect authored dimensions, and compare Figma dimensions with generated tokens. Returns { ok, summary, deltas, tokenDrift }.",
+    "Exact structured diff between a rendered design URL and app URL, or captured JSON specs from a native Electron/Playwright state. Provide exactly one URL or spec path per side; mixed URL/spec inputs work. Use anchors when Figma and app layer trees differ: each explicit Figma node id or name pairs with one app data-testid, and missing/ambiguous pairs remain non-PASS. Reports copy, color, typography, spacing, size and viewport x/y drift. Pass sourceDir to resolve app nodes through data-testid and figbridge.connect.json, inspect authored dimensions, and compare Figma dimensions with generated tokens. Returns { ok, summary, deltas, coverage?, tokenDrift }.",
     {
       mockupUrl: z.string().optional().describe("URL of the rendered design reference. Use this or mockupSpecPath."),
       mockupSpecPath: z.string().optional().describe("Absolute path to a captured FigBridge design spec JSON. Use this or mockupUrl."),
@@ -865,19 +865,29 @@ export function createServer(port) {
       width: z.coerce.number().optional().describe("Viewport width for both. Default 1280."),
       maxDeltas: z.coerce.number().int().min(1).max(10000).optional().describe("Maximum issues returned. Default 500; summary.omitted reports any hidden by the cap."),
       tolerant: z.boolean().optional().describe("Suppress sub-JND colours and small numeric drift. Default false: report exact comparable values."),
+      anchors: z.array(z.object({
+        name: z.string(),
+        mockupId: z.string().optional(),
+        mockupName: z.string().optional(),
+        appTestid: z.string(),
+        fields: z.array(z.string()).min(1).optional(),
+      })).min(1).optional().describe("Explicit Figma-node ↔ app-testid pairs when the design and DOM have different nesting. Optional fields limits a pair to inspected values, e.g. x/y/width/height for geometry. Every anchor must resolve uniquely; unmatched pairs are reported in coverage and prevent PASS."),
       sourceDir: z.string().optional().describe("Absolute source root containing app code, optional figbridge.connect.json, and design tokens."),
       rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
     },
-    async ({ mockupUrl, mockupSpecPath, appUrl, appSpecPath, width, maxDeltas, tolerant, sourceDir, rootSelector }) => {
+    async ({ mockupUrl, mockupSpecPath, appUrl, appSpecPath, width, maxDeltas, tolerant, anchors, sourceDir, rootSelector }) => {
       try {
         const { urlToSpec } = await import("./browser.js");
         const { loadComparisonSpec } = await import("./comparison-input.js");
-        const { diffSpecs } = await import("./spec-diff.js");
+        const { diffSpecs, diffAnchoredSpecs } = await import("./spec-diff.js");
         const [a, b] = await Promise.all([
           loadComparisonSpec({ url: mockupUrl, specPath: mockupSpecPath }, { width: width || 1280, rootSelector, embedImages: false }, urlToSpec),
           loadComparisonSpec({ url: appUrl, specPath: appSpecPath }, { width: width || 1280, rootSelector, embedImages: false }, urlToSpec),
         ]);
-        const result = diffSpecs(a, b, { labelA: "mockup", labelB: "app", maxDeltas, tolerant });
+        const diffOptions = { labelA: "mockup", labelB: "app", maxDeltas, tolerant };
+        const result = anchors?.length
+          ? diffAnchoredSpecs(a, b, anchors, diffOptions)
+          : diffSpecs(a, b, diffOptions);
         if (sourceDir) {
           const { buildSourceIndex, annotateDeltas } = await import("./source-index.js");
           const index = await buildSourceIndex(sourceDir);

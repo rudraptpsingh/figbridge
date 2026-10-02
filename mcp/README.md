@@ -32,7 +32,7 @@ Flags / commands:
 - `init --pin` — lock Claude to the currently installed copy (opts out of auto-updates).
 - `--version` — print the installed version.
 - `call <tool> [json | @file | -]` — call one tool without an MCP client and print its JSON; exits 1 on `ok: false`. `tools` lists them. E.g. `npx figbridge-mcp call lint_connect '{}'` in CI.
-- `diff_specs` accepts a URL or captured spec JSON path for each side (`mockupUrl`/`mockupSpecPath`, `appUrl`/`appSpecPath`). This lets a Playwright Electron capture use the exact same structured diff and source mapping as browser URLs; capture with the bundled `src/dom-to-spec.js` after the UI state settles.
+- `diff_specs` accepts a URL or captured spec JSON path for each side (`mockupUrl`/`mockupSpecPath`, `appUrl`/`appSpecPath`). This lets a Playwright Electron capture use the exact same structured diff and source mapping as browser URLs; capture with the bundled `src/dom-to-spec.js` after the UI state settles. When Figma and DOM nesting differ, pass explicit `anchors` (`mockupId`/`mockupName` ↔ `appTestid`) and optional per-anchor `fields`. The returned `coverage` exposes missing or ambiguous pairs and prevents a false PASS.
 - `bridge` — start only the local HTTP+SSE bridge and keep it alive after stdin closes. Use for persistent local agent sessions and direct `POST /command` calls.
 - `doctor` — reap orphan `figbridge-mcp` processes (a failed shutdown can leave :7331 held), and probe 7331..7340 for live bridges. Run if Claude shows "Server disconnected" or the plugin can't connect.
 

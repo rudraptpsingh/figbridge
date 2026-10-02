@@ -348,6 +348,81 @@ export function diffSpecs(specA, specB, opts = {}) {
   };
 }
 
+/** Compare explicit Figma-node ↔ native data-testid pairs across different trees.
+ * Unmatched or ambiguous anchors remain visible; they never count as a match. */
+export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
+  if (!Array.isArray(anchors) || anchors.length === 0) throw new Error("anchors must be a nonempty array");
+  const collect = (root) => {
+    const nodes = [];
+    const visit = (node) => {
+      if (!node || typeof node !== "object") return;
+      nodes.push(node);
+      for (const child of node.children || []) visit(child);
+    };
+    visit(root);
+    return nodes;
+  };
+  const aNodes = collect(mockup), bNodes = collect(app);
+  const pairedA = [], pairedB = [], unmatched = [];
+  const projected = (node, name, selectedFields) => {
+    const rect = node._rect;
+    const { children, ...nodeFields } = node;
+    const x = rect?.x ?? node.x, y = rect?.y ?? node.y;
+    const width = rect?.w ?? node.width, height = rect?.h ?? node.height;
+    const projectedNode = {
+      ...nodeFields, name,
+      x, y, width, height,
+      _rect: Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(width) && Number.isFinite(height)
+        ? { x, y, w: width, h: height } : undefined,
+    };
+    if (selectedFields) {
+      const selected = new Set(selectedFields);
+      for (const field of Object.keys(FIELD_RULES)) {
+        if (selected.has(field)) continue;
+        if (field === "state") delete projectedNode._state;
+        else if (field === "x" || field === "y") {
+          if (projectedNode._rect) delete projectedNode._rect[field];
+          delete projectedNode[field];
+        } else delete projectedNode[field];
+      }
+    }
+    return projectedNode;
+  };
+  const seenNames = new Set(), seenMockup = new Set(), seenApp = new Set();
+  for (const anchor of anchors) {
+    if (!anchor || !anchor.name || !anchor.appTestid || !(anchor.mockupId || anchor.mockupName)) {
+      throw new Error("each anchor needs name, appTestid, and mockupId or mockupName");
+    }
+    const mockupKey = anchor.mockupId ? `id:${anchor.mockupId}` : `name:${anchor.mockupName}`;
+    if (seenNames.has(anchor.name) || seenMockup.has(mockupKey) || seenApp.has(anchor.appTestid)) {
+      throw new Error(`duplicate anchor: ${anchor.name}`);
+    }
+    seenNames.add(anchor.name); seenMockup.add(mockupKey); seenApp.add(anchor.appTestid);
+    if (anchor.fields && (!Array.isArray(anchor.fields) || anchor.fields.length === 0 ||
+      anchor.fields.some((field) => !Object.hasOwn(FIELD_RULES, field)))) {
+      throw new Error(`anchor ${anchor.name} has invalid fields`);
+    }
+    const aa = aNodes.filter((n) => anchor.mockupId
+      ? (n._figmaId || n.id) === anchor.mockupId
+      : n.name === anchor.mockupName);
+    const bb = bNodes.filter((n) => n._testid === anchor.appTestid);
+    if (aa.length !== 1 || bb.length !== 1) {
+      unmatched.push({ name: anchor.name, mockupId: anchor.mockupId || null,
+        appTestid: anchor.appTestid, mockupMatches: aa.length, appMatches: bb.length });
+      continue;
+    }
+    pairedA.push(projected(aa[0], anchor.name, anchor.fields));
+    pairedB.push(projected(bb[0], anchor.name, anchor.fields));
+  }
+  const result = diffSpecs(
+    { type: "frame", name: "anchors", children: pairedA },
+    { type: "frame", name: "anchors", children: pairedB }, opts);
+  result.coverage = { requested: anchors.length, matched: pairedA.length, unmatched };
+  result.summary.unmatchedAnchors = unmatched.length;
+  result.ok = result.ok && unmatched.length === 0;
+  return result;
+}
+
 // ── Design-language fingerprint ───────────────────────────────────────────
 // Each visual style (glassmorphism, cinematic/dark, neumorphism, claymorphism,
 // bento, flat/material) has signature signals. Per-node diffs can match copy &

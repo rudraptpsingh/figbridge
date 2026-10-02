@@ -37,7 +37,10 @@ try {
   ] }));
   // a file that should NOT pollute the component-name map
   await writeFile(path.join(dir, "src", "components", "PhotoCard.test.tsx"),
-    'test("x", () => { expect(1).toBe(1); });\n');
+    'test("x", () => { document.querySelector(\'[data-testid="photo-card"]\'); });\n');
+  await mkdir(path.join(dir, "e2e", "specs"), { recursive: true });
+  await writeFile(path.join(dir, "e2e", "specs", "photo.spec.ts"),
+    'await page.locator(\'[data-testid="photo-card"]\').click();\n');
   // a giant generated file in node_modules must be skipped
   await writeFile(path.join(dir, "node_modules", "junk", "huge.js"),
     'data-testid="should-not-be-indexed"\n');
@@ -49,6 +52,8 @@ try {
   assert(idx.byTestid["conflict-card"].file.endsWith("ConflictResolutionCard.tsx"), "wrong file for conflict-card", JSON.stringify(idx.byTestid["conflict-card"]));
   assert(typeof idx.byTestid["conflict-card"].line === "number", "no line number for testid");
   assert(idx.byTestid["photo-card"], "photo-card testid not indexed");
+  assert(resolveSource({ testid: "photo-card" }, idx)?.file.endsWith("src" + path.sep + "components" + path.sep + "PhotoCard.tsx"),
+    "test and capture selectors must not steal source ownership", JSON.stringify(idx.byTestidVariants["photo-card"]));
   assert(!idx.byTestid["should-not-be-indexed"], "node_modules was indexed (should be skipped)");
 
   // component-name map (test files excluded)

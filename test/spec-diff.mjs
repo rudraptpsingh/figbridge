@@ -2,7 +2,7 @@
 // Unit tests for diffSpecs() — the structured spec-vs-spec diff that powers
 // match_mockup / diff_specs. Pure function, no browser, always runnable.
 
-import { diffSpecs, styleProfile, compareStyleProfiles } from "../mcp/src/spec-diff.js";
+import { diffSpecs, diffAnchoredSpecs, styleProfile, compareStyleProfiles } from "../mcp/src/spec-diff.js";
 
 let passed = 0;
 function assert(condition, message, detail) {
@@ -287,6 +287,39 @@ function find(deltas, pred) { return deltas.find(pred); }
   const cd = find(diffSpecs(C, D).deltas, d => d.kind === "color" && d.field === "color");
   assert(cd, "perceptible colour diff should fire", JSON.stringify(diffSpecs(C, D).deltas));
   assert(typeof cd.deltaE === "number" && cd.deltaE > 2.3, "should report deltaE above JND", JSON.stringify(cd));
+}
+
+// Different Figma and DOM trees must be compared by explicit, unique anchors.
+{
+  const figma = { type: "frame", name: "Loupe", children: [
+    { type: "frame", name: "stage", _figmaId: "21:409", x: 240, y: 48, width: 828, height: 734, fill: "#141414" },
+    { type: "frame", name: "filmstrip", _figmaId: "21:457", x: 240, y: 782, width: 828, height: 86 },
+  ] };
+  const app = { type: "frame", name: "body", children: [
+    { type: "frame", name: "wrapper", children: [
+      { type: "frame", name: "div", _testid: "cull-center-column", _rect: { x: 240, y: 48, w: 828, h: 820 }, fill: "#202020" },
+      { type: "frame", name: "div", _testid: "cull-loupe-filmstrip", _rect: { x: 241, y: 782, w: 828, h: 86 } },
+    ] },
+  ] };
+  const anchors = [
+    { name: "stage", mockupId: "21:409", appTestid: "cull-center-column" },
+    { name: "filmstrip", mockupId: "21:457", appTestid: "cull-loupe-filmstrip" },
+  ];
+  const r = diffAnchoredSpecs(figma, app, anchors);
+  assert(r.coverage.matched === 2, "both anchors should match");
+  assert(find(r.deltas, d => d.path.includes("stage") && d.field === "height" && d.a === 734 && d.b === 820), "stage delta must use the named anchor", JSON.stringify(r.deltas));
+  assert(find(r.deltas, d => d.path.includes("stage") && d.field === "fill"), "default anchor must compare inspected paint", JSON.stringify(r.deltas));
+  assert(find(r.deltas, d => d.path.includes("filmstrip") && d.field === "x" && d.a === 240 && d.b === 241), "viewport x drift must be reported", JSON.stringify(r.deltas));
+  const geometry = diffAnchoredSpecs(figma, app, anchors.map(a => ({ ...a, fields: ["x", "y", "width", "height"] })));
+  assert(!geometry.deltas.some(d => d.field === "fill"), "geometry-only anchors must not report uninspected paint", JSON.stringify(geometry.deltas));
+  const missing = diffAnchoredSpecs(figma, app, [...anchors, { name: "People", mockupId: "279:3650", appTestid: "people" }]);
+  assert(missing.coverage.matched === 2, "missing anchor must not reduce matched coverage");
+  assert(missing.coverage.unmatched.length === 1, "missing anchor must be reported");
+  assert(missing.ok === false, "missing anchor must keep result non-PASS");
+  let duplicateRejected = false;
+  try { diffAnchoredSpecs(figma, app, [anchors[0], anchors[0]]); }
+  catch { duplicateRejected = true; }
+  assert(duplicateRejected, "duplicate anchors must not silently certify the same node twice");
 }
 
 console.log(`PASS  diffSpecs unit tests (${passed} assertions).`);

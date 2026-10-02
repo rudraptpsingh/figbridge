@@ -17,7 +17,7 @@ import path from "node:path";
 
 const CODE_EXT = new Set([".tsx", ".jsx", ".ts", ".js", ".vue", ".svelte", ".mjs"]);
 const SCAN_EXT = new Set([...CODE_EXT, ".css", ".scss"]); // css scanned for tokens only
-const SKIP_DIR = new Set(["node_modules", ".git", "dist", "build", "out", ".next", "coverage", "__snapshots__", ".cache", "vendor", "test-results"]);
+const SKIP_DIR = new Set(["node_modules", ".git", "dist", "build", "out", ".next", "coverage", "__snapshots__", ".cache", "vendor", "test-results", "e2e", "test", "tests", "__tests__", "captures"]);
 const MAX_FILES = 4000;
 const MAX_BYTES = 400_000; // skip giant generated files
 
@@ -69,6 +69,9 @@ export async function buildSourceIndex(sourceDir) {
   const CSSVAR_RE = /--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
 
   for (const file of files) {
+    // Assertions and captures repeat production testids; indexing them can
+    // make an exact app anchor resolve to an E2E selector instead of its JSX.
+    if (/\.(?:test|spec|stories)\.[cm]?[jt]sx?$/.test(file)) continue;
     let text;
     try {
       const s = await stat(file);
