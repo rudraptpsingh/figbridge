@@ -101,6 +101,8 @@ Use `npx figbridge-mcp init --pin` if you'd rather lock to the currently install
 
 **Component check against Figma.** Screenshot one variant with any Figma exporter (plugin `export_frame`, or a Figma MCP screenshot), render the same component at its size with `screenshot_url` (`width` + `height`, `fullPage: false`), then `diff_images` both: you get a score, SSIM and a montage PNG. Serve a kit page that renders every variant (e.g. a `?kit` route) and point `match_mockup` at it for whole-sheet runs.
 
+**Find the sizing rule in code.** For a matched design HTML view and app state, pass the repo root as `sourceDir` to `match_mockup` or `diff_specs`. Deltas include viewport x/y and size. FigBridge resolves a `data-testid` plus `data-state` (or `figbridge.connect.json` component name) to a source file and shows the nearby JSX class. When the current dimension has one matching authored literal, `codeChange` gives the exact line, current rule, and suggested replacement; otherwise it leaves the edit unresolved. It also compares Figma-exported float variables in `tokens.json` with generated `v2Tokens.json` and reports `tokenDrift`. A screenshot by itself only supports the pixel comparison, and different photos or UI states cannot certify a whole-screen match.
+
 All audits are pure deterministic measurement — no model calls. They return numeric scores and structured issue lists ready to feed back into a planning loop. `audit_regression` can be used as a local/CI gate before shipping a UI change: it compares screenshots, missing visible text, responsive issue deltas, and CSS-feature drift across desktop/tablet/mobile.
 
 ## Chrome current-tab capture

@@ -1400,6 +1400,8 @@
       // mockup-vs-app diff can resolve each node back to its source file.
       const _tid = child.getAttribute('data-testid') || child.getAttribute('data-test-id') || child.getAttribute('data-component');
       if (_tid) cn._testid = _tid;
+      const _state = child.getAttribute('data-state');
+      if (_state) cn._state = _state;
       // Absolute (document-relative; page is scrolled to 0) geometry for the
       // layout-metrics math: grid / alignment / spacing / component pitch.
       const _r = child.getBoundingClientRect();

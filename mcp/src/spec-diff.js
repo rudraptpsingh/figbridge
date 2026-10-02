@@ -50,6 +50,8 @@ const FIELD_RULES = {
   cornerRadius: { kind: "spacing", severity: "med", tol: 0.5 },
   width: { kind: "spacing", severity: "low", tol: 2 },
   height: { kind: "spacing", severity: "low", tol: 2 },
+  x: { kind: "spacing", severity: "med", tol: 2 },
+  y: { kind: "spacing", severity: "med", tol: 2 },
 };
 
 function normHex(c) {
@@ -192,6 +194,10 @@ function compareField(field, a, b, rule, path, name) {
     case "textTransform": av = a.textTransform || "none"; bv = b.textTransform || "none"; break;
     case "textDecoration": av = a.textDecoration || "none"; bv = b.textDecoration || "none"; break;
     case "characters": av = normText(a.characters); bv = normText(b.characters); break;
+    // DOM specs carry viewport geometry in _rect. Figma/spec-only trees may
+    // omit it; never compare a relative layout x against a viewport x.
+    case "x": av = a._rect && a._rect.x; bv = b._rect && b._rect.x; break;
+    case "y": av = a._rect && a._rect.y; bv = b._rect && b._rect.y; break;
     case "padding": {
       const at = padTuple(a.padding), bt = padTuple(b.padding);
       if (!at && !bt) return null;
@@ -272,16 +278,17 @@ export function diffSpecs(specA, specB, opts = {}) {
     if (deltas.length < maxDeltas) deltas.push(d);
   }
 
-  function walk(a, b, path, depth) {
+  function walk(a, b, path, depth, inheritedTestid, inheritedState) {
     if (!a || !b || depth > maxDepth) return;
     nodesCompared++;
     const name = nodeLabel(a);
     // The app-side (b) anchor lets the caller resolve a delta to its source file.
-    const bTestid = b._testid || null;
+    const bTestid = b._testid || inheritedTestid || null;
+    const bState = b._state || inheritedState || null;
     for (const field of Object.keys(FIELD_RULES)) {
       const rule = FIELD_RULES[field];
       const d = compareField(field, a, b, rule, path, name);
-      if (d) { d.testid = bTestid; emit(d); }
+      if (d) { d.testid = bTestid; d.state = bState; if (!b._testid && inheritedTestid) d.anchorVia = "ancestor-data-testid"; emit(d); }
     }
     // Icon identity: when both nodes are inline SVGs, compare glyph geometry.
     if (a.type === "svg" && b.type === "svg") {
@@ -291,7 +298,7 @@ export function diffSpecs(specA, specB, opts = {}) {
     const { pairs, onlyA, onlyB } = pairChildren(a.children, b.children);
     for (const n of onlyA) emit({ path, name: nodeLabel(n), kind: "structure", field: "missing", a: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), b: null, severity: "high", detail: `present in ${labelA}, absent in ${labelB}`, testid: bTestid });
     for (const n of onlyB) emit({ path, name: nodeLabel(n), kind: "structure", field: "extra", a: null, b: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), severity: "high", detail: `present in ${labelB}, absent in ${labelA}`, testid: n._testid || bTestid });
-    for (const [an, bn] of pairs) walk(an, bn, path + " > " + nodeLabel(an), depth + 1);
+    for (const [an, bn] of pairs) walk(an, bn, path + " > " + nodeLabel(an), depth + 1, bTestid, bState);
   }
 
   walk(specA, specB, nodeLabel(specA), 0);

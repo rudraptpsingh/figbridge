@@ -12,6 +12,7 @@
 // caller (match_mockup) can annotate each punch-list delta.
 
 import { readdir, readFile, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const CODE_EXT = new Set([".tsx", ".jsx", ".ts", ".js", ".vue", ".svelte", ".mjs"]);
@@ -41,7 +42,7 @@ async function walk(dir, files, depth) {
     if (e.isDirectory()) {
       if (SKIP_DIR.has(e.name)) continue;
       await walk(full, files, depth + 1);
-    } else if (SCAN_EXT.has(path.extname(e.name))) {
+    } else if (SCAN_EXT.has(path.extname(e.name)) || /^(?:v2Tokens|design-tokens|tokens)\.json$/i.test(e.name)) {
       files.push(full);
     }
   }
@@ -55,10 +56,12 @@ async function walk(dir, files, depth) {
 export async function buildSourceIndex(sourceDir) {
   const out = {
     ok: true, sourceDir, fileCount: 0,
-    byTestid: {}, byComponent: {},
-    tokens: { valToName: {}, nameToVal: {} }, cssFiles: [],
+    byTestid: {}, byTestidVariants: {}, byComponent: {}, byConnectedComponent: {},
+    tokens: { valToName: {}, nameToVal: {}, nameToSource: {}, valToNames: {} }, cssFiles: [], tokenDrift: [],
   };
   const files = [];
+  const figmaDimensions = {};
+  const generatedTokens = new Set();
   await walk(sourceDir, files, 0);
   out.fileCount = files.length;
 
@@ -85,7 +88,18 @@ export async function buildSourceIndex(sourceDir) {
     let m;
     while ((m = TESTID_RE.exec(text))) {
       const id = m[1];
-      if (!out.byTestid[id]) out.byTestid[id] = { file: rel, line: lineOf(text, m.index) };
+      const candidate = { file: rel, line: lineOf(text, m.index), states: [] };
+      const tagStart = text.lastIndexOf("<", m.index);
+      const tagEnd = text.indexOf(">", m.index);
+      if (tagStart >= 0 && tagEnd >= 0 && tagEnd - tagStart < 1000) {
+        const tag = text.slice(tagStart, tagEnd + 1);
+        const state = /\bdata-state\s*=\s*(?:"([^"]+)"|'([^']+)'|\{([^}]+)\})/.exec(tag);
+        if (state) candidate.states = state[1] || state[2]
+          ? [state[1] || state[2]]
+          : [...state[3].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]);
+      }
+      (out.byTestidVariants[id] ||= []).push(candidate);
+      if (!out.byTestid[id]) out.byTestid[id] = { file: rel, line: candidate.line };
     }
 
     // css custom properties from :root (or any block) — token maps
@@ -97,11 +111,58 @@ export async function buildSourceIndex(sourceDir) {
         const name = "--" + cm[1];
         const val = cm[2].trim().toLowerCase();
         if (!out.tokens.nameToVal[name]) out.tokens.nameToVal[name] = val;
+        out.tokens.nameToSource[name] ||= rel;
+        const names = (out.tokens.valToNames[val] ||= []);
+        if (!names.includes(name)) names.push(name);
         // reverse map for resolvable literals (hex / rgb / px)
         if (/^#|^rgb|^\d/.test(val) && !out.tokens.valToName[val]) out.tokens.valToName[val] = name;
       }
     }
+    // A checked-in generated token file is the Figma-derived source of truth
+    // in projects such as ShotSelect. CSS aliases alone omit its dimensions.
+    if (path.extname(file) === ".json") {
+      let json;
+      try { json = JSON.parse(text); } catch { continue; }
+      if (json?.variables && typeof json.variables === "object") {
+        for (const [name, spec] of Object.entries(json.variables)) {
+          if (spec?.type !== "float" || typeof spec.value !== "number") continue;
+          const token = "--v2-" + name.replace(/^desktop\//, "").replaceAll("/", "-").toLowerCase();
+          figmaDimensions[token] = { value: `${spec.value}px`, source: rel };
+        }
+      }
+      if (json && json.css && typeof json.css === "object") {
+        for (const [name, raw] of Object.entries(json.css)) {
+          if (!name.startsWith("--") || typeof raw !== "string") continue;
+          const val = raw.trim().toLowerCase();
+          out.tokens.nameToVal[name] = val;
+          out.tokens.nameToSource[name] = rel;
+          generatedTokens.add(name);
+          if (!out.tokens.valToName[val]) out.tokens.valToName[val] = name;
+          const names = (out.tokens.valToNames[val] ||= []);
+          if (!names.includes(name)) names.push(name);
+        }
+      }
+    }
   }
+  for (const [token, figma] of Object.entries(figmaDimensions)) {
+    if (!generatedTokens.has(token)) continue; // some Figma variables are intentionally unused
+    const code = out.tokens.nameToVal[token];
+    if (code !== figma.value) out.tokenDrift.push({ token, figma: figma.value, code,
+      figmaSource: figma.source, codeSource: out.tokens.nameToSource[token] });
+  }
+  // Reuse explicit Code Connect mappings before filename guesses. This is
+  // especially useful when the Figma component and TSX export have different
+  // names (or the app has several similarly named files).
+  try {
+    const connect = JSON.parse(await readFile(path.join(sourceDir, "figbridge.connect.json"), "utf8"));
+    for (const entry of connect.components || []) {
+      const name = normName(entry.figma?.name);
+      const file = entry.code?.source;
+      if (name && typeof file === "string" && !out.byConnectedComponent[name]) {
+        out.byConnectedComponent[name] = { file, name: entry.figma.name };
+      }
+    }
+  } catch { /* Code Connect is optional. */ }
   return out;
 }
 
@@ -113,10 +174,19 @@ export async function buildSourceIndex(sourceDir) {
 export function resolveSource(delta, index) {
   if (!index) return null;
   const tid = delta && delta.testid;
-  if (tid && index.byTestid[tid]) return { ...index.byTestid[tid], via: "data-testid" };
+  if (tid && index.byTestid[tid]) {
+    const variants = index.byTestidVariants?.[tid] || [];
+    if (variants.length <= 1) return { ...index.byTestid[tid], via: "data-testid" };
+    const matches = delta.state ? variants.filter((v) => v.states.includes(delta.state)) : [];
+    if (matches.length === 1) return { file: matches[0].file, line: matches[0].line, via: "data-testid+state" };
+    const files = [...new Set(variants.map((v) => v.file))];
+    if (files.length === 1) return { file: files[0], via: "data-testid-ambiguous" };
+    return null;
+  }
   // conservative name fallback: node label like ".conflict-card" → ConflictResolutionCard
   const label = normName((delta && delta.name) || "");
   if (label.length >= 5) {
+    if (index.byConnectedComponent?.[label]) return { ...index.byConnectedComponent[label], via: "figbridge.connect.json" };
     if (index.byComponent[label]) return { ...index.byComponent[label], via: "component-name" };
     for (const key of Object.keys(index.byComponent)) {
       if ((key.includes(label) || label.includes(key)) && Math.min(key.length, label.length) >= 6) {
@@ -135,7 +205,91 @@ export function resolveSource(delta, index) {
 export function tokenHint(delta, index) {
   if (!index || !delta) return null;
   if (delta.kind !== "color" && delta.kind !== "elevation" && delta.kind !== "spacing") return null;
-  const want = typeof delta.a === "string" ? delta.a.trim().toLowerCase() : null;
-  if (want && index.tokens.valToName[want]) return { token: index.tokens.valToName[want], value: want };
+  if (typeof delta.a === "number" && !["width", "height", "spacing", "cornerRadius"].includes(delta.field)) return null;
+  const want = typeof delta.a === "number" ? `${delta.a}px` : typeof delta.a === "string" ? delta.a.trim().toLowerCase() : null;
+  if (want && index.tokens.valToName[want]) {
+    const token = index.tokens.valToName[want];
+    return { token, value: want, source: index.tokens.nameToSource[token] || null,
+      candidates: index.tokens.valToNames[want] || [token] };
+  }
   return null;
+}
+
+/** Find a uniquely matching authored dimension literal. Computed dimensions
+ * can come from flex/grid/parents, so absence of evidence is a valid result. */
+export function sourceEvidence(delta, index, sourceFile) {
+  if (!index || !sourceFile || !["width", "height"].includes(delta.field) || typeof delta.a !== "number" || typeof delta.b !== "number") return null;
+  const root = path.resolve(index.sourceDir);
+  const absolute = path.resolve(root, sourceFile);
+  if (!absolute.startsWith(root + path.sep)) return null;
+  let text;
+  try { text = readFileSync(absolute, "utf8"); } catch { return null; }
+  const prefix = delta.field === "width" ? "w" : "h";
+  const expected = `${delta.b}px`;
+  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`\\b${prefix}-\\[${escaped}\\]`, "g"),
+    new RegExp(`\\b${delta.field}\\s*:\\s*${escaped}\\b`, "g"),
+  ];
+  const hits = patterns.flatMap((re) => [...text.matchAll(re)].map((m) => ({ current: m[0], offset: m.index })));
+  if (hits.length !== 1) return null;
+  const hit = hits[0];
+  const hint = tokenHint(delta, index);
+  const uniqueToken = hint && hint.candidates.length === 1 && hint.token.includes(delta.field) ? hint.token : null;
+  const replacement = uniqueToken ? `var(${uniqueToken})` : `${delta.a}px`;
+  const suggested = hit.current.replace(expected, replacement);
+  return { line: lineOf(text, hit.offset), current: hit.current, suggested,
+    token: uniqueToken, tokenSource: uniqueToken ? hint.source : null,
+    confidence: "unique-authored-literal" };
+}
+
+/** Show the authored JSX class near a resolved data-testid. This is useful
+ * when computed geometry comes from a calc/flex rule and no literal edit can
+ * be proposed safely. */
+export function authoredStyle(index, sourceFile, anchorLine) {
+  if (!index || !sourceFile || !Number.isInteger(anchorLine)) return null;
+  const root = path.resolve(index.sourceDir);
+  const absolute = path.resolve(root, sourceFile);
+  if (!absolute.startsWith(root + path.sep)) return null;
+  let lines;
+  try { lines = readFileSync(absolute, "utf8").split(/\r?\n/); } catch { return null; }
+  const start = Math.max(0, anchorLine - 1);
+  const near = lines.slice(start, start + 8).join("\n");
+  const match = /\bclassName\s*=\s*["']([^"']+)["']/.exec(near);
+  if (!match) return null;
+  return { line: start + 1 + near.slice(0, match.index).split("\n").length - 1,
+    className: match[1] };
+}
+
+/** Attach only evidence grounded in the indexed code and design tokens. */
+export function annotateDeltas(deltas, index, componentMap = null) {
+  return deltas.map((d) => {
+    const out = { ...d };
+    const hit = componentMap && (componentMap[d.name] || componentMap[(d.name || "").replace(/^[.#]/, "")]);
+    if (hit?.file) { out.sourceFile = hit.file; out.via = "componentMap"; }
+    if (!out.sourceFile && index) {
+      const src = resolveSource(d, index);
+      if (src) {
+        out.sourceFile = src.file;
+        if (src.line) out.sourceLine = src.line;
+        out.via = d.anchorVia || src.via;
+      }
+    }
+    if (index) {
+      const th = tokenHint(d, index);
+      if (th?.candidates.length === 1) {
+        out.tokenHint = `${th.token} (= ${th.value})`;
+        if (th.source) out.tokenSource = th.source;
+      } else if (th) out.tokenCandidates = th.candidates;
+      if (out.sourceFile) {
+        if (out.sourceLine) {
+          const style = authoredStyle(index, out.sourceFile, out.sourceLine);
+          if (style) out.authoredStyle = style;
+        }
+        const evidence = sourceEvidence(d, index, out.sourceFile);
+        if (evidence) out.codeChange = evidence;
+      }
+    }
+    return out;
+  });
 }

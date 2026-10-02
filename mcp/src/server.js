@@ -638,11 +638,11 @@ export function createServer(port) {
 
   server.tool(
     "match_mockup",
-    "Closed visual-diff loop — the grounded feedback signal for making a running app match an HTML mockup. Renders BOTH the mockup and the app, returns (a) per-viewport pixel similarity + hotspot regions and (b) a prioritized, categorized punch-list of exact field-level differences (copy/color/typography/spacing/elevation/icon/structure) with the node path for each. Pass `sourceDir` to make it codebase-aware: each punch-list item then carries the `sourceFile` to edit (resolved via the app's data-testid → source) and a `tokenHint` when a literal value should become a design token. Also returns a perceptual SSIM score per viewport (tolerant of anti-aliasing) and writes three legible diff artifacts per viewport you Read() to SEE the drift: `overlayPng` (onion-skin), `montagePng` (mockup | app | overlay), `boxedPng` (app with red diff boxes). Color deltas are gated on perceptual ΔE so imperceptible shifts don't show as noise. The mockup is the ground truth — no Figma round-trip. WORKFLOW: implement → match_mockup → fix the highest-severity punchList items in their named sourceFile → rebuild → match_mockup again. Repeat until `pass` is true (worst visual score ≥ minScore AND punchList empty). Serve the mockup over file:// or a local static server; point appUrl at the dev build.",
+    "Compare a rendered design HTML reference with the live app at matched viewport widths. Returns pixel/SSIM evidence plus copy, style, size and viewport x/y deltas. With sourceDir, uses data-testid and figbridge.connect.json to locate app code, quotes the nearby authored JSX class, suggests a codeChange only when one literal matches the computed dimension, and reports checked-in Figma vs generated dimension-token drift. Dynamic flex/calc dimensions remain unresolved instead of receiving guessed edits. Requires matching content and UI state for a whole-screen verdict; screenshot-only references use diff_images. Returns overlay/montage/boxed PNGs and a punchList.",
     {
       mockupUrl: z.string().describe("URL of the target HTML mockup (ground truth). file:// or local http both work."),
       appUrl: z.string().describe("URL of the running app to bring into alignment, e.g. http://localhost:3000/screen."),
-      sourceDir: z.string().optional().describe("Absolute path to the app source root. When set, each punch-list item is resolved to its sourceFile (via the app's data-testid / component name) and color/spacing literals get a design-token hint — so figbridge provides code accordingly."),
+      sourceDir: z.string().optional().describe("Absolute path to the app repo root. Enables source mapping through data-testid or figbridge.connect.json, authored class evidence, and checked-in design-token diagnostics."),
       widths: z.array(z.coerce.number()).optional().describe("Viewport widths to compare. Default [1280, 768, 375]."),
       minScore: z.coerce.number().optional().describe("Minimum acceptable per-viewport visual score to count as a match. Default 96."),
       rootSelector: z.string().optional().describe("CSS selector to scope the structured spec diff to a subtree (e.g. 'main'). Default body."),
@@ -660,7 +660,7 @@ export function createServer(port) {
 
   server.tool(
     "map_components",
-    "Index an app's source tree so figbridge understands the codebase it's generating against. Returns the maps that let a mockup-vs-app diff name the file to edit: data-testid / data-component → { file, line }, component-name → file, and :root design tokens (value ↔ var name). Run once to inspect the mapping, or just pass `sourceDir` to match_mockup which builds it internally. Returns { ok, fileCount, byTestid, byComponent, tokens }.",
+    "Index app source to resolve data-testid and figbridge.connect.json component names to files, plus CSS and checked-in generated design tokens. Reports dimension-token drift when Figma-exported tokens.json disagrees with generated v2Tokens.json. Pass sourceDir to match_mockup or diff_specs to use these maps automatically.",
     {
       sourceDir: z.string().describe("Absolute path to the app source root (e.g. the repo's src/).")
     },
@@ -673,7 +673,9 @@ export function createServer(port) {
           testidCount: Object.keys(idx.byTestid).length,
           componentCount: Object.keys(idx.byComponent).length,
           tokenCount: Object.keys(idx.tokens.nameToVal).length,
-          byTestid: idx.byTestid, byComponent: idx.byComponent, tokens: idx.tokens,
+          byTestid: idx.byTestid, byComponent: idx.byComponent,
+          byConnectedComponent: idx.byConnectedComponent,
+          tokens: idx.tokens, tokenDrift: idx.tokenDrift,
         });
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
@@ -852,14 +854,15 @@ export function createServer(port) {
 
   server.tool(
     "diff_specs",
-    "Fast structured-only diff between two rendered URLs (no screenshots). Extracts a computed-style spec from each and reports a categorized, severity-sorted punch-list of exact field-level differences: copy (text), color (fill/text/stroke), typography (font family/size/weight/…), spacing (layout/gap/padding/align/radius/size), and structure (nodes present on one side only). Use for tight refine loops where you only need the 'what differs' list and not pixels — match_mockup wraps this plus a pixel diff. Returns { ok, summary, deltas }.",
+    "Fast structured-only diff between two rendered URLs (no screenshots). Reports copy, color, typography, spacing, size and viewport x/y drift. Pass sourceDir to resolve app nodes through data-testid and figbridge.connect.json, inspect the authored dimension literal, and compare checked-in Figma dimensions with generated tokens. A codeChange is emitted only for a unique matching literal; dynamic layout stays unresolved. Returns { ok, summary, deltas, tokenDrift }.",
     {
       mockupUrl: z.string().describe("URL of the reference / ground-truth page (the 'a' side)."),
       appUrl: z.string().describe("URL of the page being aligned (the 'b' side)."),
       width: z.coerce.number().optional().describe("Viewport width for both. Default 1280."),
+      sourceDir: z.string().optional().describe("Absolute source root containing app code, optional figbridge.connect.json, and design tokens."),
       rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
     },
-    async ({ mockupUrl, appUrl, width, rootSelector }) => {
+    async ({ mockupUrl, appUrl, width, sourceDir, rootSelector }) => {
       try {
         const { urlToSpec } = await import("./browser.js");
         const { diffSpecs } = await import("./spec-diff.js");
@@ -867,7 +870,14 @@ export function createServer(port) {
           urlToSpec(mockupUrl, { width: width || 1280, rootSelector, embedImages: false }),
           urlToSpec(appUrl, { width: width || 1280, rootSelector, embedImages: false }),
         ]);
-        return asText(diffSpecs(a, b, { labelA: "mockup", labelB: "app" }));
+        const result = diffSpecs(a, b, { labelA: "mockup", labelB: "app" });
+        if (sourceDir) {
+          const { buildSourceIndex, annotateDeltas } = await import("./source-index.js");
+          const index = await buildSourceIndex(sourceDir);
+          result.deltas = annotateDeltas(result.deltas, index);
+          result.tokenDrift = index.tokenDrift;
+        }
+        return asText(result);
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );

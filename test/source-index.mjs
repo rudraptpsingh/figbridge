@@ -5,7 +5,7 @@
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildSourceIndex, resolveSource, tokenHint } from "../mcp/src/source-index.js";
+import { buildSourceIndex, resolveSource, tokenHint, sourceEvidence, authoredStyle } from "../mcp/src/source-index.js";
 
 let passed = 0;
 function assert(c, m, d) { if (!c) throw new Error("FAIL: " + m + (d ? "\n" + d : "")); passed++; }
@@ -21,6 +21,20 @@ try {
     'export function ConflictResolutionCard() {\n  return <div data-testid="conflict-card" className="conflict">…</div>;\n}\n');
   await writeFile(path.join(dir, "src", "components", "PhotoCard.tsx"),
     'export const PhotoCard = () => <article data-testid="photo-card">x</article>;\n');
+  await mkdir(path.join(dir, "src", "design"), { recursive: true });
+  await writeFile(path.join(dir, "src", "design", "v2Tokens.json"),
+    JSON.stringify({ css: { "--v2-panel-width": "64px", "--v2-space-4": "18px" } }));
+  await mkdir(path.join(dir, "docs", "design", "desktop-v2"), { recursive: true });
+  await writeFile(path.join(dir, "docs", "design", "desktop-v2", "tokens.json"),
+    JSON.stringify({ variables: { "space/4": { type: "float", value: 16 } } }));
+  await writeFile(path.join(dir, "src", "components", "Align.tsx"),
+    'export const Align = () => <section data-testid="align" className="w-[84px]">x</section>;\n');
+  await writeFile(path.join(dir, "src", "components", "Stateful.tsx"),
+    '<section data-testid="stateful" data-state="empty" className="p-v2-8" />\n' +
+    '<section data-testid="stateful" data-state={ready ? \'matched\' : \'suggested\'} className="ml-10" />\n');
+  await writeFile(path.join(dir, "figbridge.connect.json"), JSON.stringify({ version: 1, components: [
+    { figma: { name: "Shot Select Card", nodeId: "1:2" }, code: { source: "src/components/PhotoCard.tsx", export: "PhotoCard" } },
+  ] }));
   // a file that should NOT pollute the component-name map
   await writeFile(path.join(dir, "src", "components", "PhotoCard.test.tsx"),
     'test("x", () => { expect(1).toBe(1); });\n');
@@ -52,6 +66,12 @@ try {
   // resolveSource: fallback to component-name when no testid
   const r2 = resolveSource({ name: "PhotoCard" }, idx);
   assert(r2 && r2.file.endsWith("PhotoCard.tsx"), "resolveSource via component name failed", JSON.stringify(r2));
+  const connected = resolveSource({ name: "Shot Select Card" }, idx);
+  assert(connected?.file.endsWith("PhotoCard.tsx") && connected.via === "figbridge.connect.json", "connect mapping not used", JSON.stringify(connected));
+  const matched = resolveSource({ testid: "stateful", state: "matched" }, idx);
+  assert(matched?.line === 2 && authoredStyle(idx, matched.file, matched.line)?.className === "ml-10", "matched state selected wrong JSX branch", JSON.stringify(matched));
+  const unknown = resolveSource({ testid: "stateful", state: "unknown" }, idx);
+  assert(unknown?.file.endsWith("Stateful.tsx") && !unknown.line && unknown.via === "data-testid-ambiguous", "unmatched state should not cite a guessed branch", JSON.stringify(unknown));
 
   // resolveSource: unknown → null
   assert(resolveSource({ name: "zzz" }, idx) === null, "unknown node should resolve to null");
@@ -60,6 +80,19 @@ try {
   const th = tokenHint({ kind: "color", field: "fill", a: "#22c55e", b: "#16a34a" }, idx);
   assert(th && th.token === "--accent-success", "tokenHint did not map color to token", JSON.stringify(th));
   assert(tokenHint({ kind: "copy", a: "#22c55e" }, idx) === null, "tokenHint should ignore non-style kinds");
+
+  // Exact code evidence requires a unique matching source literal; the target
+  // token comes from the checked-in Figma-generated token file.
+  const widthDelta = { kind: "spacing", field: "width", a: 64, b: 84 };
+  const hint = tokenHint(widthDelta, idx);
+  assert(hint?.token === "--v2-panel-width" && hint.source?.replaceAll("\\", "/") === "src/design/v2Tokens.json", "generated token not indexed", JSON.stringify(hint));
+  assert(idx.tokenDrift.some(d => d.token === "--v2-space-4" && d.figma === "16px" && d.code === "18px"), "source/generated token drift missing", JSON.stringify(idx.tokenDrift));
+  const evidence = sourceEvidence(widthDelta, idx, "src/components/Align.tsx");
+  assert(evidence?.current === "w-[84px]" && evidence?.line === 1, "current code literal not identified", JSON.stringify(evidence));
+  assert(evidence?.suggested === "w-[var(--v2-panel-width)]", "token-backed replacement missing", JSON.stringify(evidence));
+  assert(authoredStyle(idx, "src/components/Align.tsx", 1)?.className === "w-[84px]", "current authored sizing rule missing");
+  assert(sourceEvidence({ kind: "spacing", field: "x", a: 124, b: 84 }, idx, "src/components/Align.tsx") === null, "absolute x should not become a guessed local margin edit");
+  assert(sourceEvidence({ ...widthDelta, b: 85 }, idx, "src/components/Align.tsx") === null, "must not guess when computed size has no source literal");
 
   console.log(`PASS  source-index unit tests (${passed} assertions, ${idx.fileCount} files indexed).`);
 } finally {

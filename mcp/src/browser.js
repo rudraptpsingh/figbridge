@@ -11,7 +11,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { diffSpecs, styleProfile, compareStyleProfiles } from "./spec-diff.js";
-import { buildSourceIndex, resolveSource, tokenHint } from "./source-index.js";
+import { buildSourceIndex, annotateDeltas } from "./source-index.js";
 import { annotateDiff, ssim, demarcatePng } from "./image-tools.js";
 import { layoutMetrics, diffLayoutMetrics, demarcationBoxes } from "./layout-metrics.js";
 
@@ -1282,23 +1282,7 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
     try { layoutGap = diffLayoutMetrics(layoutMetrics(mockSpec), layoutMetrics(appSpec)); } catch (e) {}
     const sd = diffSpecs(mockSpec, appSpec, { labelA: "mockup", labelB: "app", maxDeltas: opts.maxDeltas || 300 });
     specSummary = sd.summary;
-    punchList = sd.deltas.map((d) => {
-      const out = { ...d };
-      // explicit override map first, then the auto-built source index
-      if (componentMap) {
-        const hit = componentMap[d.name] || componentMap[(d.name || "").replace(/^[.#]/, "")];
-        if (hit && hit.file) { out.sourceFile = hit.file; out.via = "componentMap"; }
-      }
-      if (!out.sourceFile && sourceIndex) {
-        const src = resolveSource(d, sourceIndex);
-        if (src) { out.sourceFile = src.file; if (src.line) out.sourceLine = src.line; out.via = src.via; }
-      }
-      if (sourceIndex) {
-        const th = tokenHint(d, sourceIndex);
-        if (th) out.tokenHint = `${th.token} (= ${th.value})`;
-      }
-      return out;
-    });
+    punchList = annotateDeltas(sd.deltas, sourceIndex, componentMap);
   } catch (e) {
     specError = e.message;
   }
@@ -1308,8 +1292,9 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
   const worstSsim = ssimVals.length ? Math.min(...ssimVals) : null;
   const pass = worstVisualScore >= minScore && punchList.length === 0;
   const mappedCount = punchList.filter((d) => d.sourceFile).length;
+  const codeChangeCount = punchList.filter((d) => d.codeChange).length;
   const source = sourceIndex
-    ? { sourceDir: opts.sourceDir, fileCount: sourceIndex.fileCount, testids: Object.keys(sourceIndex.byTestid).length, tokens: Object.keys(sourceIndex.tokens.nameToVal).length, mappedDeltas: mappedCount }
+    ? { sourceDir: opts.sourceDir, fileCount: sourceIndex.fileCount, testids: Object.keys(sourceIndex.byTestid).length, tokens: Object.keys(sourceIndex.tokens.nameToVal).length, mappedDeltas: mappedCount, tokenDrift: sourceIndex.tokenDrift }
     : null;
 
   return {
@@ -1326,6 +1311,7 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
       byKind: specSummary ? specSummary.byKind : null,
       high: specSummary ? specSummary.high : null,
       mappedToSource: source ? mappedCount : null,
+      codeChanges: source ? codeChangeCount : null,
     },
     visual,
     punchList,
@@ -1337,7 +1323,7 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
     // Tell the agent exactly what to do next — this is the loop instruction.
     nextAction: pass
       ? "MATCH. Worst visual score ≥ threshold and punch-list empty. Done."
-      : `NOT a match yet. Read visual[].montagePng (mockup | app | overlay onion-skin) and boxedPng to SEE the drift, then fix the highest-severity punchList items (copy/color/structure first) — each item names its sourceFile to edit${source ? "" : " (pass sourceDir to resolve files automatically)"}, and tokenHint when a literal should become a design token. Rebuild, then call match_mockup again. Repeat until pass=true (worst visual score ≥ ${minScore} AND punchList empty).`,
+      : `NOT a match yet. Read visual[].montagePng and boxedPng, then inspect the highest-severity punchList items. With sourceDir, mapped items include sourceFile and authoredStyle; codeChange appears only for a unique dimension literal, while tokenDrift identifies generated values that differ from the Figma export. Resolve unmatched content/state before a whole-screen verdict. Rebuild and compare again (worst visual score ≥ ${minScore} and punchList empty).`,
   };
 }
 

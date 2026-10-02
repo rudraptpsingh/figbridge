@@ -97,6 +97,20 @@ function find(deltas, pred) { return deltas.find(pred); }
   assert(diffSpecs(C, D).summary.total === 0, "sub-tolerance width diff should be ignored");
 }
 
+// ── Matched viewport geometry: placement drift is actionable ──
+{
+  const target = { type: "frame", name: "Page", children: [
+    { type: "frame", name: "Align", width: 560, height: 300, _rect: { x: 124, y: 90, w: 560, h: 300 } },
+  ] };
+  const app = { type: "frame", name: "Page", _testid: "page-root", children: [
+    { type: "frame", name: "Align", width: 644, height: 300, _state: "matched", _rect: { x: 84, y: 90, w: 644, h: 300 } },
+  ] };
+  const ds = diffSpecs(target, app).deltas;
+  assert(find(ds, d => d.field === "x" && d.a === 124 && d.b === 84 && d.testid === "page-root" && d.state === "matched" && d.anchorVia === "ancestor-data-testid"), "40px x drift with source/state anchor missing", JSON.stringify(ds));
+  assert(find(ds, d => d.field === "width" && d.a === 560 && d.b === 644), "width drift missing", JSON.stringify(ds));
+  assert(!find(ds, d => d.field === "y"), "same y should not be reported", JSON.stringify(ds));
+}
+
 // ── Elevation: shadow gained/lost/changed + opacity ──
 {
   const A = { type: "frame", name: "Card", shadow: [{ x: 0, y: 8, blur: 24, spread: 0, color: "#000000", alpha: 0.4 }], children: [] };
