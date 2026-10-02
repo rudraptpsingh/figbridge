@@ -63,9 +63,8 @@ function normHex(c) {
 }
 
 // ── Perceptual colour (CIE Lab + ΔE76) ──────────────────────────────────────
-// Exact-hex equality treats #ffffff vs #fafafa as a "difference" though it's
-// imperceptible. ΔE gates on perceptibility instead, killing that false-positive
-// noise. JND ≈ 2.3 in ΔE76.
+// Exact authored colours are reported by default. The optional tolerant mode
+// uses ΔE76 to suppress differences below the approximate JND of 2.3.
 const COLOR_JND = 2.3;
 function hexToRgb(h) {
   const s = String(h).trim().replace(/^#/, "");
@@ -85,14 +84,14 @@ function rgbToLab([r, g, b]) {
 function deltaE76(l1, l2) {
   return Math.sqrt((l1[0] - l2[0]) ** 2 + (l1[1] - l2[1]) ** 2 + (l1[2] - l2[2]) ** 2);
 }
-// Two colour signatures differ *perceptibly*? When both are plain 6-hex, gate on
-// ΔE; otherwise (alpha / gradient / structure in the sig) use exact inequality.
-function perceptibleColorDiff(av, bv) {
+// When both signatures are plain 6-hex, include ΔE and apply the JND only in
+// tolerant mode; alpha/gradient signatures are compared directly.
+function perceptibleColorDiff(av, bv, tolerant) {
   if (av === bv) return { differ: false, deltaE: null };
   const ra = hexToRgb(av), rb = hexToRgb(bv);
   if (ra && rb) {
     const dE = deltaE76(rgbToLab(ra), rgbToLab(rb));
-    return { differ: dE > COLOR_JND, deltaE: dE };
+    return { differ: dE > (tolerant ? COLOR_JND : 0), deltaE: dE };
   }
   return { differ: true, deltaE: null };
 }
@@ -100,7 +99,7 @@ function perceptibleColorDiff(av, bv) {
 // Full fill signature — captures solid colour AND translucency (glass) AND
 // gradients (cinematic/clay). Spec fills are a hex string, a gradient string,
 // or an array of paint layers ([{kind:'solid',color,alpha}, {kind:'linear-gradient',value}, ...]).
-function fillSig(fill) {
+function fillSig(fill, tolerant) {
   if (fill == null) return null;
   if (typeof fill === "string") {
     if (/gradient/i.test(fill)) return "grad:" + fill.replace(/\s+/g, " ").trim().toLowerCase();
@@ -111,7 +110,7 @@ function fillSig(fill) {
     for (const layer of fill) {
       if (!layer) continue;
       if (layer.kind === "solid" && layer.color) {
-        parts.push(normHex(layer.color) + (layer.alpha != null && layer.alpha < 0.999 ? "@" + (Math.round(layer.alpha * 100) / 100) : ""));
+        parts.push(normHex(layer.color) + (layer.alpha != null && (tolerant ? layer.alpha < 0.999 : layer.alpha !== 1) ? "@" + (tolerant ? Math.round(layer.alpha * 100) / 100 : layer.alpha) : ""));
       } else if (layer.kind && /gradient/i.test(layer.kind)) {
         parts.push("grad:" + String(layer.value || layer.kind).replace(/\s+/g, " ").trim().toLowerCase());
       } else if (layer.kind === "image") {
@@ -125,13 +124,13 @@ function fillSig(fill) {
 
 // Full stroke/border signature — colour + alpha + width + style (not just the
 // colour). Fine translucent borders (glass) and width changes now surface.
-function strokeSig(stroke) {
+function strokeSig(stroke, tolerant) {
   if (!stroke) return null;
   if (typeof stroke === "string") return normHex(stroke);
   const c = normHex(stroke.color);
   if (!c) return null;
-  const a = stroke.alpha != null && stroke.alpha < 0.999 ? "@" + (Math.round(stroke.alpha * 100) / 100) : "";
-  const w = stroke.width != null ? String(Math.round(stroke.width * 10) / 10) + "px" : "";
+  const a = stroke.alpha != null && (tolerant ? stroke.alpha < 0.999 : stroke.alpha !== 1) ? "@" + (tolerant ? Math.round(stroke.alpha * 100) / 100 : stroke.alpha) : "";
+  const w = stroke.width != null ? String(tolerant ? Math.round(stroke.width * 10) / 10 : stroke.width) + "px" : "";
   const st = stroke.style && stroke.style !== "solid" ? stroke.style : "";
   return [c + a, w, st].filter((x) => x !== "").join("/");
 }
@@ -152,13 +151,14 @@ function normText(s) {
 // Collapse a box-shadow array ([{x,y,blur,spread,color,alpha,inset}, …]) into a
 // rounded, comparable signature. Elevation differences (a card that lost its
 // shadow, a popover at the wrong depth) surface as a changed signature.
-function shadowSig(shadow) {
+function shadowSig(shadow, tolerant) {
   if (!shadow) return null;
   const arr = Array.isArray(shadow) ? shadow : [shadow];
   if (!arr.length) return null;
+  const measure = (value) => tolerant ? Math.round(value || 0) : (value || 0);
   return arr.map((s) => [
-    Math.round(s.x || 0), Math.round(s.y || 0), Math.round(s.blur || 0),
-    Math.round(s.spread || 0), normHex(s.color), Math.round((s.alpha == null ? 1 : s.alpha) * 100) / 100,
+    measure(s.x), measure(s.y), measure(s.blur),
+    measure(s.spread), normHex(s.color), tolerant ? Math.round((s.alpha == null ? 1 : s.alpha) * 100) / 100 : (s.alpha == null ? 1 : s.alpha),
     s.inset ? "inset" : "",
   ].join(",")).join(" | ");
 }
@@ -183,15 +183,15 @@ function iconSig(node) {
 }
 
 // Compare one field on a paired (a, b). Returns a delta object or null.
-function compareField(field, a, b, rule, path, name) {
+function compareField(field, a, b, rule, path, name, tolerant) {
   let av, bv;
   switch (field) {
     case "state": av = a._state; bv = b._state; break;
-    case "fill": av = fillSig(a.fill); bv = fillSig(b.fill); break;
-    case "stroke": av = strokeSig(a.stroke); bv = strokeSig(b.stroke); break;
+    case "fill": av = fillSig(a.fill, tolerant); bv = fillSig(b.fill, tolerant); break;
+    case "stroke": av = strokeSig(a.stroke, tolerant); bv = strokeSig(b.stroke, tolerant); break;
     case "outline": av = outlineSig(a.outline); bv = outlineSig(b.outline); break;
-    case "shadow": av = shadowSig(a.shadow); bv = shadowSig(b.shadow); break;
-    case "textShadow": av = shadowSig(a.textShadow); bv = shadowSig(b.textShadow); break;
+    case "shadow": av = shadowSig(a.shadow, tolerant); bv = shadowSig(b.shadow, tolerant); break;
+    case "textShadow": av = shadowSig(a.textShadow, tolerant); bv = shadowSig(b.textShadow, tolerant); break;
     case "color": av = normHex(a.color); bv = normHex(b.color); break;
     // text formatting: coalesce null→"none" so present-vs-absent flips surface
     case "textTransform": av = a.textTransform || "none"; bv = b.textTransform || "none"; break;
@@ -205,7 +205,7 @@ function compareField(field, a, b, rule, path, name) {
       const at = padTuple(a.padding), bt = padTuple(b.padding);
       if (!at && !bt) return null;
       const aa = at || [0, 0, 0, 0], bb = bt || [0, 0, 0, 0];
-      const tol = rule.tol || 0;
+      const tol = tolerant ? (rule.tol || 0) : 0;
       if (aa.every((v, i) => Math.abs(v - bb[i]) <= tol)) return null;
       av = aa.join("/"); bv = bb.join("/");
       return { path, name, kind: rule.kind, field, a: av, b: bv, severity: rule.severity };
@@ -224,14 +224,14 @@ function compareField(field, a, b, rule, path, name) {
   // Perceptual colour gate: suppress imperceptible colour diffs (ΔE < JND) and
   // report ΔE when both sides are plain hex.
   if (rule.kind === "color" && av != null && bv != null) {
-    const pc = perceptibleColorDiff(av, bv);
+    const pc = perceptibleColorDiff(av, bv, tolerant);
     if (!pc.differ) return null;
     const d = { path, name, kind: rule.kind, field, a: av, b: bv, severity: rule.severity };
     if (pc.deltaE != null) d.deltaE = Math.round(pc.deltaE * 10) / 10;
     return d;
   }
   if (typeof av === "number" && typeof bv === "number") {
-    if (Math.abs(av - bv) <= (rule.tol || 0)) return null;
+    if (Math.abs(av - bv) <= (tolerant ? (rule.tol || 0) : 0)) return null;
   } else if (av === bv) {
     return null;
   }
@@ -289,6 +289,7 @@ export function diffSpecs(specA, specB, opts = {}) {
   const maxDepth = opts.maxDepth || 24;
   const labelA = opts.labelA || "a";
   const labelB = opts.labelB || "b";
+  const tolerant = opts.tolerant === true;
   const deltas = [];
   let nodesCompared = 0;
   let totalFound = 0;
@@ -311,7 +312,7 @@ export function diffSpecs(specA, specB, opts = {}) {
     const bState = b._state || inheritedState || null;
     for (const field of Object.keys(FIELD_RULES)) {
       const rule = FIELD_RULES[field];
-      const d = compareField(field, a, b, rule, path, name);
+      const d = compareField(field, a, b, rule, path, name, tolerant);
       if (d) { d.testid = bTestid; d.state = bState; if (!b._testid && inheritedTestid) d.anchorVia = "ancestor-data-testid"; emit(d); }
     }
     // Icon identity: when both nodes are inline SVGs, compare glyph geometry.

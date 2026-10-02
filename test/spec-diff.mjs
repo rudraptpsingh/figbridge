@@ -130,16 +130,17 @@ function find(deltas, pred) { return deltas.find(pred); }
   assert(find(r.deltas, d => d.kind === "state" && d.field === "state" && d.a === "synced" && d.b === "signed-out"), "explicit unmatched state should be reported", JSON.stringify(r.deltas));
 }
 
-// ── Numeric tolerance: sub-tolerance differences are ignored ──
+// ── Exact values by default; tolerance is an explicit opt-in ──
 {
   const A = { type: "text", name: "T", characters: "hi", fontSize: 16 };
   const B = { type: "text", name: "T", characters: "hi", fontSize: 16.3 }; // within fontSize tol 0.5
-  const r = diffSpecs(A, B);
-  assert(r.summary.total === 0, "sub-tolerance fontSize diff should be ignored", JSON.stringify(r.deltas));
+  assert(find(diffSpecs(A, B).deltas, d => d.field === "fontSize"), "exact mode should report a 0.3px font difference");
+  assert(diffSpecs(A, B, { tolerant: true }).summary.total === 0, "tolerant mode should suppress a 0.3px font difference");
 
   const C = { type: "frame", name: "F", width: 300, height: 200 };
   const D = { type: "frame", name: "F", width: 301, height: 200 }; // within width tol 2
-  assert(diffSpecs(C, D).summary.total === 0, "sub-tolerance width diff should be ignored");
+  assert(find(diffSpecs(C, D).deltas, d => d.field === "width"), "exact mode should report a 1px width difference");
+  assert(diffSpecs(C, D, { tolerant: true }).summary.total === 0, "tolerant mode should suppress a 1px width difference");
 }
 
 // ── Matched viewport geometry: placement drift is actionable ──
@@ -171,10 +172,11 @@ function find(deltas, pred) { return deltas.find(pred); }
   const F = { type: "frame", name: "X" }; // opacity 1 (omitted)
   assert(find(diffSpecs(E, F).deltas, d => d.kind === "elevation" && d.field === "opacity"), "opacity elevation delta missing");
 
-  // Sub-tolerance shadow (12 vs 12.4 px blur, rounds equal) → ignored
+  // A fractional blur differs in exact mode and is ignorable only on request.
   const G = { type: "frame", name: "Y", shadow: [{ x: 0, y: 4, blur: 12, spread: 0, color: "#000000", alpha: 0.3 }] };
   const H = { type: "frame", name: "Y", shadow: [{ x: 0, y: 4, blur: 12.4, spread: 0, color: "#000000", alpha: 0.3 }] };
-  assert(diffSpecs(G, H).summary.total === 0, "sub-pixel shadow diff should round-equal and be ignored", JSON.stringify(diffSpecs(G, H).deltas));
+  assert(find(diffSpecs(G, H).deltas, d => d.field === "shadow"), "exact mode should report fractional shadow blur", JSON.stringify(diffSpecs(G, H).deltas));
+  assert(diffSpecs(G, H, { tolerant: true }).summary.total === 0, "tolerant mode should round fractional shadow blur");
 }
 
 // ── Color: outline (focus ring / border) change ──
@@ -220,6 +222,11 @@ function find(deltas, pred) { return deltas.find(pred); }
   const E = { type: "frame", name: "Card", stroke: { color: "#ffffff", width: 1 } };
   const F = { type: "frame", name: "Card", stroke: { color: "#ffffff", width: 3 } };
   assert(find(diffSpecs(E, F).deltas, d => d.kind === "color" && d.field === "stroke"), "stroke-width delta missing (same colour)", JSON.stringify(diffSpecs(E, F).deltas));
+
+  const fineA = { type: "frame", name: "Fine", stroke: { color: "#ffffff", width: 1.01 }, fill: [{ kind: "solid", color: "#ffffff", alpha: 0.101 }] };
+  const fineB = { type: "frame", name: "Fine", stroke: { color: "#ffffff", width: 1.04 }, fill: [{ kind: "solid", color: "#ffffff", alpha: 0.104 }] };
+  assert(find(diffSpecs(fineA, fineB).deltas, d => d.field === "stroke"), "exact mode should report fractional stroke-width difference");
+  assert(find(diffSpecs(fineA, fineB).deltas, d => d.field === "fill"), "exact mode should report fractional alpha difference");
 }
 
 // ── Text formatting: transform, decoration, glow ──
@@ -271,7 +278,8 @@ function find(deltas, pred) { return deltas.find(pred); }
   // imperceptible: #ffffff vs #fafafa (ΔE < JND) → suppressed
   const A = { type: "text", name: "T", characters: "x", color: "#ffffff" };
   const B = { type: "text", name: "T", characters: "x", color: "#fafafa" };
-  assert(diffSpecs(A, B).summary.total === 0, "imperceptible colour diff (#ffffff vs #fafafa) should be suppressed", JSON.stringify(diffSpecs(A, B).deltas));
+  assert(find(diffSpecs(A, B).deltas, d => d.field === "color"), "exact mode should report a subtle authored colour change", JSON.stringify(diffSpecs(A, B).deltas));
+  assert(diffSpecs(A, B, { tolerant: true }).summary.total === 0, "tolerant mode should suppress a sub-JND colour change");
 
   // perceptible: #111111 vs #777777 → fires, reports deltaE above JND
   const C = { type: "text", name: "T", characters: "x", color: "#111111" };

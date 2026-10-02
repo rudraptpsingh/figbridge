@@ -1280,7 +1280,7 @@ export async function matchMockup(mockupUrl, appUrl, opts = {}) {
     // Mathematical structure: grid columns / pitch / alignment / spacing-unit
     // deltas — numbers the agent acts on directly.
     try { layoutGap = diffLayoutMetrics(layoutMetrics(mockSpec), layoutMetrics(appSpec)); } catch (e) {}
-    const sd = diffSpecs(mockSpec, appSpec, { labelA: "mockup", labelB: "app", maxDeltas: opts.maxDeltas || 300 });
+    const sd = diffSpecs(mockSpec, appSpec, { labelA: "mockup", labelB: "app", maxDeltas: opts.maxDeltas || 300, tolerant: opts.tolerant === true });
     specSummary = sd.summary;
     punchList = annotateDeltas(sd.deltas, sourceIndex, componentMap);
   } catch (e) {

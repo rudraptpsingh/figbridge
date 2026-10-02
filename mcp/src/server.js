@@ -646,15 +646,16 @@ export function createServer(port) {
       widths: z.array(z.coerce.number()).optional().describe("Viewport widths to compare. Default [1280, 768, 375]."),
       minScore: z.coerce.number().optional().describe("Minimum acceptable per-viewport visual score to count as a match. Default 96."),
       maxDeltas: z.coerce.number().int().min(1).max(10000).optional().describe("Maximum structured issues returned. Default 300; summary.omitted reports any hidden by the cap."),
+      tolerant: z.boolean().optional().describe("Suppress sub-JND colours and small numeric drift. Default false: report exact comparable values."),
       rootSelector: z.string().optional().describe("CSS selector to scope the structured spec diff to a subtree (e.g. 'main'). Default body."),
       outDir: z.string().optional().describe("Directory to write the comparison PNGs into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix for the PNGs. Default 'match'."),
       settleMs: z.coerce.number().optional().describe("Delay after load before capture. Default 1200ms.")
     },
-    async ({ mockupUrl, appUrl, sourceDir, widths, minScore, maxDeltas, rootSelector, outDir, prefix, settleMs }) => {
+    async ({ mockupUrl, appUrl, sourceDir, widths, minScore, maxDeltas, tolerant, rootSelector, outDir, prefix, settleMs }) => {
       try {
         const { matchMockup } = await import("./browser.js");
-        return asText(await matchMockup(mockupUrl, appUrl, { sourceDir, widths, minScore, maxDeltas, rootSelector, outDir, prefix, settleMs }));
+        return asText(await matchMockup(mockupUrl, appUrl, { sourceDir, widths, minScore, maxDeltas, tolerant, rootSelector, outDir, prefix, settleMs }));
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );
@@ -861,10 +862,11 @@ export function createServer(port) {
       appUrl: z.string().describe("URL of the page being aligned (the 'b' side)."),
       width: z.coerce.number().optional().describe("Viewport width for both. Default 1280."),
       maxDeltas: z.coerce.number().int().min(1).max(10000).optional().describe("Maximum issues returned. Default 500; summary.omitted reports any hidden by the cap."),
+      tolerant: z.boolean().optional().describe("Suppress sub-JND colours and small numeric drift. Default false: report exact comparable values."),
       sourceDir: z.string().optional().describe("Absolute source root containing app code, optional figbridge.connect.json, and design tokens."),
       rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
     },
-    async ({ mockupUrl, appUrl, width, maxDeltas, sourceDir, rootSelector }) => {
+    async ({ mockupUrl, appUrl, width, maxDeltas, tolerant, sourceDir, rootSelector }) => {
       try {
         const { urlToSpec } = await import("./browser.js");
         const { diffSpecs } = await import("./spec-diff.js");
@@ -872,7 +874,7 @@ export function createServer(port) {
           urlToSpec(mockupUrl, { width: width || 1280, rootSelector, embedImages: false }),
           urlToSpec(appUrl, { width: width || 1280, rootSelector, embedImages: false }),
         ]);
-        const result = diffSpecs(a, b, { labelA: "mockup", labelB: "app", maxDeltas });
+        const result = diffSpecs(a, b, { labelA: "mockup", labelB: "app", maxDeltas, tolerant });
         if (sourceDir) {
           const { buildSourceIndex, annotateDeltas } = await import("./source-index.js");
           const index = await buildSourceIndex(sourceDir);
