@@ -360,6 +360,45 @@ function find(deltas, pred) { return deltas.find(pred); }
   );
   assert(nullMeasurement.coverage.unmeasured.some(d => d.field === "fontFamily" && !d.appMeasured), "null app values must remain unmeasured", JSON.stringify(nullMeasurement.coverage));
   assert(nullMeasurement.ok === false, "null measurement must keep the comparison non-PASS");
+  const textPairs = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [
+      { type: "text", name: "heading", _figmaId: "1:8", characters: "Reception", fontSize: 15 },
+      { type: "text", name: "repeated a", _figmaId: "1:9", characters: "Open" },
+      { type: "text", name: "repeated b", _figmaId: "1:10", characters: "Open" },
+    ] },
+    { type: "frame", name: "App", children: [
+      { type: "frame", name: "container", _testid: "heading-shell", children: [
+        { type: "text", name: "heading", characters: "Reception", fontSize: 13 },
+        { type: "text", name: "button", characters: "Open" },
+      ] },
+    ] },
+    [], { autoTextAnchors: true }
+  );
+  assert(textPairs.coverage.generatedAnchors === 1 && textPairs.coverage.matched === 1,
+    "unique exact text should pair automatically; repeated copy must remain unpaired", JSON.stringify(textPairs.coverage));
+  assert(textPairs.deltas.some(d => d.field === "fontSize" && d.a === 15 && d.b === 13),
+    "automatic text pair must compare authored typography", JSON.stringify(textPairs.deltas));
+  assert(textPairs.deltas.some(d => d.testid === "heading-shell"),
+    "automatic pair should retain its nearest source test id", JSON.stringify(textPairs.deltas));
+  const familyAlias = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [{ type: "text", _figmaId: "1:11", characters: "Label", fontFamily: "Inter" }] },
+    { type: "frame", name: "App", children: [{ type: "text", _testid: "label", characters: "Label", fontFamily: "Inter Variable" }] },
+    [{ name: "Label", mockupId: "1:11", appTestid: "label", fields: ["fontFamily"] }]
+  );
+  assert(familyAlias.ok && !familyAlias.deltas.length, "Inter Variable must compare as the authored Inter family", JSON.stringify(familyAlias.deltas));
+  const weightAlias = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [{ type: "text", _figmaId: "1:12", fontWeight: 600 }] },
+    { type: "frame", name: "App", children: [{ type: "text", _testid: "label", fontWeight: "Semi Bold" }] },
+    [{ name: "weight", mockupId: "1:12", appTestid: "label", fields: ["fontWeight"] }]
+  );
+  assert(weightAlias.ok, "numeric and named equivalents of font weight must compare equally", JSON.stringify(weightAlias.deltas));
+  const weightMismatch = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [{ type: "text", _figmaId: "1:12", fontWeight: 500 }] },
+    { type: "frame", name: "App", children: [{ type: "text", _testid: "label", fontWeight: "Regular" }] },
+    [{ name: "weight", mockupId: "1:12", appTestid: "label", fields: ["fontWeight"] }]
+  );
+  assert(weightMismatch.deltas.some(d => d.field === "fontWeight" && d.a === 500 && d.b === 400),
+    "actual weight drift should report normalized numeric values", JSON.stringify(weightMismatch.deltas));
   let duplicateRejected = false;
   try { diffAnchoredSpecs(figma, app, [anchors[0], anchors[0]]); }
   catch { duplicateRejected = true; }

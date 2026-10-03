@@ -148,6 +148,17 @@ function normText(s) {
   return s == null ? null : String(s).replace(/\s+/g, " ").trim();
 }
 
+function fontWeightValue(value) {
+  if (typeof value === "number") return value;
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (/^[1-9]00$/.test(raw)) return Number(raw);
+  const weights = { thin: 100, extralight: 200, ultralight: 200, light: 300,
+    regular: 400, normal: 400, book: 400, medium: 500, semibold: 600,
+    demibold: 600, bold: 700, extrabold: 800, ultrabold: 800, black: 900 };
+  return weights[raw.toLowerCase().replace(/[\s_-]/g, "")] ?? value;
+}
+
 // Collapse a box-shadow array ([{x,y,blur,spread,color,alpha,inset}, …]) into a
 // rounded, comparable signature. Elevation differences (a card that lost its
 // shadow, a popover at the wrong depth) surface as a changed signature.
@@ -197,6 +208,7 @@ function compareField(field, a, b, rule, path, name, tolerant) {
     case "textTransform": av = a.textTransform || "none"; bv = b.textTransform || "none"; break;
     case "textDecoration": av = a.textDecoration || "none"; bv = b.textDecoration || "none"; break;
     case "characters": av = normText(a.characters); bv = normText(b.characters); break;
+    case "fontWeight": av = fontWeightValue(a.fontWeight); bv = fontWeightValue(b.fontWeight); break;
     // DOM specs carry viewport geometry in _rect. Figma/spec-only trees may
     // omit it; never compare a relative layout x against a viewport x.
     case "x": av = a._rect && a._rect.x; bv = b._rect && b._rect.x; break;
@@ -230,6 +242,10 @@ function compareField(field, a, b, rule, path, name, tolerant) {
     if (pc.deltaE != null) d.deltaE = Math.round(pc.deltaE * 10) / 10;
     return d;
   }
+  // Figma names the authored family "Inter" while the browser exposes the
+  // variable-font package's CSS family as "Inter Variable".
+  if (field === "fontFamily" && /^Inter(?: Variable)?$/i.test(String(av)) &&
+      /^Inter(?: Variable)?$/i.test(String(bv))) return null;
   if (typeof av === "number" && typeof bv === "number") {
     if (Math.abs(av - bv) <= (tolerant ? (rule.tol || 0) : 0)) return null;
   } else if (av === bv) {
@@ -351,21 +367,50 @@ export function diffSpecs(specA, specB, opts = {}) {
 /** Compare explicit Figma-node ↔ native data-testid pairs across different trees.
  * Unmatched or ambiguous anchors remain visible; they never count as a match. */
 export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
-  if (!Array.isArray(anchors) || anchors.length === 0) throw new Error("anchors must be a nonempty array");
+  if (!Array.isArray(anchors) || (anchors.length === 0 && !opts.autoTextAnchors))
+    throw new Error("anchors must be a nonempty array unless autoTextAnchors is enabled");
   const collect = (root) => {
-    const nodes = [], paths = new Map();
-    const visit = (node, parentPath) => {
+    const nodes = [], paths = new Map(), nearestTestids = new Map();
+    const visit = (node, parentPath, inheritedTestid) => {
       if (!node || typeof node !== "object") return;
       nodes.push(node);
       const path = parentPath ? `${parentPath} > ${nodeLabel(node)}` : nodeLabel(node);
       paths.set(node, path);
-      for (const child of node.children || []) visit(child, path);
+      const testid = node._testid || inheritedTestid || null;
+      nearestTestids.set(node, testid);
+      for (const child of node.children || []) visit(child, path, testid);
     };
-    visit(root, "");
-    return { nodes, paths };
+    visit(root, "", null);
+    return { nodes, paths, nearestTestids };
   };
   const { nodes: aNodes, paths: aPaths } = collect(mockup);
-  const { nodes: bNodes, paths: bPaths } = collect(app);
+  const { nodes: bNodes, paths: bPaths, nearestTestids: bTestids } = collect(app);
+  const generated = [];
+  if (opts.autoTextAnchors) {
+    const manualIds = new Set(anchors.map(a => a.mockupId).filter(Boolean));
+    const manualText = new Set(anchors.map(a => a.appText).filter(Boolean));
+    const textNodes = (nodes) => {
+      const byText = new Map();
+      for (const node of nodes) {
+        if (node.type !== "text" || !node.characters) continue;
+        const key = normText(node.characters);
+        if (!key) continue;
+        const list = byText.get(key) || [];
+        list.push(node); byText.set(key, list);
+      }
+      return byText;
+    };
+    const aText = textNodes(aNodes), bText = textNodes(bNodes);
+    for (const [value, aa] of aText) {
+      const bb = bText.get(value) || [];
+      if (aa.length !== 1 || bb.length !== 1) continue;
+      const id = aa[0]._figmaId || aa[0].id;
+      if (!id || manualIds.has(id) || manualText.has(value)) continue;
+      generated.push({ name: `Text: ${value.slice(0, 60)}`, mockupId: id, appText: value });
+    }
+  }
+  const allAnchors = anchors.concat(generated);
+  if (!allAnchors.length) throw new Error("no unique text anchors found");
   const pairedA = [], pairedB = [], unmatched = [], unmeasured = [];
   const pairedSourceA = new Set(), pairedSourceB = new Set();
   let requestedFields = 0, measuredFields = 0;
@@ -377,7 +422,7 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
       return Number.isFinite(node._rect?.[field === "width" ? "w" : "h"] ?? node[field]);
     return Object.hasOwn(node, field) && node[field] != null;
   };
-  const projected = (node, name, selectedFields) => {
+  const projected = (node, name, selectedFields, inheritedTestid) => {
     const rect = node._rect;
     const { children, ...nodeFields } = node;
     const x = rect?.x ?? node.x, y = rect?.y ?? node.y;
@@ -392,6 +437,7 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
       x, y, width, height,
       _rect: Object.keys(measuredRect).length ? measuredRect : undefined,
     };
+    if (!projectedNode._testid && inheritedTestid) projectedNode._testid = inheritedTestid;
     if (selectedFields) {
       const selected = new Set(selectedFields);
       for (const field of Object.keys(FIELD_RULES)) {
@@ -410,15 +456,16 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     return projectedNode;
   };
   const seenNames = new Set(), seenMockup = new Set(), seenApp = new Set();
-  for (const anchor of anchors) {
-    if (!anchor || !anchor.name || !anchor.appTestid || !(anchor.mockupId || anchor.mockupName)) {
-      throw new Error("each anchor needs name, appTestid, and mockupId or mockupName");
+  for (const anchor of allAnchors) {
+    if (!anchor || !anchor.name || !(anchor.appTestid || anchor.appText) || !(anchor.mockupId || anchor.mockupName)) {
+      throw new Error("each anchor needs name, appTestid or appText, and mockupId or mockupName");
     }
     const mockupKey = anchor.mockupId ? `id:${anchor.mockupId}` : `name:${anchor.mockupName}`;
-    if (seenNames.has(anchor.name) || seenMockup.has(mockupKey) || seenApp.has(anchor.appTestid)) {
+    const appKey = anchor.appTestid ? `testid:${anchor.appTestid}` : `text:${anchor.appText}`;
+    if (seenNames.has(anchor.name) || seenMockup.has(mockupKey) || seenApp.has(appKey)) {
       throw new Error(`duplicate anchor: ${anchor.name}`);
     }
-    seenNames.add(anchor.name); seenMockup.add(mockupKey); seenApp.add(anchor.appTestid);
+    seenNames.add(anchor.name); seenMockup.add(mockupKey); seenApp.add(appKey);
     if (anchor.fields && (!Array.isArray(anchor.fields) || anchor.fields.length === 0 ||
       anchor.fields.some((field) => !Object.hasOwn(FIELD_RULES, field)))) {
       throw new Error(`anchor ${anchor.name} has invalid fields`);
@@ -426,10 +473,13 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     const aa = aNodes.filter((n) => anchor.mockupId
       ? (n._figmaId || n.id) === anchor.mockupId
       : n.name === anchor.mockupName);
-    const bb = bNodes.filter((n) => n._testid === anchor.appTestid);
+    const bb = bNodes.filter((n) => anchor.appTestid
+      ? n._testid === anchor.appTestid
+      : n.type === "text" && normText(n.characters) === normText(anchor.appText));
     if (aa.length !== 1 || bb.length !== 1) {
       unmatched.push({ name: anchor.name, mockupId: anchor.mockupId || null,
-        appTestid: anchor.appTestid, mockupMatches: aa.length, appMatches: bb.length });
+        appTestid: anchor.appTestid || null, appText: anchor.appText || null,
+        mockupMatches: aa.length, appMatches: bb.length });
       continue;
     }
     // An anchor without an explicit field list must inspect every field that
@@ -446,7 +496,7 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     }
     pairedSourceA.add(aa[0]); pairedSourceB.add(bb[0]);
     pairedA.push(projected(aa[0], anchor.name, selectedFields));
-    pairedB.push(projected(bb[0], anchor.name, selectedFields));
+    pairedB.push(projected(bb[0], anchor.name, selectedFields, bTestids.get(bb[0])));
   }
   const result = diffSpecs(
     { type: "frame", name: "anchors", children: pairedA },
@@ -464,7 +514,8 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     unpairedNodes: { mockup: aNodes.length - pairedA.length, app: bNodes.length - pairedB.length },
     unpairedInventory: { mockup: inventory(aNodes, pairedSourceA, aPaths),
       app: inventory(bNodes, pairedSourceB, bPaths) },
-    requested: anchors.length, matched: pairedA.length, unmatched,
+    requested: allAnchors.length, generatedAnchors: generated.length,
+    matched: pairedA.length, unmatched,
     requestedFields, measuredFields, unmeasured };
   result.summary.unmatchedAnchors = unmatched.length;
   result.summary.unmeasuredFields = unmeasured.length;

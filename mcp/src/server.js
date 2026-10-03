@@ -205,6 +205,18 @@ export function createServer(port) {
 
   // ── Catalog tools (app-level views) ───────────────────────
   server.tool(
+    "export_design_spec",
+    "Read an entire Figma frame into a structured FigBridge spec with node IDs, viewport bounds, paint, typography, layout, and text. Hidden subtrees are omitted; unsupported or mixed authored values are listed in _capture.warnings. Save the returned JSON as mockupSpecPath for diff_specs against a matched app DOM capture. Requires the Figbridge plugin with Live bridge on.",
+    { nodeId: z.string().describe("Exact Figma frame or component node ID.") },
+    async ({ nodeId }) => {
+      try {
+        const result = await sendCommand("export-design-spec", { nodeId }, 30000);
+        return asText(result.ok ? result.spec : result);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
     "list_screens",
     "List every top-level frame (screen) across pages in the currently open Figma file. Each result has { nodeId, name, pageName, width, height, category, orderHint }. Category is inferred from name: splash | onboarding | auth | home | detail | settings | overlay | editor | search | state | commerce | error | other. Requires the Figbridge plugin to be open with Live bridge on.",
     {
@@ -869,13 +881,15 @@ export function createServer(port) {
         name: z.string(),
         mockupId: z.string().optional(),
         mockupName: z.string().optional(),
-        appTestid: z.string(),
+        appTestid: z.string().optional(),
+        appText: z.string().optional(),
         fields: z.array(z.string()).min(1).optional(),
-      })).min(1).optional().describe("Explicit Figma-node ↔ app-testid pairs when the design and DOM have different nesting. With no fields list, every captured field on either side is checked; optional fields limits a pair to inspected values, e.g. x/y/width/height for geometry. Every anchor must resolve uniquely, and every requested or captured field must exist on both sides; coverage reports gaps and prevents PASS."),
+      })).min(1).optional().describe("Explicit Figma-node ↔ app-testid (or unique appText) pairs when the design and DOM have different nesting. With no fields list, every captured field on either side is checked; optional fields limits a pair to inspected values, e.g. x/y/width/height for geometry. Every anchor must resolve uniquely, and every requested or captured field must exist on both sides; coverage reports gaps and prevents PASS."),
+      autoTextAnchors: z.boolean().optional().describe("Also pair text nodes whose exact visible copy occurs once in both captured trees. Reports generated pair count; repeated or changed copy remains unpaired. Use with the full Figma design spec, not a tiny selected-node sample."),
       sourceDir: z.string().optional().describe("Absolute source root containing app code, optional figbridge.connect.json, and design tokens."),
       rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
     },
-    async ({ mockupUrl, mockupSpecPath, appUrl, appSpecPath, width, maxDeltas, tolerant, anchors, sourceDir, rootSelector }) => {
+    async ({ mockupUrl, mockupSpecPath, appUrl, appSpecPath, width, maxDeltas, tolerant, anchors, autoTextAnchors, sourceDir, rootSelector }) => {
       try {
         const { urlToSpec } = await import("./browser.js");
         const { loadComparisonSpec } = await import("./comparison-input.js");
@@ -884,9 +898,9 @@ export function createServer(port) {
           loadComparisonSpec({ url: mockupUrl, specPath: mockupSpecPath }, { width: width || 1280, rootSelector, embedImages: false }, urlToSpec),
           loadComparisonSpec({ url: appUrl, specPath: appSpecPath }, { width: width || 1280, rootSelector, embedImages: false }, urlToSpec),
         ]);
-        const diffOptions = { labelA: "mockup", labelB: "app", maxDeltas, tolerant };
-        const result = anchors?.length
-          ? diffAnchoredSpecs(a, b, anchors, diffOptions)
+        const diffOptions = { labelA: "mockup", labelB: "app", maxDeltas, tolerant, autoTextAnchors };
+        const result = anchors?.length || autoTextAnchors
+          ? diffAnchoredSpecs(a, b, anchors || [], diffOptions)
           : diffSpecs(a, b, diffOptions);
         if (sourceDir) {
           const { buildSourceIndex, annotateDeltas } = await import("./source-index.js");

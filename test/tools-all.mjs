@@ -109,7 +109,7 @@ async function main() {
   log(`tools listed: ${names.length}`);
   const expected = [
     "get_current_selection", "get_last_export", "list_history", "get_tokens", "bridge_status",
-    "select_node", "export_node", "list_screens", "list_components", "describe_screen",
+    "select_node", "export_node", "export_design_spec", "list_screens", "list_components", "describe_screen",
     "export_app_spec", "clone_screen", "recolor", "apply_tokens", "list_assets",
     "lint_ds", "get_agent_bundle", "diff_since",
     "list_pages", "list_frames", "export_all_pages",
@@ -157,6 +157,7 @@ async function main() {
   const pluginTools = [
     ["select_node", { name: "Card" }],
     ["export_node", { nodeId: "1:2" }],
+    ["export_design_spec", { nodeId: "1:2" }],
     ["list_screens", {}],
     ["list_components", {}],
     ["describe_screen", { nodeId: "1:2" }],
