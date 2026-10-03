@@ -27,6 +27,16 @@ if (arg === "init" || arg === "update") {
     process.stderr.write(`[figbridge] bridge failed: ${e && e.stack || e}\n`);
     process.exit(1);
   });
+} else if (arg === "call" || arg === "tools") {
+  const { runCli } = await import("../src/cli.js");
+  runCli(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+      // A tool may leave a headless browser or keep-alive socket open; don't hang.
+      setTimeout(() => process.exit(code), 1500).unref();
+    },
+    (e) => { process.stderr.write(`[figbridge] ${arg} failed: ${e && e.stack || e}\n`); process.exitCode = 1; }
+  );
 } else if (arg === "--version" || arg === "-v" || arg === "version") {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
@@ -50,6 +60,12 @@ Usage:
   figbridge-mcp doctor         Reap orphan figbridge-mcp processes holding
                                :7331 (the port-conflict "restarted. failed"
                                case). Also reports bridge health.
+  figbridge-mcp call <tool> ['<json-args>' | @file.json | -]
+                               Call one MCP tool without an MCP client and
+                               print its JSON result. Exits 1 when the tool
+                               reports ok:false (use in scripts and CI), e.g.
+                               figbridge-mcp call lint_connect '{}'
+  figbridge-mcp tools          List every tool with a one-line summary.
   figbridge-mcp --version      Print the installed version.
   figbridge-mcp --help         Show this help.
 

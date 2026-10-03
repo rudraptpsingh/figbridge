@@ -8,13 +8,20 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitAfterChild } from "./_exit.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(__dirname, "..", "mcp", "bin", "figbridge-mcp.js");
 const PORT = 7333;
 
 function log(...a) { process.stdout.write("• " + a.join(" ") + "\n"); }
-function fail(msg) { console.error("✗", msg); process.exit(1); }
+function fail(msg) {
+  if (!exiting) console.error("✗", msg);
+  exiting = true;
+  exitAfterChild(child, 1);
+  throw new Error("test failed"); // stop the caller; exit happens once the child closes
+}
+let exiting = false;
 function ok(msg) { process.stdout.write("  ✓ " + msg + "\n"); }
 
 const child = spawn("node", [BIN], {
@@ -68,7 +75,7 @@ async function call(name, args = {}, timeoutMs = 3000) {
 }
 
 async function main() {
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 150; i++) {
     await delay(100);
     try {
       const r = await fetch(`http://127.0.0.1:${PORT}/health`);
@@ -102,13 +109,14 @@ async function main() {
   log(`tools listed: ${names.length}`);
   const expected = [
     "get_current_selection", "get_last_export", "list_history", "get_tokens", "bridge_status",
-    "select_node", "export_node", "list_screens", "list_components", "describe_screen",
+    "select_node", "export_node", "export_design_spec", "list_screens", "list_components", "describe_screen",
     "export_app_spec", "clone_screen", "recolor", "apply_tokens", "list_assets",
     "lint_ds", "get_agent_bundle", "diff_since",
     "list_pages", "list_frames", "export_all_pages",
     "preflight_import", "import_url", "import_responsive_set", "import_url_batch",
     "verify_text_fidelity", "screenshot_url", "visual_diff", "fingerprint_url", "audit_interactions",
     "audit_mobile", "measure_fidelity", "audit_regression", "match_mockup", "measure_layout", "demarcate", "diff_images", "diff_specs", "map_components", "probe_url",
+    "connect_components", "get_code_connect", "lint_connect",
     "diff_to_source", "generate_patch",
     "audit_palette", "audit_typography", "audit_a11y", "audit_whitespace", "export_frame",
     "import_from_code", "update_from_code", "run_script", "delete_node"
@@ -149,6 +157,7 @@ async function main() {
   const pluginTools = [
     ["select_node", { name: "Card" }],
     ["export_node", { nodeId: "1:2" }],
+    ["export_design_spec", { nodeId: "1:2" }],
     ["list_screens", {}],
     ["list_components", {}],
     ["describe_screen", { nodeId: "1:2" }],
@@ -180,8 +189,7 @@ async function main() {
   ok("server still responsive after all tool calls");
 
   log("ALL TOOL-SURFACE CHECKS PASSED");
-  child.kill();
-  process.exit(0);
+  exitAfterChild(child, 0);
 }
 
-main().catch((e) => { fail(e && e.stack || e); });
+main().catch((e) => { try { fail(e && e.stack || e); } catch {} });

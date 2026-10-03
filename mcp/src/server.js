@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import { getLatest, getHistory, getHistorySince } from "./store.js";
 import { startBridge, sendCommand, clientCount, getProxyPort } from "./bridge.js";
@@ -93,6 +93,16 @@ export async function main() {
   process.stdin.on("end", () => shutdown("stdin end"));
   process.stdin.on("close", () => shutdown("stdin close"));
 
+  const server = createServer(port);
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  log(`figbridge-mcp ready (stdio + bridge on :${port})`);
+}
+
+// Build the MCP server with every tool registered. `port` is the bridge port
+// the Figma plugin talks to (our own, or the shared one in proxy mode). Used by
+// main() over stdio and by the `call` CLI over an in-memory transport.
+export function createServer(port) {
   const server = new McpServer({ name: "figbridge", version: PKG_VERSION });
 
   server.tool(
@@ -194,6 +204,18 @@ export async function main() {
   );
 
   // ── Catalog tools (app-level views) ───────────────────────
+  server.tool(
+    "export_design_spec",
+    "Read an entire Figma frame into a structured FigBridge spec with node IDs, viewport bounds, paint, typography, layout, and text. Hidden subtrees are omitted; unsupported or mixed authored values are listed in _capture.warnings. Save the returned JSON as mockupSpecPath for diff_specs against a matched app DOM capture. Requires the Figbridge plugin with Live bridge on.",
+    { nodeId: z.string().describe("Exact Figma frame or component node ID.") },
+    async ({ nodeId }) => {
+      try {
+        const result = await sendCommand("export-design-spec", { nodeId }, 30000);
+        return asText(result.ok ? result.spec : result);
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
   server.tool(
     "list_screens",
     "List every top-level frame (screen) across pages in the currently open Figma file. Each result has { nodeId, name, pageName, width, height, category, orderHint }. Category is inferred from name: splash | onboarding | auth | home | detail | settings | overlay | editor | search | state | commerce | error | other. Requires the Figbridge plugin to be open with Live bridge on.",
@@ -480,13 +502,14 @@ export async function main() {
     {
       url: z.string().describe("Page URL."),
       width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
+      height: z.coerce.number().optional().describe("Viewport height. Default depends on width (900 / 1024 / 812). With fullPage:false, set width+height to a component's size to compare it 1:1 with a Figma component screenshot."),
       fullPage: z.coerce.boolean().optional().describe("Capture the whole page vs just the viewport. Default true."),
       outPath: z.string().optional().describe("Absolute filesystem path to write the PNG to. When set, response includes { path } and omits base64.")
     },
-    async ({ url, width, fullPage, outPath }) => {
+    async ({ url, width, height, fullPage, outPath }) => {
       try {
         const { screenshotUrl } = await import("./browser.js");
-        const b64 = await screenshotUrl(url, { width: width || 1280, fullPage: fullPage !== false });
+        const b64 = await screenshotUrl(url, { width: width || 1280, height: height || undefined, fullPage: fullPage !== false });
         if (outPath) {
           const fs = await import("node:fs/promises"); const path = await import("node:path");
           await fs.mkdir(path.dirname(outPath), { recursive: true }).catch(() => {});
@@ -500,20 +523,20 @@ export async function main() {
 
   server.tool(
     "visual_diff",
-    "One-call visual reference: take a live Chrome screenshot of `url` AND export the Figma frame at `nodeId`, write both PNGs to `outDir` (default /tmp), and return their paths. Hand the paths to the Read tool to view side-by-side. Replaces the chrome-devtools-mcp + python-decode + manual-write dance.",
+    "One-call visual reference: take a live Chrome screenshot of `url` AND export the Figma frame at `nodeId`, write both PNGs to `outDir` (default: OS temp dir), and return their paths. Hand the paths to the Read tool to view side-by-side. Replaces the chrome-devtools-mcp + python-decode + manual-write dance.",
     {
       url: z.string().describe("Live page URL."),
       nodeId: z.string().describe("Figma node id of the imported frame."),
       width: z.coerce.number().optional().describe("Chrome viewport width. Default 1280."),
       scale: z.coerce.number().optional().describe("Figma export scale. Default 0.5."),
-      outDir: z.string().optional().describe("Directory to write PNGs into. Default /tmp."),
+      outDir: z.string().optional().describe("Directory to write PNGs into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix. Default 'diff'.")
     },
     async ({ url, nodeId, width, scale, outDir, prefix }) => {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/command`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "visual-diff", args: { url, nodeId, width: width || 1280, scale: scale || 0.5, outDir: outDir || "/tmp", prefix: prefix || "diff" }, timeoutMs: 120000 })
+          body: JSON.stringify({ action: "visual-diff", args: { url, nodeId, width: width || 1280, scale: scale || 0.5, outDir: outDir || null, prefix: prefix || "diff" }, timeoutMs: 120000 })
         });
         return asText(await r.json());
       } catch (e) { return asText({ ok: false, error: e.message }); }
@@ -627,29 +650,31 @@ export async function main() {
 
   server.tool(
     "match_mockup",
-    "Closed visual-diff loop — the grounded feedback signal for making a running app match an HTML mockup. Renders BOTH the mockup and the app, returns (a) per-viewport pixel similarity + hotspot regions and (b) a prioritized, categorized punch-list of exact field-level differences (copy/color/typography/spacing/elevation/icon/structure) with the node path for each. Pass `sourceDir` to make it codebase-aware: each punch-list item then carries the `sourceFile` to edit (resolved via the app's data-testid → source) and a `tokenHint` when a literal value should become a design token. Also returns a perceptual SSIM score per viewport (tolerant of anti-aliasing) and writes three legible diff artifacts per viewport you Read() to SEE the drift: `overlayPng` (onion-skin), `montagePng` (mockup | app | overlay), `boxedPng` (app with red diff boxes). Color deltas are gated on perceptual ΔE so imperceptible shifts don't show as noise. The mockup is the ground truth — no Figma round-trip. WORKFLOW: implement → match_mockup → fix the highest-severity punchList items in their named sourceFile → rebuild → match_mockup again. Repeat until `pass` is true (worst visual score ≥ minScore AND punchList empty). Serve the mockup over file:// or a local static server; point appUrl at the dev build.",
+    "Compare a rendered design HTML reference with the live app at matched viewport widths. Returns pixel/SSIM evidence plus copy, style, size and viewport x/y deltas. With sourceDir, uses data-testid and figbridge.connect.json to locate app code, quotes the nearby authored JSX class, suggests a codeChange only when one literal matches the computed dimension, and reports checked-in Figma vs generated dimension-token drift. Dynamic flex/calc dimensions remain unresolved instead of receiving guessed edits. Requires matching content and UI state for a whole-screen verdict; screenshot-only references use diff_images. Returns overlay/montage/boxed PNGs and a punchList.",
     {
       mockupUrl: z.string().describe("URL of the target HTML mockup (ground truth). file:// or local http both work."),
       appUrl: z.string().describe("URL of the running app to bring into alignment, e.g. http://localhost:3000/screen."),
-      sourceDir: z.string().optional().describe("Absolute path to the app source root. When set, each punch-list item is resolved to its sourceFile (via the app's data-testid / component name) and color/spacing literals get a design-token hint — so figbridge provides code accordingly."),
+      sourceDir: z.string().optional().describe("Absolute path to the app repo root. Enables source mapping through data-testid or figbridge.connect.json, authored class evidence, and checked-in design-token diagnostics."),
       widths: z.array(z.coerce.number()).optional().describe("Viewport widths to compare. Default [1280, 768, 375]."),
       minScore: z.coerce.number().optional().describe("Minimum acceptable per-viewport visual score to count as a match. Default 96."),
+      maxDeltas: z.coerce.number().int().min(1).max(10000).optional().describe("Maximum structured issues returned. Default 300; summary.omitted reports any hidden by the cap."),
+      tolerant: z.boolean().optional().describe("Suppress sub-JND colours and small numeric drift. Default false: report exact comparable values."),
       rootSelector: z.string().optional().describe("CSS selector to scope the structured spec diff to a subtree (e.g. 'main'). Default body."),
-      outDir: z.string().optional().describe("Directory to write the comparison PNGs into. Default /tmp."),
+      outDir: z.string().optional().describe("Directory to write the comparison PNGs into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix for the PNGs. Default 'match'."),
       settleMs: z.coerce.number().optional().describe("Delay after load before capture. Default 1200ms.")
     },
-    async ({ mockupUrl, appUrl, sourceDir, widths, minScore, rootSelector, outDir, prefix, settleMs }) => {
+    async ({ mockupUrl, appUrl, sourceDir, widths, minScore, maxDeltas, tolerant, rootSelector, outDir, prefix, settleMs }) => {
       try {
         const { matchMockup } = await import("./browser.js");
-        return asText(await matchMockup(mockupUrl, appUrl, { sourceDir, widths, minScore, rootSelector, outDir, prefix, settleMs }));
+        return asText(await matchMockup(mockupUrl, appUrl, { sourceDir, widths, minScore, maxDeltas, tolerant, rootSelector, outDir, prefix, settleMs }));
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );
 
   server.tool(
     "map_components",
-    "Index an app's source tree so figbridge understands the codebase it's generating against. Returns the maps that let a mockup-vs-app diff name the file to edit: data-testid / data-component → { file, line }, component-name → file, and :root design tokens (value ↔ var name). Run once to inspect the mapping, or just pass `sourceDir` to match_mockup which builds it internally. Returns { ok, fileCount, byTestid, byComponent, tokens }.",
+    "Index app source to resolve data-testid and figbridge.connect.json component names to files, plus CSS and checked-in generated design tokens. Reports dimension-token drift when Figma-exported tokens.json disagrees with generated v2Tokens.json. Pass sourceDir to match_mockup or diff_specs to use these maps automatically.",
     {
       sourceDir: z.string().describe("Absolute path to the app source root (e.g. the repo's src/).")
     },
@@ -662,8 +687,130 @@ export async function main() {
           testidCount: Object.keys(idx.byTestid).length,
           componentCount: Object.keys(idx.byComponent).length,
           tokenCount: Object.keys(idx.tokens.nameToVal).length,
-          byTestid: idx.byTestid, byComponent: idx.byComponent, tokens: idx.tokens,
+          byTestid: idx.byTestid, byComponent: idx.byComponent,
+          byConnectedComponent: idx.byConnectedComponent,
+          tokens: idx.tokens, tokenDrift: idx.tokenDrift,
         });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  // ── Code Connect (local, free) ─────────────────────────────
+  // A figbridge.connect.json in the consuming repo maps Figma components to
+  // code components + props. See README "Code Connect without a Dev seat".
+  const parseJsonArg = (label, raw) => {
+    if (raw == null || raw === "") return null;
+    if (typeof raw !== "string") return raw;
+    try { return JSON.parse(raw); } catch (e) { throw new Error(`${label} is not valid JSON: ${e.message}`); }
+  };
+
+  server.tool(
+    "connect_components",
+    "Create or update Code Connect entries in a figbridge.connect.json committed in the consuming repo — the free, local equivalent of Figma Code Connect. Each entry maps a Figma component (file key + node id + name + a snapshot of its properties) to a code component (source path, export, import statement) and maps Figma variant / boolean / text / instance-swap properties to React props. Pass `entries` to upsert hand-written entries, and/or seed suggestions from Figma components (`figmaComponents` JSON, or `fromPlugin: true` to read them from the open file): the component description's `Code: src/…tsx` line, its `Test id:` (via the map_components source index) or its name picks the file; exports and props are read from the TSX and variant values are matched against the props' string-literal unions. Existing entries are kept unless `overwrite`. Runs lint_connect after writing. Returns { ok, connectFile, added, updated, suggestions, lint }.",
+    {
+      connectFile: z.string().optional().describe("Path to the connect file. Default: figbridge.connect.json found from the current directory upwards, else created in the current directory."),
+      fileKey: z.string().optional().describe("Figma file key the components live in."),
+      entries: z.string().optional().describe("JSON array of entries to insert or replace (keyed by figma.nodeId)."),
+      figmaComponents: z.string().optional().describe("JSON array of Figma components to suggest entries for: [{ nodeId, name, description?, properties? }] where properties is Figma's componentPropertyDefinitions ({ 'Style': { type: 'VARIANT', variantOptions: [...] }, 'Label#1:2': { type: 'TEXT' } })."),
+      fromPlugin: z.coerce.boolean().optional().describe("Read the component list (with descriptions and properties) from the open Figma file via the Figbridge plugin."),
+      sourceDir: z.string().optional().describe("Source root to index for data-testid / component-name matches. Default: the connect file's directory."),
+      imports: z.string().optional().describe("JSON object of path-prefix rewrites for generated imports, e.g. {\"src/\":\"@/\"}. Stored in the file."),
+      overwrite: z.coerce.boolean().optional().describe("Let suggestions replace existing entries. Default false (hand edits win)."),
+      dryRun: z.coerce.boolean().optional().describe("Return what would change without writing."),
+    },
+    async ({ connectFile, fileKey, entries, figmaComponents, fromPlugin, sourceDir, imports, overwrite, dryRun }) => {
+      try {
+        const cc = await import("./code-connect.js");
+        const pathMod = await import("node:path");
+        const { existsSync } = await import("node:fs");
+        const file = cc.findConnectFile({ connectFile, fileKey }) || pathMod.resolve(cc.CONNECT_FILE);
+        const root = pathMod.dirname(file);
+        const connect = existsSync(file) ? cc.readConnect(file) : cc.emptyConnect(fileKey);
+        if (fileKey && !connect.fileKey) connect.fileKey = fileKey;
+        const importMap = parseJsonArg("imports", imports);
+        if (importMap) connect.imports = importMap;
+
+        const added = [], updated = [];
+        const given = parseJsonArg("entries", entries) || [];
+        if (!Array.isArray(given)) throw new Error("entries must be a JSON array");
+        const r1 = cc.upsertEntries(connect, given);
+        added.push(...r1.added); updated.push(...r1.updated);
+
+        let comps = parseJsonArg("figmaComponents", figmaComponents);
+        const notes = [];
+        if (fromPlugin) {
+          const r = await sendCommand("list-components", { includeProperties: true }, 30000);
+          comps = (comps || []).concat(r.components || []);
+          if ((r.components || []).length && !r.components.some((c) => c.properties)) notes.push("The open plugin predates property-aware listing — re-run the Figbridge plugin to pick up the new code.js.");
+        }
+        const suggestions = [];
+        if (comps && comps.length) {
+          const { buildSourceIndex } = await import("./source-index.js");
+          const index = await buildSourceIndex(sourceDir ? pathMod.resolve(sourceDir) : root);
+          const fresh = [];
+          for (const c of comps) {
+            const exists = cc.resolveEntry(connect, { componentSet: { id: c.nodeId, name: c.name } });
+            const s = cc.suggestEntry(c, { root, index, fileKey: connect.fileKey, connect });
+            if (!s || !s.entry) { suggestions.push({ figma: c.name, nodeId: c.nodeId, status: "no-match", notes: s ? s.notes : ["no source file found"] }); continue; }
+            if (exists && !overwrite) { suggestions.push({ figma: c.name, nodeId: c.nodeId, status: "kept-existing", suggested: s.entry }); continue; }
+            fresh.push(s.entry);
+            suggestions.push({ figma: c.name, nodeId: c.nodeId, status: exists ? "replaced" : "added", confidence: s.confidence, via: s.via, source: s.entry.code.source, export: s.entry.code.export, notes: s.notes });
+          }
+          const r2 = cc.upsertEntries(connect, fresh);
+          added.push(...r2.added); updated.push(...r2.updated);
+        }
+        if (!dryRun) { cc.writeConnect(file, connect); cc.rememberConnectFile(connect.fileKey, file); }
+        const lint = cc.lintConnect(connect, { root });
+        return asText({ ok: true, connectFile: file, dryRun: !!dryRun, added, updated, entryCount: connect.components.length, suggestions, notes, lint: { ok: lint.ok, errors: lint.errors, warningCount: lint.warnings.length } });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "get_code_connect",
+    "Code Connect for a Figma node, like Dev Mode's Code Connect panel: resolves an instance to its main component and component set, finds the entry in figbridge.connect.json, maps the instance's current variant / boolean / text / instance-swap values to props, and returns a ready-to-paste JSX snippet with its import. Target: `nodeId`, or the current selection (from the last plugin push, else asked live). Offline: pass `node` as JSON { nodeId, name, componentSet: { id, name }, mainComponent: { id, name }, properties: { 'Style': { type: 'VARIANT', value: 'Primary' }, 'Label#59:128': { type: 'TEXT', value: 'Export' } } }. Returns { ok, figma, code, props, children, snippet, unmappedFigmaProps }.",
+    {
+      nodeId: z.string().optional().describe("Figma node id of an instance, variant or component set. Omit to use the current selection."),
+      node: z.string().optional().describe("Offline node info as JSON (see description) — no plugin needed."),
+      connectFile: z.string().optional().describe("Path to figbridge.connect.json. Default: remembered for the Figma file, else found from the current directory upwards."),
+    },
+    async ({ nodeId, node, connectFile }) => {
+      try {
+        const cc = await import("./code-connect.js");
+        let info = parseJsonArg("node", node);
+        if (!info && !nodeId) {
+          const latest = getLatest();
+          if (latest && latest.codeConnectNode) info = latest.codeConnectNode;
+        }
+        if (!info) {
+          const r = await sendCommand("run-script", { script: cc.nodeInfoScript(nodeId || null) }, 15000);
+          info = r && r.result;
+          if (!info || info.ok === false) return asText({ ok: false, error: (info && info.error) || (r && r.error) || "could not read the node from Figma" });
+        }
+        const file = cc.findConnectFile({ connectFile, fileKey: info.fileKey });
+        if (!file) return asText({ ok: false, error: "No figbridge.connect.json found. Pass connectFile, or create one with connect_components." });
+        const result = cc.getCodeConnect(cc.readConnect(file), info);
+        return asText({ ...result, connectFile: file });
+      } catch (e) { return asText({ ok: false, error: e.message }); }
+    }
+  );
+
+  server.tool(
+    "lint_connect",
+    "Verify figbridge.connect.json cannot rot: every entry's source file and export exist, every mapped prop exists on the component (TS/TSX props are read, including interfaces, extends, Omit, forwardRef and imported literal unions), every mapped enum value is still in the prop's string-literal union, and every mapped Figma property / variant value is still in the entry's Figma snapshot. Returns { ok, checked, errors, warnings }. `figbridge-mcp call lint_connect` exits non-zero when ok is false, so it can gate CI.",
+    {
+      connectFile: z.string().optional().describe("Path to figbridge.connect.json. Default: found from the current directory upwards."),
+      root: z.string().optional().describe("Directory that code.source paths are relative to. Default: the connect file's directory."),
+    },
+    async ({ connectFile, root }) => {
+      try {
+        const cc = await import("./code-connect.js");
+        const pathMod = await import("node:path");
+        const file = cc.findConnectFile({ connectFile });
+        if (!file) return asText({ ok: false, error: "No figbridge.connect.json found. Pass connectFile." });
+        const connect = cc.readConnect(file);
+        const res = cc.lintConnect(connect, { root: root ? pathMod.resolve(root) : pathMod.dirname(file) });
+        return asText({ ...res, connectFile: file });
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );
@@ -690,7 +837,7 @@ export async function main() {
     {
       url: z.string().describe("Page URL — http(s) or file://."),
       width: z.coerce.number().optional().describe("Viewport width. Default 1280."),
-      outDir: z.string().optional().describe("Directory to write the demarcation PNG into. Default /tmp."),
+      outDir: z.string().optional().describe("Directory to write the demarcation PNG into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix. Default 'demarcate'."),
       rootSelector: z.string().optional().describe("CSS selector to scope to a subtree. Default body.")
     },
@@ -708,7 +855,7 @@ export async function main() {
     {
       imageA: z.string().describe("Absolute path to the first/reference PNG."),
       imageB: z.string().describe("Absolute path to the second/candidate PNG."),
-      outDir: z.string().optional().describe("Directory to write the artifacts into. Default /tmp."),
+      outDir: z.string().optional().describe("Directory to write the artifacts into. Default: OS temp dir."),
       prefix: z.string().optional().describe("Filename prefix. Default 'imgdiff'.")
     },
     async ({ imageA, imageB, outDir, prefix }) => {
@@ -721,22 +868,54 @@ export async function main() {
 
   server.tool(
     "diff_specs",
-    "Fast structured-only diff between two rendered URLs (no screenshots). Extracts a computed-style spec from each and reports a categorized, severity-sorted punch-list of exact field-level differences: copy (text), color (fill/text/stroke), typography (font family/size/weight/…), spacing (layout/gap/padding/align/radius/size), and structure (nodes present on one side only). Use for tight refine loops where you only need the 'what differs' list and not pixels — match_mockup wraps this plus a pixel diff. Returns { ok, summary, deltas }.",
+    "Exact structured diff between a rendered design URL and app URL, or captured JSON specs from a native Electron/Playwright state. Provide exactly one URL or spec path per side; mixed URL/spec inputs work. Use anchors when Figma and app layer trees differ: each explicit Figma node id or name pairs with one app data-testid. Missing/ambiguous pairs and explicitly requested fields missing from either spec remain non-PASS and appear in coverage. Reports copy, color, typography, spacing, size and viewport x/y drift. Pass sourceDir to resolve app nodes through data-testid and figbridge.connect.json, inspect authored dimensions, and compare Figma dimensions with generated tokens. Returns { ok, summary, deltas, coverage?, tokenDrift }.",
     {
-      mockupUrl: z.string().describe("URL of the reference / ground-truth page (the 'a' side)."),
-      appUrl: z.string().describe("URL of the page being aligned (the 'b' side)."),
+      mockupUrl: z.string().optional().describe("URL of the rendered design reference. Use this or mockupSpecPath."),
+      mockupSpecPath: z.string().optional().describe("Absolute path to a captured FigBridge design spec JSON. Use this or mockupUrl."),
+      appUrl: z.string().optional().describe("URL of the rendered app. Use this or appSpecPath."),
+      appSpecPath: z.string().optional().describe("Absolute path to a FigBridge DOM spec JSON captured in the actual Electron/Playwright state. Use this or appUrl."),
       width: z.coerce.number().optional().describe("Viewport width for both. Default 1280."),
+      maxDeltas: z.coerce.number().int().min(1).max(10000).optional().describe("Maximum issues returned. Default 500; summary.omitted reports any hidden by the cap."),
+      tolerant: z.boolean().optional().describe("Suppress sub-JND colours and small numeric drift. Default false: report exact comparable values."),
+      anchors: z.array(z.object({
+        name: z.string(),
+        mockupId: z.string().optional(),
+        mockupName: z.string().optional(),
+        appTestid: z.string().optional(),
+        appText: z.string().optional(),
+        fields: z.array(z.string()).min(1).optional(),
+      })).min(1).optional().describe("Explicit Figma-node ↔ app-testid (or unique appText) pairs when the design and DOM have different nesting. With no fields list, every captured field on either side is checked; optional fields limits a pair to inspected values, e.g. x/y/width/height for geometry. Every anchor must resolve uniquely, and every requested or captured field must exist on both sides; coverage reports gaps and prevents PASS."),
+      autoTextAnchors: z.boolean().optional().describe("Also pair text nodes whose exact visible copy occurs once in both captured trees. Reports generated pair count; repeated or changed copy remains unpaired. Use with the full Figma design spec, not a tiny selected-node sample."),
+      sourceDir: z.string().optional().describe("Absolute source root containing app code, optional figbridge.connect.json, and design tokens."),
       rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
     },
-    async ({ mockupUrl, appUrl, width, rootSelector }) => {
+    async ({ mockupUrl, mockupSpecPath, appUrl, appSpecPath, width, maxDeltas, tolerant, anchors, autoTextAnchors, sourceDir, rootSelector }) => {
       try {
         const { urlToSpec } = await import("./browser.js");
-        const { diffSpecs } = await import("./spec-diff.js");
+        const { loadComparisonSpec } = await import("./comparison-input.js");
+        const { diffSpecs, diffAnchoredSpecs } = await import("./spec-diff.js");
         const [a, b] = await Promise.all([
-          urlToSpec(mockupUrl, { width: width || 1280, rootSelector, embedImages: false }),
-          urlToSpec(appUrl, { width: width || 1280, rootSelector, embedImages: false }),
+          loadComparisonSpec({ url: mockupUrl, specPath: mockupSpecPath }, { width: width || 1280, rootSelector, embedImages: false }, urlToSpec),
+          loadComparisonSpec({ url: appUrl, specPath: appSpecPath }, { width: width || 1280, rootSelector, embedImages: false }, urlToSpec),
         ]);
-        return asText(diffSpecs(a, b, { labelA: "mockup", labelB: "app" }));
+        const diffOptions = { labelA: "mockup", labelB: "app", maxDeltas, tolerant, autoTextAnchors };
+        const result = anchors?.length || autoTextAnchors
+          ? diffAnchoredSpecs(a, b, anchors || [], diffOptions)
+          : diffSpecs(a, b, diffOptions);
+        if (sourceDir) {
+          const { buildSourceIndex, annotateDeltas } = await import("./source-index.js");
+          const index = await buildSourceIndex(sourceDir);
+          result.deltas = annotateDeltas(result.deltas, index);
+          if (result.coverage?.provisionalPairs) {
+            result.coverage.provisionalPairs = result.coverage.provisionalPairs.map(pair => ({
+              ...pair, deltas: annotateDeltas(pair.deltas, index),
+            }));
+          }
+          result.tokenDrift = index.tokenDrift;
+          const { buildReviewPlan } = await import("./review-plan.js");
+          result.reviewPlan = buildReviewPlan(result);
+        }
+        return asText(result);
       } catch (e) { return asText({ ok: false, error: e.message }); }
     }
   );
@@ -1014,11 +1193,9 @@ export async function main() {
     async ({ sinceMs }) => asText({ since: sinceMs, entries: getHistorySince(sinceMs) })
   );
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  log(`figbridge-mcp ready (stdio + bridge on :${port})`);
+  return server;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((e) => { log("fatal:", e && e.stack || e); process.exit(1); });
 }
