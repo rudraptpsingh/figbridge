@@ -228,9 +228,11 @@ export async function buildSourceIndex(sourceDir) {
       if (name && typeof file === "string" && !out.byConnectedComponent[name]) {
         out.byConnectedComponent[name] = { file, name: entry.figma.name };
       }
-      const nodeId = entry.figma?.nodeId;
-      if (typeof nodeId === "string" && typeof file === "string" && !out.byConnectedNodeId[nodeId]) {
-        out.byConnectedNodeId[nodeId] = { file, name: entry.figma.name, nodeId };
+      const nodeIds = [entry.figma?.nodeId, ...(Array.isArray(entry.figma?.variantNodeIds) ? entry.figma.variantNodeIds : [])];
+      for (const nodeId of nodeIds) {
+        if (typeof nodeId === "string" && typeof file === "string" && !out.byConnectedNodeId[nodeId]) {
+          out.byConnectedNodeId[nodeId] = { file, name: entry.figma.name, nodeId };
+        }
       }
     }
   } catch { /* Code Connect is optional. */ }
@@ -263,7 +265,7 @@ export function resolveSource(delta, index) {
         via: "data-testid-template" };
     }
   }
-  const connected = index.byConnectedNodeId?.[delta?.figmaNodeId];
+  const connected = index.byConnectedNodeId?.[delta?.figmaComponentId] || index.byConnectedNodeId?.[delta?.figmaNodeId];
   if (connected) return { file: connected.file, via: "figbridge.connect.json#nodeId" };
   // conservative name fallback: node label like ".conflict-card" → ConflictResolutionCard
   const label = normName((delta && delta.name) || "");
@@ -375,7 +377,7 @@ export function annotateDeltas(deltas, index, componentMap = null) {
       }
     }
     if (index) {
-      const connected = index.byConnectedNodeId?.[d.figmaNodeId];
+      const connected = index.byConnectedNodeId?.[d.figmaComponentId] || index.byConnectedNodeId?.[d.figmaNodeId];
       if (connected) out.connectedComponent = connected;
       const th = tokenHint(d, index);
       if (th?.candidates.length === 1) {

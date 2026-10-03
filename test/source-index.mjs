@@ -54,7 +54,7 @@ try {
     'const unrelated = { key: "hidden" };\n' +
     'export const ViewSwitch = () => <Segmented testIdPrefix="cull-view" options={options} />;\n');
   await writeFile(path.join(dir, "figbridge.connect.json"), JSON.stringify({ version: 1, components: [
-    { figma: { name: "Shot Select Card", nodeId: "1:2" }, code: { source: "src/components/PhotoCard.tsx", export: "PhotoCard" } },
+    { figma: { name: "Shot Select Card", nodeId: "1:2", variantNodeIds: ["1:3", "1:4"] }, code: { source: "src/components/PhotoCard.tsx", export: "PhotoCard" } },
   ] }));
   // a file that should NOT pollute the component-name map
   await writeFile(path.join(dir, "src", "components", "PhotoCard.test.tsx"),
@@ -97,6 +97,12 @@ try {
   const connectedById = resolveSource({ name: "unnamed instance", figmaNodeId: "1:2" }, idx);
   assert(connectedById?.file.endsWith("PhotoCard.tsx") && connectedById.via === "figbridge.connect.json#nodeId",
     "exact Figma component id must resolve through Code Connect", JSON.stringify(connectedById));
+  const connectedInstance = resolveSource({ name: "unnamed instance", figmaNodeId: "9:9", figmaComponentId: "1:2" }, idx);
+  assert(connectedInstance?.file.endsWith("PhotoCard.tsx") && connectedInstance.via === "figbridge.connect.json#nodeId",
+    "instance main component id must resolve even when the instance id does not", JSON.stringify(connectedInstance));
+  const connectedVariant = resolveSource({ name: "unnamed instance", figmaNodeId: "9:9", figmaComponentId: "1:4" }, idx);
+  assert(connectedVariant?.file.endsWith("PhotoCard.tsx") && connectedVariant.via === "figbridge.connect.json#nodeId",
+    "exact Figma variant component id must resolve to its mapped family", JSON.stringify(connectedVariant));
   const both = annotateDeltas([{ name: "Shot Select Card", testid: "conflict-card", figmaNodeId: "1:2",
     kind: "color", field: "fill", a: "#fff", b: "#000" }], idx)[0];
   assert(both.sourceFile.endsWith("ConflictResolutionCard.tsx") && both.connectedComponent?.file.endsWith("PhotoCard.tsx"),

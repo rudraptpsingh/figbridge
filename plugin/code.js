@@ -599,7 +599,7 @@ async function exportDesignSpec(nodeId) {
     }
     return out.length ? out : null;
   }
-  function visit(node) {
+  async function visit(node) {
     if (node.visible === false) { capture.hiddenSubtrees++; return null; }
     capture.visibleNodes++;
     var b = node.absoluteBoundingBox;
@@ -614,6 +614,18 @@ async function exportDesignSpec(nodeId) {
         if (name.toLowerCase() === "state" && prop.value != null)
           spec._state = String(prop.value).toLowerCase();
       });
+    }
+    if (node.type === "INSTANCE") {
+      try {
+        var main = typeof node.getMainComponentAsync === "function"
+          ? await node.getMainComponentAsync() : null;
+        if (main) {
+          spec._mainComponentId = main.id;
+          spec._mainComponentName = main.name;
+        } else capture.warnings.push({ nodeId: node.id, field: "mainComponent", reason: "unavailable" });
+      } catch (error) {
+        capture.warnings.push({ nodeId: node.id, field: "mainComponent", reason: "unavailable" });
+      }
     }
     if (b && Number.isFinite(b.x) && Number.isFinite(b.y)) {
       spec.x = b.x - bounds.x; spec.y = b.y - bounds.y;
@@ -663,13 +675,13 @@ async function exportDesignSpec(nodeId) {
     if ("children" in node && node.children) {
       spec.children = [];
       for (var c = 0; c < node.children.length; c++) {
-        var child = visit(node.children[c]);
+        var child = await visit(node.children[c]);
         if (child) spec.children.push(child);
       }
     }
     return spec;
   }
-  var spec = visit(root);
+  var spec = await visit(root);
   if (!spec) return { ok: false, error: "root is hidden" };
   spec._capture = capture;
   return { ok: true, spec: spec, capture: capture };

@@ -259,6 +259,13 @@ await t("resolves by component-set name when ids differ (library copy), and repo
   assert.match(miss.error, /no connect entry for "Slider"/);
 });
 
+await t("resolves an exact standalone variant id through its mapped UI kit family", () => {
+  const family = { figma: { nodeId: "90:1", variantNodeIds: ["90:2"], name: "Photo controls" },
+    code: { source: "src/components/PhotoActionRail.tsx", export: "PhotoActionRail" }, props: {} };
+  const result = cc.resolveEntry({ components: [family] }, { nodeId: "99:9", mainComponent: { id: "90:2", name: "State=Idle" } });
+  assert.equal(result, family);
+});
+
 await t("example templates fill {{props}}, {{children}} and {{figma.X}}", () => {
   const e = { figma: { nodeId: "40:606", name: "Segment" }, code: { source: "src/components/Kbd.tsx", export: "Kbd" },
     props: { tone: { figma: "Tone", type: "enum", values: { Default: "default" } } },
@@ -318,6 +325,13 @@ await t("flags a Figma property or variant value missing from the snapshot (desi
 await t("flags duplicates and malformed node ids", () => {
   const r = lintWith((c) => { c.push(JSON.parse(JSON.stringify(c[0]))); c[1].figma.nodeId = "40-399"; });
   assert.deepEqual(codes(r).sort(), ["duplicate", "figma-node-id"]);
+});
+
+await t("flags duplicate variant ids across mapped component families", () => {
+  const r = lintWith((entries) => {
+    entries[0].figma.variantNodeIds = [entries[1].figma.nodeId];
+  });
+  assert.ok(codes(r).includes("duplicate"), JSON.stringify(r.errors));
 });
 
 console.log("\n— connect file lookup —");

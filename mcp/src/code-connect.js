@@ -174,6 +174,10 @@ export function resolveEntry(connect, info) {
     const e = connect.components.find((c) => c.figma && c.figma.nodeId === id);
     if (e) return e;
   }
+  for (const id of ids) {
+    const e = connect.components.find((c) => Array.isArray(c.figma?.variantNodeIds) && c.figma.variantNodeIds.includes(id));
+    if (e) return e;
+  }
   const names = [info.componentSet && info.componentSet.name, info.mainComponent && info.mainComponent.name].filter(Boolean);
   for (const n of names) {
     const e = connect.components.find((c) => c.figma && norm(c.figma.name) === norm(n));
@@ -358,6 +362,11 @@ export function lintConnect(connect, { root }) {
     const dupKey = e.figma.nodeId;
     if (seen.has(dupKey)) err(e, "duplicate", `node ${dupKey} is mapped twice`);
     seen.set(dupKey, true);
+    for (const variantId of e.figma.variantNodeIds || []) {
+      if (typeof variantId !== "string" || !/^\d+:\d+$/.test(variantId)) err(e, "figma-node-id", `variant node id ${JSON.stringify(variantId)} is invalid`);
+      else if (seen.has(variantId)) err(e, "duplicate", `node ${variantId} is mapped twice`);
+      else seen.set(variantId, true);
+    }
     if (!e.code || !e.code.source || !e.code.export) { err(e, "code-missing", "entry needs code.source and code.export"); continue; }
     const file = path.resolve(root, e.code.source);
     if (!existsSync(file)) { err(e, "source-missing", `source file not found: ${e.code.source}`); continue; }

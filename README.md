@@ -129,6 +129,8 @@ Figma Code Connect needs a Dev or Full seat on an Organization or Enterprise pla
 
 **1. The map — `figbridge.connect.json` in your repo.** One entry per Figma component:
 
+For UI kits that place separate variant components inside a display frame, keep that frame as `figma.nodeId` and list the exact component IDs in `figma.variantNodeIds`. FigBridge reads an instance's main component ID and resolves the matching variant, including in structured diffs; it does not infer ownership from a similar name.
+
 ```json
 {
   "version": 1,

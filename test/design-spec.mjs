@@ -28,6 +28,7 @@ const figmaRoot = {
       children: [{ id: '1:4', type: 'TEXT', name: 'secret', visible: true }] },
     { id: '1:5', type: 'INSTANCE', name: 'photo', width: 300, height: 200,
       visible: true, absoluteBoundingBox: { x: 200, y: 300, width: 300, height: 200 },
+      getMainComponentAsync: async () => ({ id: '99:1', name: 'Photo controls' }),
       componentProperties: { State: { type: 'VARIANT', value: 'On' } },
       fills: [{ type: 'IMAGE', visible: true, imageHash: 'abc' }] },
   ],
@@ -54,4 +55,6 @@ assert(capture.visibleNodes === 3 && capture.warnings.some(w => w.nodeId === '1:
   'unsupported image paint disclosed');
 assert(spec.children[1]._state === 'on' && spec.children[1]._figmaProps.State.value === 'On',
   'variant state must be captured for matched-state review');
-console.log('PASS  design spec export (9 assertions).');
+assert(spec.children[1]._mainComponentId === '99:1' && spec.children[1]._mainComponentName === 'Photo controls',
+  'instance must retain its exact main component identity for design-to-code mapping');
+console.log('PASS  design spec export (10 assertions).');
