@@ -424,6 +424,22 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
       return Number.isFinite(node._rect?.[field === "width" ? "w" : "h"] ?? node[field]);
     return Object.hasOwn(node, field) && node[field] != null;
   };
+  const effectiveTextSpec = (node) => {
+    if (node.type !== "text" || !Array.isArray(node.ranges) || node.ranges.length !== 1 ||
+      node.ranges[0].start !== 0 || node.ranges[0].end !== String(node.characters || "").length)
+      return node;
+    const range = node.ranges[0];
+    const effective = { ...node };
+    for (const field of ["fontSize", "fontWeight", "color", "textDecoration"])
+      if (range[field] != null) effective[field] = range[field];
+    // The DOM capture measured the text container, while Figma's TEXT bounds
+    // and alignment describe the glyph box. Until a glyph range is captured,
+    // these container values are genuinely unmeasured for this comparison.
+    for (const field of ["x", "y", "width", "height", "lineHeight", "textAlign"])
+      delete effective[field];
+    delete effective._rect;
+    return effective;
+  };
   const projected = (node, name, selectedFields, inheritedTestid, inheritedState) => {
     const rect = node._rect;
     const { children, ...nodeFields } = node;
@@ -488,8 +504,9 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     // An anchor without an explicit field list must inspect every field that
     // either captured side actually contains. Otherwise missing app typography
     // or geometry can silently disappear from the ordinary field diff.
+    const measuredA = effectiveTextSpec(aa[0]), measuredB = effectiveTextSpec(bb[0]);
     let selectedFields = anchor.fields || Object.keys(FIELD_RULES).filter((field) =>
-      hasMeasurement(aa[0], field) || hasMeasurement(bb[0], field));
+      hasMeasurement(measuredA, field) || hasMeasurement(measuredB, field));
     const aState = aStates.get(aa[0]), bState = bStates.get(bb[0]);
     if (aState && bState && aState !== bState) {
       stateMismatched.push({ name: anchor.name, mockupState: aState, appState: bState,
@@ -498,15 +515,15 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     }
     for (const field of selectedFields) {
       requestedFields++;
-      const mockupMeasured = field === "state" ? aState != null : hasMeasurement(aa[0], field);
-      const appMeasured = field === "state" ? bState != null : hasMeasurement(bb[0], field);
+      const mockupMeasured = field === "state" ? aState != null : hasMeasurement(measuredA, field);
+      const appMeasured = field === "state" ? bState != null : hasMeasurement(measuredB, field);
       if (mockupMeasured && appMeasured) measuredFields++;
       else unmeasured.push({ name: anchor.name, field, mockupMeasured, appMeasured });
     }
     pairedSourceA.add(aa[0]); pairedSourceB.add(bb[0]);
     pairedRecords.push({ name: anchor.name, mockup: aa[0], app: bb[0] });
-    pairedA.push(projected(aa[0], anchor.name, selectedFields, null, aState));
-    pairedB.push(projected(bb[0], anchor.name, selectedFields, bTestids.get(bb[0]), bState));
+    pairedA.push(projected(measuredA, anchor.name, selectedFields, null, aState));
+    pairedB.push(projected(measuredB, anchor.name, selectedFields, bTestids.get(bb[0]), bState));
   }
   const result = diffSpecs(
     { type: "frame", name: "anchors", children: pairedA },

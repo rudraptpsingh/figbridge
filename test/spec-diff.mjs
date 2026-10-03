@@ -399,6 +399,21 @@ function find(deltas, pred) { return deltas.find(pred); }
   );
   assert(weightMismatch.deltas.some(d => d.field === "fontWeight" && d.a === 500 && d.b === 400),
     "actual weight drift should report normalized numeric values", JSON.stringify(weightMismatch.deltas));
+  const inlineText = diffAnchoredSpecs(
+    { type: "frame", name: "Design", children: [{ type: "text", _figmaId: "1:20", characters: "AK",
+      fontSize: 10, fontWeight: 600, lineHeight: 12, textAlign: "CENTER",
+      _rect: { x: 20, y: 15, w: 28, h: 12 } }] },
+    { type: "frame", name: "App", children: [{ type: "text", _testid: "avatar",
+      characters: "AK", fontSize: 16, fontWeight: "Regular", lineHeight: 24,
+      textAlign: "LEFT", _rect: { x: 20, y: 8, w: 28, h: 28 },
+      ranges: [{ start: 0, end: 2, fontSize: 10, fontWeight: "Semi Bold" }] }] },
+    [], { autoTextAnchors: true }
+  );
+  assert(!inlineText.deltas.some(d => ["fontSize", "fontWeight", "lineHeight", "textAlign", "y", "height"].includes(d.field)),
+    "inline text must not compare container typography or box geometry as glyph values", JSON.stringify(inlineText));
+  assert(inlineText.coverage.unmeasured.some(d => d.field === "lineHeight" && !d.appMeasured) &&
+    inlineText.coverage.unmeasured.some(d => d.field === "height" && !d.appMeasured),
+    "unmeasured glyph geometry and line height must stay visible", JSON.stringify(inlineText.coverage));
   const mappingHelp = diffAnchoredSpecs(
     { type: "frame", name: "Figma", children: [
       { type: "frame", name: "view switch", _figmaId: "2:1", _rect: { x: 10, y: 10, w: 100, h: 40 }, fill: "#222222" },
