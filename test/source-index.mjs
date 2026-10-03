@@ -40,6 +40,10 @@ try {
     'export const Count = ({ name }) => <span data-testid={`filter-${name}-count`}>1</span>;\n');
   await writeFile(path.join(dir, "src", "components", "Avatar.tsx"),
     'export const Avatar = ({ p }) => <span data-testid={p.testId ?? `avatar-stack-person-${p.id}`}>AK</span>;\n');
+  await writeFile(path.join(dir, "src", "components", "Filmstrip.tsx"),
+    'export const Filmstrip = ({ loupeMode }) => <div data-testid={loupeMode ? \'cull-loupe-filmstrip\' : \'thumbnail-strip-root\'} />;\n');
+  await writeFile(path.join(dir, "src", "components", "Generic.tsx"),
+    'export const Generic = ({ testId }) => <div data-testid={`${testId}-toggle`} />;\n');
   await writeFile(path.join(dir, "figbridge.connect.json"), JSON.stringify({ version: 1, components: [
     { figma: { name: "Shot Select Card", nodeId: "1:2" }, code: { source: "src/components/PhotoCard.tsx", export: "PhotoCard" } },
   ] }));
@@ -94,6 +98,11 @@ try {
     "rendered test id should resolve through its authored template literal");
   assert(resolveSource({ testid: "avatar-stack-person-peer-ak" }, idx)?.file.endsWith("Avatar.tsx"),
     "fallback template test id should resolve through its authored source");
+  assert(resolveSource({ testid: "cull-loupe-filmstrip" }, idx)?.file.endsWith("Filmstrip.tsx"),
+    "conditional JSX literal must resolve to its authored source");
+  const exactVsTemplate = annotateDeltas([{ name: "Filmstrip", testid: "cull-loupe-filmstrip", kind: "spacing", field: "width", a: 80, b: 70 }], idx)[0];
+  assert(exactVsTemplate.sourceFile?.endsWith("Filmstrip.tsx") && !exactVsTemplate.sourceCandidates,
+    "exact JSX branch must outrank a generic template", JSON.stringify(exactVsTemplate));
 
   // resolveSource: unknown → null
   assert(resolveSource({ name: "zzz" }, idx) === null, "unknown node should resolve to null");

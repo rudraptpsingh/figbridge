@@ -67,6 +67,7 @@ export async function buildSourceIndex(sourceDir) {
 
   const TESTID_RE = /\bdata-(?:testid|test-id|component)\s*=\s*[{]?\s*["'`]([^"'`]+)["'`]/g;
   const TESTID_TEMPLATE_RE = /\b(?:data-testid|testId)\s*=\s*\{[^\n`]{0,120}`([^`]+)`/g;
+  const TESTID_CONDITIONAL_RE = /\bdata-testid\s*=\s*\{\s*[a-zA-Z_$][\w.$]*\s*\?\s*(['"])([^'"`]+)\1\s*:\s*(['"])([^'"`]+)\3\s*\}/g;
   const CSSVAR_RE = /--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
 
   for (const file of files) {
@@ -104,6 +105,15 @@ export async function buildSourceIndex(sourceDir) {
       }
       (out.byTestidVariants[id] ||= []).push(candidate);
       if (!out.byTestid[id]) out.byTestid[id] = { file: rel, line: candidate.line };
+    }
+    // Literal arms of a simple JSX ternary are exact production IDs. Treat
+    // them as exact owners; a broad `${testId}-toggle` template must not win.
+    while ((m = TESTID_CONDITIONAL_RE.exec(text))) {
+      for (const id of [m[2], m[4]]) {
+        const candidate = { file: rel, line: lineOf(text, m.index), states: [] };
+        (out.byTestidVariants[id] ||= []).push(candidate);
+        if (!out.byTestid[id]) out.byTestid[id] = { file: rel, line: candidate.line };
+      }
     }
     // A rendered row id often comes from a JSX template such as
     // `filter-${name}-count`. Index its fixed parts rather than treating the
@@ -307,8 +317,8 @@ export function annotateDeltas(deltas, index, componentMap = null) {
         if (src.line) out.sourceLine = src.line;
         out.via = d.anchorVia || src.via;
       } else if (d.testid) {
-        const variants = (index.byTestidVariants?.[d.testid] || []).concat(
-          matchingTestidPatterns(d.testid, index));
+        const exact = index.byTestidVariants?.[d.testid] || [];
+        const variants = exact.length ? exact : matchingTestidPatterns(d.testid, index);
         if (new Set(variants.map(v => v.file)).size > 1) {
           out.sourceCandidates = variants.map(v => ({ file: v.file, line: v.line,
             states: v.states || [] }));
