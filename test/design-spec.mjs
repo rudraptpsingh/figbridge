@@ -26,8 +26,9 @@ const figmaRoot = {
       fills: [{ type: 'SOLID', visible: true, color: { r: 1, g: 1, b: 1 }, opacity: 1 }] },
     { id: '1:3', type: 'FRAME', name: 'hidden', visible: false,
       children: [{ id: '1:4', type: 'TEXT', name: 'secret', visible: true }] },
-    { id: '1:5', type: 'RECTANGLE', name: 'photo', width: 300, height: 200,
+    { id: '1:5', type: 'INSTANCE', name: 'photo', width: 300, height: 200,
       visible: true, absoluteBoundingBox: { x: 200, y: 300, width: 300, height: 200 },
+      componentProperties: { State: { type: 'VARIANT', value: 'On' } },
       fills: [{ type: 'IMAGE', visible: true, imageHash: 'abc' }] },
   ],
 };
@@ -51,4 +52,6 @@ assert(spec.children[0].color === '#ffffff' && !Object.hasOwn(spec.children[0], 
   'text paint must use the same color field as rendered DOM text');
 assert(capture.visibleNodes === 3 && capture.warnings.some(w => w.nodeId === '1:5' && w.field === 'fills'),
   'unsupported image paint disclosed');
-console.log('PASS  design spec export (8 assertions).');
+assert(spec.children[1]._state === 'on' && spec.children[1]._figmaProps.State.value === 'On',
+  'variant state must be captured for matched-state review');
+console.log('PASS  design spec export (9 assertions).');

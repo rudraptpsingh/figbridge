@@ -605,6 +605,16 @@ async function exportDesignSpec(nodeId) {
     var b = node.absoluteBoundingBox;
     var spec = { type: node.type === "TEXT" ? "text" : "frame", name: node.name || node.type,
       _figmaId: node.id, _figmaType: node.type };
+    if (node.type === "INSTANCE" && node.componentProperties) {
+      spec._figmaProps = {};
+      Object.keys(node.componentProperties).forEach(function (key) {
+        var prop = node.componentProperties[key];
+        var name = key.split("#")[0];
+        spec._figmaProps[name] = { type: prop.type, value: prop.value };
+        if (name.toLowerCase() === "state" && prop.value != null)
+          spec._state = String(prop.value).toLowerCase();
+      });
+    }
     if (b && Number.isFinite(b.x) && Number.isFinite(b.y)) {
       spec.x = b.x - bounds.x; spec.y = b.y - bounds.y;
       spec.width = b.width; spec.height = b.height;

@@ -370,21 +370,23 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
   if (!Array.isArray(anchors) || (anchors.length === 0 && !opts.autoTextAnchors))
     throw new Error("anchors must be a nonempty array unless autoTextAnchors is enabled");
   const collect = (root) => {
-    const nodes = [], paths = new Map(), nearestTestids = new Map();
-    const visit = (node, parentPath, inheritedTestid) => {
+    const nodes = [], paths = new Map(), nearestTestids = new Map(), nearestStates = new Map();
+    const visit = (node, parentPath, inheritedTestid, inheritedState) => {
       if (!node || typeof node !== "object") return;
       nodes.push(node);
       const path = parentPath ? `${parentPath} > ${nodeLabel(node)}` : nodeLabel(node);
       paths.set(node, path);
       const testid = node._testid || inheritedTestid || null;
       nearestTestids.set(node, testid);
-      for (const child of node.children || []) visit(child, path, testid);
+      const state = node._state || inheritedState || null;
+      nearestStates.set(node, state);
+      for (const child of node.children || []) visit(child, path, testid, state);
     };
-    visit(root, "", null);
-    return { nodes, paths, nearestTestids };
+    visit(root, "", null, null);
+    return { nodes, paths, nearestTestids, nearestStates };
   };
-  const { nodes: aNodes, paths: aPaths } = collect(mockup);
-  const { nodes: bNodes, paths: bPaths, nearestTestids: bTestids } = collect(app);
+  const { nodes: aNodes, paths: aPaths, nearestStates: aStates } = collect(mockup);
+  const { nodes: bNodes, paths: bPaths, nearestTestids: bTestids, nearestStates: bStates } = collect(app);
   const generated = [];
   if (opts.autoTextAnchors) {
     const manualIds = new Set(anchors.map(a => a.mockupId).filter(Boolean));
@@ -411,7 +413,7 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
   }
   const allAnchors = anchors.concat(generated);
   if (!allAnchors.length) throw new Error("no unique text anchors found");
-  const pairedA = [], pairedB = [], unmatched = [], unmeasured = [];
+  const pairedA = [], pairedB = [], pairedRecords = [], unmatched = [], unmeasured = [], stateMismatched = [];
   const pairedSourceA = new Set(), pairedSourceB = new Set();
   let requestedFields = 0, measuredFields = 0;
   const hasMeasurement = (node, field) => {
@@ -422,7 +424,7 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
       return Number.isFinite(node._rect?.[field === "width" ? "w" : "h"] ?? node[field]);
     return Object.hasOwn(node, field) && node[field] != null;
   };
-  const projected = (node, name, selectedFields, inheritedTestid) => {
+  const projected = (node, name, selectedFields, inheritedTestid, inheritedState) => {
     const rect = node._rect;
     const { children, ...nodeFields } = node;
     const x = rect?.x ?? node.x, y = rect?.y ?? node.y;
@@ -438,6 +440,7 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
       _rect: Object.keys(measuredRect).length ? measuredRect : undefined,
     };
     if (!projectedNode._testid && inheritedTestid) projectedNode._testid = inheritedTestid;
+    if (!projectedNode._state && inheritedState) projectedNode._state = inheritedState;
     if (selectedFields) {
       const selected = new Set(selectedFields);
       for (const field of Object.keys(FIELD_RULES)) {
@@ -485,18 +488,25 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     // An anchor without an explicit field list must inspect every field that
     // either captured side actually contains. Otherwise missing app typography
     // or geometry can silently disappear from the ordinary field diff.
-    const selectedFields = anchor.fields || Object.keys(FIELD_RULES).filter((field) =>
+    let selectedFields = anchor.fields || Object.keys(FIELD_RULES).filter((field) =>
       hasMeasurement(aa[0], field) || hasMeasurement(bb[0], field));
+    const aState = aStates.get(aa[0]), bState = bStates.get(bb[0]);
+    if (aState && bState && aState !== bState) {
+      stateMismatched.push({ name: anchor.name, mockupState: aState, appState: bState,
+        blockedFields: selectedFields.filter(field => field !== "state") });
+      selectedFields = ["state"];
+    }
     for (const field of selectedFields) {
       requestedFields++;
-      const mockupMeasured = hasMeasurement(aa[0], field);
-      const appMeasured = hasMeasurement(bb[0], field);
+      const mockupMeasured = field === "state" ? aState != null : hasMeasurement(aa[0], field);
+      const appMeasured = field === "state" ? bState != null : hasMeasurement(bb[0], field);
       if (mockupMeasured && appMeasured) measuredFields++;
       else unmeasured.push({ name: anchor.name, field, mockupMeasured, appMeasured });
     }
     pairedSourceA.add(aa[0]); pairedSourceB.add(bb[0]);
-    pairedA.push(projected(aa[0], anchor.name, selectedFields));
-    pairedB.push(projected(bb[0], anchor.name, selectedFields, bTestids.get(bb[0])));
+    pairedRecords.push({ name: anchor.name, mockup: aa[0], app: bb[0] });
+    pairedA.push(projected(aa[0], anchor.name, selectedFields, null, aState));
+    pairedB.push(projected(bb[0], anchor.name, selectedFields, bTestids.get(bb[0]), bState));
   }
   const result = diffSpecs(
     { type: "frame", name: "anchors", children: pairedA },
@@ -509,17 +519,68 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     path: paths.get(n), name: nodeLabel(n), type: n.type || null,
     id: n._figmaId || n.id || null, testid: n._testid || null,
   }));
+  const rectOf = (node) => {
+    const r = node._rect || { x: node.x, y: node.y, w: node.width, h: node.height };
+    return [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0 ? r : null;
+  };
+  const overlapOf = (a, b) => {
+    const x = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+    const y = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    const intersection = x * y;
+    return intersection / (a.w * a.h + b.w * b.h - intersection);
+  };
+  const scorePair = (a, b) => {
+    const ar = rectOf(a), br = rectOf(b);
+    if (!ar || !br) return null;
+    const overlap = overlapOf(ar, br);
+    if (overlap < 0.7) return null;
+    const af = fillSig(a.fill, false), bf = fillSig(b.fill, false);
+    const paintMatch = af && bf ? af === bf : null;
+    const score = overlap + (paintMatch === true ? 0.15 : af && !bf ? -0.15 : 0) +
+      (a.type === "text" && b.type === "text" && normText(a.characters) === normText(b.characters) ? 0.1 : 0);
+    return { score: Math.round(score * 1000) / 1000, overlap: Math.round(overlap * 1000) / 1000,
+      paintMatch };
+  };
+  const candidatesFor = (a, excluded) => bNodes.filter(b => b._testid && b !== excluded)
+    .map(b => ({ b, measure: scorePair(a, b) })).filter(x => x.measure)
+    .sort((x, y) => y.measure.score - x.measure.score || x.b._testid.localeCompare(y.b._testid))
+    .slice(0, 3).map(({ b, measure }) => ({ appTestid: b._testid, path: bPaths.get(b), ...measure }));
+  const anchorAlternatives = pairedRecords.map(({ name, mockup: a, app: b }) => {
+    const current = scorePair(a, b);
+    const alternatives = candidatesFor(a, b).filter(c => c.score > (current?.score ?? 0) + 0.05);
+    return alternatives.length ? { name, mockupId: a._figmaId || a.id || null,
+      currentAppTestid: b._testid || bTestids.get(b), candidates: alternatives } : null;
+  }).filter(Boolean);
+  const allCandidatePairs = aNodes.filter(a => !pairedSourceA.has(a) && (a._figmaId || a.id))
+    .map(a => ({ mockupId: a._figmaId || a.id, name: nodeLabel(a), path: aPaths.get(a),
+      candidates: candidatesFor(a, null) })).filter(p => p.candidates.length);
+  allCandidatePairs.sort((a, b) => b.candidates[0].score - a.candidates[0].score ||
+    String(a.mockupId).localeCompare(String(b.mockupId)));
+  const maxCandidatePairs = opts.maxCandidatePairs || 100;
+  const regions = (mockup.children || []).map(region => {
+    let nodes = 0, matched = 0;
+    const visit = n => { nodes++; if (pairedSourceA.has(n)) matched++;
+      for (const child of n.children || []) visit(child); };
+    visit(region);
+    return { mockupId: region._figmaId || region.id || null, name: nodeLabel(region),
+      capturedNodes: nodes, matchedNodes: matched, unpairedNodes: nodes - matched };
+  });
   result.coverage = { scope: "selected-anchors", wholeScreenCertified: false,
     captureNodes: { mockup: aNodes.length, app: bNodes.length },
     unpairedNodes: { mockup: aNodes.length - pairedA.length, app: bNodes.length - pairedB.length },
     unpairedInventory: { mockup: inventory(aNodes, pairedSourceA, aPaths),
       app: inventory(bNodes, pairedSourceB, bPaths) },
+    regions, anchorAlternatives,
+    candidatePairs: allCandidatePairs.slice(0, maxCandidatePairs),
+    candidatePairsOmitted: Math.max(0, allCandidatePairs.length - maxCandidatePairs),
     requested: allAnchors.length, generatedAnchors: generated.length,
+    stateMismatched,
     matched: pairedA.length, unmatched,
     requestedFields, measuredFields, unmeasured };
   result.summary.unmatchedAnchors = unmatched.length;
   result.summary.unmeasuredFields = unmeasured.length;
-  result.ok = result.ok && unmatched.length === 0 && unmeasured.length === 0;
+  result.summary.stateMismatchedAnchors = stateMismatched.length;
+  result.ok = result.ok && unmatched.length === 0 && unmeasured.length === 0 && stateMismatched.length === 0;
   return result;
 }
 

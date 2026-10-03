@@ -5,7 +5,7 @@
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildSourceIndex, resolveSource, tokenHint, sourceEvidence, authoredStyle } from "../mcp/src/source-index.js";
+import { buildSourceIndex, resolveSource, annotateDeltas, tokenHint, sourceEvidence, authoredStyle } from "../mcp/src/source-index.js";
 
 let passed = 0;
 function assert(c, m, d) { if (!c) throw new Error("FAIL: " + m + (d ? "\n" + d : "")); passed++; }
@@ -32,6 +32,14 @@ try {
   await writeFile(path.join(dir, "src", "components", "Stateful.tsx"),
     '<section data-testid="stateful" data-state="empty" className="p-v2-8" />\n' +
     '<section data-testid="stateful" data-state={ready ? \'matched\' : \'suggested\'} className="ml-10" />\n');
+  await writeFile(path.join(dir, "src", "components", "First.tsx"),
+    '<button data-testid="shared-control">One</button>\n');
+  await writeFile(path.join(dir, "src", "components", "Second.tsx"),
+    '<button data-testid="shared-control">Two</button>\n');
+  await writeFile(path.join(dir, "src", "components", "Template.tsx"),
+    'export const Count = ({ name }) => <span data-testid={`filter-${name}-count`}>1</span>;\n');
+  await writeFile(path.join(dir, "src", "components", "Avatar.tsx"),
+    'export const Avatar = ({ p }) => <span data-testid={p.testId ?? `avatar-stack-person-${p.id}`}>AK</span>;\n');
   await writeFile(path.join(dir, "figbridge.connect.json"), JSON.stringify({ version: 1, components: [
     { figma: { name: "Shot Select Card", nodeId: "1:2" }, code: { source: "src/components/PhotoCard.tsx", export: "PhotoCard" } },
   ] }));
@@ -77,6 +85,15 @@ try {
   assert(matched?.line === 2 && authoredStyle(idx, matched.file, matched.line)?.className === "ml-10", "matched state selected wrong JSX branch", JSON.stringify(matched));
   const unknown = resolveSource({ testid: "stateful", state: "unknown" }, idx);
   assert(unknown?.file.endsWith("Stateful.tsx") && !unknown.line && unknown.via === "data-testid-ambiguous", "unmatched state should not cite a guessed branch", JSON.stringify(unknown));
+  const shared = annotateDeltas([{ name: "Shared", testid: "shared-control", kind: "color", field: "color", a: "#fff", b: "#000" }], idx)[0];
+  assert(!shared.sourceFile && shared.sourceCandidates?.length === 2 &&
+    shared.sourceCandidates.some(x => x.file.endsWith("First.tsx")) &&
+    shared.sourceCandidates.some(x => x.file.endsWith("Second.tsx")),
+    "ambiguous owners must remain unresolved but list each real source candidate", JSON.stringify(shared));
+  assert(resolveSource({ testid: "filter-reception-count" }, idx)?.file.endsWith("Template.tsx"),
+    "rendered test id should resolve through its authored template literal");
+  assert(resolveSource({ testid: "avatar-stack-person-peer-ak" }, idx)?.file.endsWith("Avatar.tsx"),
+    "fallback template test id should resolve through its authored source");
 
   // resolveSource: unknown → null
   assert(resolveSource({ name: "zzz" }, idx) === null, "unknown node should resolve to null");

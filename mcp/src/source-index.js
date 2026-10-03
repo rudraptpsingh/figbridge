@@ -56,7 +56,7 @@ async function walk(dir, files, depth) {
 export async function buildSourceIndex(sourceDir) {
   const out = {
     ok: true, sourceDir, fileCount: 0,
-    byTestid: {}, byTestidVariants: {}, byComponent: {}, byConnectedComponent: {},
+    byTestid: {}, byTestidVariants: {}, byTestidPatterns: [], byComponent: {}, byConnectedComponent: {},
     tokens: { valToName: {}, nameToVal: {}, nameToSource: {}, valToNames: {} }, cssFiles: [], tokenDrift: [],
   };
   const files = [];
@@ -66,6 +66,7 @@ export async function buildSourceIndex(sourceDir) {
   out.fileCount = files.length;
 
   const TESTID_RE = /\bdata-(?:testid|test-id|component)\s*=\s*[{]?\s*["'`]([^"'`]+)["'`]/g;
+  const TESTID_TEMPLATE_RE = /\b(?:data-testid|testId)\s*=\s*\{[^\n`]{0,120}`([^`]+)`/g;
   const CSSVAR_RE = /--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
 
   for (const file of files) {
@@ -103,6 +104,19 @@ export async function buildSourceIndex(sourceDir) {
       }
       (out.byTestidVariants[id] ||= []).push(candidate);
       if (!out.byTestid[id]) out.byTestid[id] = { file: rel, line: candidate.line };
+    }
+    // A rendered row id often comes from a JSX template such as
+    // `filter-${name}-count`. Index its fixed parts rather than treating the
+    // source template itself as a literal id or guessing from a test file.
+    while ((m = TESTID_TEMPLATE_RE.exec(text))) {
+      const parts = m[1].split(/\$\{[^}]+\}/);
+      if (parts.length < 2) continue;
+      const staticChars = parts.join("").length;
+      if (staticChars < 4) continue;
+      const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp("^" + parts.map(escape).join(".+?") + "$");
+      out.byTestidPatterns.push({ file: rel, line: lineOf(text, m.index),
+        template: m[1], staticChars, re });
     }
 
     // css custom properties from :root (or any block) — token maps
@@ -186,6 +200,15 @@ export function resolveSource(delta, index) {
     if (files.length === 1) return { file: files[0], via: "data-testid-ambiguous" };
     return null;
   }
+  if (tid) {
+    const patterns = matchingTestidPatterns(tid, index);
+    if (patterns.length) {
+      const files = [...new Set(patterns.map(p => p.file))];
+      if (files.length === 1) return { file: files[0],
+        line: patterns.length === 1 ? patterns[0].line : undefined,
+        via: "data-testid-template" };
+    }
+  }
   // conservative name fallback: node label like ".conflict-card" → ConflictResolutionCard
   const label = normName((delta && delta.name) || "");
   if (label.length >= 5) {
@@ -198,6 +221,13 @@ export function resolveSource(delta, index) {
     }
   }
   return null;
+}
+
+function matchingTestidPatterns(tid, index) {
+  const matches = (index.byTestidPatterns || []).filter(p => p.re.test(tid));
+  if (!matches.length) return [];
+  const longest = Math.max(...matches.map(p => p.staticChars));
+  return matches.filter(p => p.staticChars === longest);
 }
 
 /**
@@ -276,6 +306,14 @@ export function annotateDeltas(deltas, index, componentMap = null) {
         out.sourceFile = src.file;
         if (src.line) out.sourceLine = src.line;
         out.via = d.anchorVia || src.via;
+      } else if (d.testid) {
+        const variants = (index.byTestidVariants?.[d.testid] || []).concat(
+          matchingTestidPatterns(d.testid, index));
+        if (new Set(variants.map(v => v.file)).size > 1) {
+          out.sourceCandidates = variants.map(v => ({ file: v.file, line: v.line,
+            states: v.states || [] }));
+          out.via = "ambiguous-data-testid";
+        }
       }
     }
     if (index) {

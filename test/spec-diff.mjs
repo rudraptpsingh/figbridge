@@ -399,6 +399,40 @@ function find(deltas, pred) { return deltas.find(pred); }
   );
   assert(weightMismatch.deltas.some(d => d.field === "fontWeight" && d.a === 500 && d.b === 400),
     "actual weight drift should report normalized numeric values", JSON.stringify(weightMismatch.deltas));
+  const mappingHelp = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [
+      { type: "frame", name: "view switch", _figmaId: "2:1", _rect: { x: 10, y: 10, w: 100, h: 40 }, fill: "#222222" },
+      { type: "frame", name: "new control", _figmaId: "2:2", _rect: { x: 200, y: 10, w: 100, h: 40 } },
+    ] },
+    { type: "frame", name: "App", children: [
+      { type: "frame", name: "wrapper", _testid: "view-switch-wrapper", _rect: { x: 10, y: 10, w: 100, h: 40 }, children: [
+        { type: "frame", name: "painted", _testid: "view-switch-control", _rect: { x: 10, y: 10, w: 100, h: 40 }, fill: "#222222" },
+      ] },
+      { type: "frame", name: "new", _testid: "new-control", _rect: { x: 200, y: 10, w: 100, h: 40 } },
+    ] },
+    [{ name: "view switch", mockupId: "2:1", appTestid: "view-switch-wrapper", fields: ["x", "y", "width", "height"] }]
+  );
+  assert(mappingHelp.coverage.anchorAlternatives.some(a => a.name === "view switch" &&
+    a.candidates[0].appTestid === "view-switch-control"),
+    "painted child should be suggested over an unpainted wrapper", JSON.stringify(mappingHelp.coverage));
+  assert(mappingHelp.coverage.candidatePairs.some(p => p.mockupId === "2:2" &&
+    p.candidates[0].appTestid === "new-control"),
+    "unpaired design control should have a geometry candidate, not an automatic PASS", JSON.stringify(mappingHelp.coverage));
+  assert(mappingHelp.coverage.regions.some(r => r.mockupId === "2:2" && r.unpairedNodes === 1),
+    "region inventory must show which design area still needs mapping", JSON.stringify(mappingHelp.coverage));
+  const differentStates = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [{ type: "frame", name: "focus", _state: "on", children: [
+      { type: "text", name: "label", _figmaId: "3:1", characters: "Focus point", color: "#ffffff", fontWeight: 500 },
+    ] }] },
+    { type: "frame", name: "App", children: [{ type: "frame", name: "focus", _testid: "focus", _state: "off", children: [
+      { type: "text", name: "label", characters: "Focus point", color: "#999999", fontWeight: 400 },
+    ] }] },
+    [], { autoTextAnchors: true }
+  );
+  assert(differentStates.coverage.stateMismatched.length === 1 &&
+    differentStates.deltas.some(d => d.field === "state" && d.a === "on" && d.b === "off") &&
+    !differentStates.deltas.some(d => d.field === "color" || d.field === "fontWeight"),
+    "unmatched control states must block style verdicts instead of producing false defects", JSON.stringify(differentStates));
   let duplicateRejected = false;
   try { diffAnchoredSpecs(figma, app, [anchors[0], anchors[0]]); }
   catch { duplicateRejected = true; }
