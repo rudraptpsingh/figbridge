@@ -313,6 +313,11 @@ function find(deltas, pred) { return deltas.find(pred); }
     "coverage must disclose both captured tree sizes", JSON.stringify(r.coverage));
   assert(r.coverage.unpairedNodes.mockup === 1 && r.coverage.unpairedNodes.app === 2,
     "coverage must disclose nodes outside the paired subset", JSON.stringify(r.coverage));
+  assert(r.coverage.unpairedInventory.mockup[0].path === "Loupe" &&
+    r.coverage.unpairedInventory.app.some(n => n.path === "body > wrapper"),
+    "coverage must identify the unpaired nodes so reviewers can map them", JSON.stringify(r.coverage));
+  assert(r.coverage.unpairedInventory.app.every(n => n.testid == null || typeof n.testid === "string"),
+    "app inventory must retain test ids for source lookup", JSON.stringify(r.coverage));
   assert(find(r.deltas, d => d.path.includes("stage") && d.field === "height" && d.a === 734 && d.b === 820), "stage delta must use the named anchor", JSON.stringify(r.deltas));
   assert(find(r.deltas, d => d.path.includes("stage") && d.field === "fill"), "default anchor must compare inspected paint", JSON.stringify(r.deltas));
   assert(find(r.deltas, d => d.path.includes("filmstrip") && d.field === "x" && d.a === 240 && d.b === 241), "viewport x drift must be reported", JSON.stringify(r.deltas));

@@ -353,17 +353,21 @@ export function diffSpecs(specA, specB, opts = {}) {
 export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
   if (!Array.isArray(anchors) || anchors.length === 0) throw new Error("anchors must be a nonempty array");
   const collect = (root) => {
-    const nodes = [];
-    const visit = (node) => {
+    const nodes = [], paths = new Map();
+    const visit = (node, parentPath) => {
       if (!node || typeof node !== "object") return;
       nodes.push(node);
-      for (const child of node.children || []) visit(child);
+      const path = parentPath ? `${parentPath} > ${nodeLabel(node)}` : nodeLabel(node);
+      paths.set(node, path);
+      for (const child of node.children || []) visit(child, path);
     };
-    visit(root);
-    return nodes;
+    visit(root, "");
+    return { nodes, paths };
   };
-  const aNodes = collect(mockup), bNodes = collect(app);
+  const { nodes: aNodes, paths: aPaths } = collect(mockup);
+  const { nodes: bNodes, paths: bPaths } = collect(app);
   const pairedA = [], pairedB = [], unmatched = [], unmeasured = [];
+  const pairedSourceA = new Set(), pairedSourceB = new Set();
   let requestedFields = 0, measuredFields = 0;
   const hasMeasurement = (node, field) => {
     if (field === "state") return Object.hasOwn(node, "_state") && node._state != null;
@@ -440,6 +444,7 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
       if (mockupMeasured && appMeasured) measuredFields++;
       else unmeasured.push({ name: anchor.name, field, mockupMeasured, appMeasured });
     }
+    pairedSourceA.add(aa[0]); pairedSourceB.add(bb[0]);
     pairedA.push(projected(aa[0], anchor.name, selectedFields));
     pairedB.push(projected(bb[0], anchor.name, selectedFields));
   }
@@ -450,9 +455,15 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
   // can match every requested anchor while omitting most of the actual screen.
   // Expose the captured tree sizes and the nodes left outside the comparison
   // so callers cannot mistake an anchor PASS for a whole-screen certificate.
+  const inventory = (nodes, paired, paths) => nodes.filter(n => !paired.has(n)).map(n => ({
+    path: paths.get(n), name: nodeLabel(n), type: n.type || null,
+    id: n._figmaId || n.id || null, testid: n._testid || null,
+  }));
   result.coverage = { scope: "selected-anchors", wholeScreenCertified: false,
     captureNodes: { mockup: aNodes.length, app: bNodes.length },
     unpairedNodes: { mockup: aNodes.length - pairedA.length, app: bNodes.length - pairedB.length },
+    unpairedInventory: { mockup: inventory(aNodes, pairedSourceA, aPaths),
+      app: inventory(bNodes, pairedSourceB, bPaths) },
     requested: anchors.length, matched: pairedA.length, unmatched,
     requestedFields, measuredFields, unmeasured };
   result.summary.unmatchedAnchors = unmatched.length;
