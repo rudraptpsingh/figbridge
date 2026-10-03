@@ -74,7 +74,7 @@ async function walk(dir, files, depth) {
 export async function buildSourceIndex(sourceDir) {
   const out = {
     ok: true, sourceDir, fileCount: 0,
-    byTestid: {}, byTestidVariants: {}, byTestidPatterns: [], byComponent: {}, byConnectedComponent: {},
+    byTestid: {}, byTestidVariants: {}, byTestidPatterns: [], byComponent: {}, byConnectedComponent: {}, byConnectedNodeId: {},
     tokens: { valToName: {}, nameToVal: {}, nameToSource: {}, valToNames: {} }, cssFiles: [], tokenDrift: [],
   };
   const files = [];
@@ -228,6 +228,10 @@ export async function buildSourceIndex(sourceDir) {
       if (name && typeof file === "string" && !out.byConnectedComponent[name]) {
         out.byConnectedComponent[name] = { file, name: entry.figma.name };
       }
+      const nodeId = entry.figma?.nodeId;
+      if (typeof nodeId === "string" && typeof file === "string" && !out.byConnectedNodeId[nodeId]) {
+        out.byConnectedNodeId[nodeId] = { file, name: entry.figma.name, nodeId };
+      }
     }
   } catch { /* Code Connect is optional. */ }
   return out;
@@ -259,6 +263,8 @@ export function resolveSource(delta, index) {
         via: "data-testid-template" };
     }
   }
+  const connected = index.byConnectedNodeId?.[delta?.figmaNodeId];
+  if (connected) return { file: connected.file, via: "figbridge.connect.json#nodeId" };
   // conservative name fallback: node label like ".conflict-card" → ConflictResolutionCard
   const label = normName((delta && delta.name) || "");
   if (label.length >= 5) {
@@ -369,6 +375,8 @@ export function annotateDeltas(deltas, index, componentMap = null) {
       }
     }
     if (index) {
+      const connected = index.byConnectedNodeId?.[d.figmaNodeId];
+      if (connected) out.connectedComponent = connected;
       const th = tokenHint(d, index);
       if (th?.candidates.length === 1) {
         out.tokenHint = `${th.token} (= ${th.value})`;

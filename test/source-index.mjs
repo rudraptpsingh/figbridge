@@ -94,6 +94,13 @@ try {
   assert(r2 && r2.file.endsWith("PhotoCard.tsx"), "resolveSource via component name failed", JSON.stringify(r2));
   const connected = resolveSource({ name: "Shot Select Card" }, idx);
   assert(connected?.file.endsWith("PhotoCard.tsx") && connected.via === "figbridge.connect.json", "connect mapping not used", JSON.stringify(connected));
+  const connectedById = resolveSource({ name: "unnamed instance", figmaNodeId: "1:2" }, idx);
+  assert(connectedById?.file.endsWith("PhotoCard.tsx") && connectedById.via === "figbridge.connect.json#nodeId",
+    "exact Figma component id must resolve through Code Connect", JSON.stringify(connectedById));
+  const both = annotateDeltas([{ name: "Shot Select Card", testid: "conflict-card", figmaNodeId: "1:2",
+    kind: "color", field: "fill", a: "#fff", b: "#000" }], idx)[0];
+  assert(both.sourceFile.endsWith("ConflictResolutionCard.tsx") && both.connectedComponent?.file.endsWith("PhotoCard.tsx"),
+    "app owner and connected Figma component must remain distinct", JSON.stringify(both));
   const matched = resolveSource({ testid: "stateful", state: "matched" }, idx);
   assert(matched?.line === 2 && authoredStyle(idx, matched.file, matched.line)?.className === "ml-10", "matched state selected wrong JSX branch", JSON.stringify(matched));
   const unknown = resolveSource({ testid: "stateful", state: "unknown" }, idx);

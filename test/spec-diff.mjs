@@ -306,6 +306,8 @@ function find(deltas, pred) { return deltas.find(pred); }
     { name: "filmstrip", mockupId: "21:457", appTestid: "cull-loupe-filmstrip" },
   ];
   const r = diffAnchoredSpecs(figma, app, anchors);
+  assert(r.deltas.some(d => d.figmaNodeId === "21:409"),
+    "anchored measured issues must retain exact Figma node identity for Code Connect");
   assert(r.coverage.matched === 2, "both anchors should match");
   assert(r.coverage.scope === "selected-anchors" && r.coverage.wholeScreenCertified === false,
     "an anchored subset must disclose that it cannot certify the whole screen", JSON.stringify(r.coverage));

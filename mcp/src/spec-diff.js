@@ -329,7 +329,7 @@ export function diffSpecs(specA, specB, opts = {}) {
     for (const field of Object.keys(FIELD_RULES)) {
       const rule = FIELD_RULES[field];
       const d = compareField(field, a, b, rule, path, name, tolerant);
-      if (d) { d.testid = bTestid; d.state = bState; if (!b._testid && inheritedTestid) d.anchorVia = "ancestor-data-testid"; emit(d); }
+      if (d) { d.testid = bTestid; d.state = bState; d.figmaNodeId = a._figmaId || a.id || null; if (!b._testid && inheritedTestid) d.anchorVia = "ancestor-data-testid"; emit(d); }
     }
     // Icon identity: when both nodes are inline SVGs, compare glyph geometry.
     if (a.type === "svg" && b.type === "svg") {
