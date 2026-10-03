@@ -322,6 +322,26 @@ function find(deltas, pred) { return deltas.find(pred); }
   assert(unmeasured.coverage.unmeasured.length === 1, "requested value missing on both sides must be reported", JSON.stringify(unmeasured.coverage));
   assert(unmeasured.coverage.unmeasured[0].field === "fontSize", "identify the requested field");
   assert(unmeasured.ok === false, "unmeasured explicit field must keep result non-PASS");
+  const autoFields = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [
+      { type: "text", name: "title", _figmaId: "1:2", characters: "Reception", fontFamily: "Inter", fontSize: 15, x: 12 },
+    ] },
+    { type: "frame", name: "App", children: [
+      { type: "text", name: "title", _testid: "title", characters: "Reception", x: 12 },
+    ] },
+    [{ name: "title", mockupId: "1:2", appTestid: "title" }]
+  );
+  assert(autoFields.coverage.requestedFields === 4, "default anchor must request all captured fields", JSON.stringify(autoFields.coverage));
+  assert(autoFields.coverage.unmeasured.some(d => d.field === "fontFamily" && d.mockupMeasured && !d.appMeasured), "missing app font must be visible", JSON.stringify(autoFields.coverage));
+  assert(autoFields.coverage.unmeasured.some(d => d.field === "fontSize" && d.mockupMeasured && !d.appMeasured), "missing app size must be visible", JSON.stringify(autoFields.coverage));
+  assert(autoFields.ok === false, "default anchor must not pass when measured design fields are missing in app");
+  const partialGeometry = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [{ type: "frame", name: "partial", _figmaId: "1:3", x: 10, width: 99 }] },
+    { type: "frame", name: "App", children: [{ type: "frame", name: "partial", _testid: "partial", _rect: { x: 14, w: 120 } }] },
+    [{ name: "partial", mockupId: "1:3", appTestid: "partial", fields: ["x"] }]
+  );
+  assert(partialGeometry.deltas.some(d => d.field === "x" && d.a === 10 && d.b === 14), "partial captured x must be compared", JSON.stringify(partialGeometry.deltas));
+  assert(!partialGeometry.deltas.some(d => d.field === "width"), "explicit x-only anchor must not compare width", JSON.stringify(partialGeometry.deltas));
   let duplicateRejected = false;
   try { diffAnchoredSpecs(figma, app, [anchors[0], anchors[0]]); }
   catch { duplicateRejected = true; }

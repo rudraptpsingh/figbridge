@@ -378,11 +378,15 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     const { children, ...nodeFields } = node;
     const x = rect?.x ?? node.x, y = rect?.y ?? node.y;
     const width = rect?.w ?? node.width, height = rect?.h ?? node.height;
+    const measuredRect = {};
+    if (Number.isFinite(x)) measuredRect.x = x;
+    if (Number.isFinite(y)) measuredRect.y = y;
+    if (Number.isFinite(width)) measuredRect.w = width;
+    if (Number.isFinite(height)) measuredRect.h = height;
     const projectedNode = {
       ...nodeFields, name,
       x, y, width, height,
-      _rect: Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(width) && Number.isFinite(height)
-        ? { x, y, w: width, h: height } : undefined,
+      _rect: Object.keys(measuredRect).length ? measuredRect : undefined,
     };
     if (selectedFields) {
       const selected = new Set(selectedFields);
@@ -392,7 +396,11 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
         else if (field === "x" || field === "y") {
           if (projectedNode._rect) delete projectedNode._rect[field];
           delete projectedNode[field];
-        } else delete projectedNode[field];
+        } else {
+          if (field === "width" && projectedNode._rect) delete projectedNode._rect.w;
+          if (field === "height" && projectedNode._rect) delete projectedNode._rect.h;
+          delete projectedNode[field];
+        }
       }
     }
     return projectedNode;
@@ -420,15 +428,20 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
         appTestid: anchor.appTestid, mockupMatches: aa.length, appMatches: bb.length });
       continue;
     }
-    for (const field of anchor.fields || []) {
+    // An anchor without an explicit field list must inspect every field that
+    // either captured side actually contains. Otherwise missing app typography
+    // or geometry can silently disappear from the ordinary field diff.
+    const selectedFields = anchor.fields || Object.keys(FIELD_RULES).filter((field) =>
+      hasMeasurement(aa[0], field) || hasMeasurement(bb[0], field));
+    for (const field of selectedFields) {
       requestedFields++;
       const mockupMeasured = hasMeasurement(aa[0], field);
       const appMeasured = hasMeasurement(bb[0], field);
       if (mockupMeasured && appMeasured) measuredFields++;
       else unmeasured.push({ name: anchor.name, field, mockupMeasured, appMeasured });
     }
-    pairedA.push(projected(aa[0], anchor.name, anchor.fields));
-    pairedB.push(projected(bb[0], anchor.name, anchor.fields));
+    pairedA.push(projected(aa[0], anchor.name, selectedFields));
+    pairedB.push(projected(bb[0], anchor.name, selectedFields));
   }
   const result = diffSpecs(
     { type: "frame", name: "anchors", children: pairedA },

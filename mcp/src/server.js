@@ -871,7 +871,7 @@ export function createServer(port) {
         mockupName: z.string().optional(),
         appTestid: z.string(),
         fields: z.array(z.string()).min(1).optional(),
-      })).min(1).optional().describe("Explicit Figma-node ↔ app-testid pairs when the design and DOM have different nesting. Optional fields limits a pair to inspected values, e.g. x/y/width/height for geometry. Every anchor must resolve uniquely, and every requested field must exist on both sides; coverage reports gaps and prevents PASS."),
+      })).min(1).optional().describe("Explicit Figma-node ↔ app-testid pairs when the design and DOM have different nesting. With no fields list, every captured field on either side is checked; optional fields limits a pair to inspected values, e.g. x/y/width/height for geometry. Every anchor must resolve uniquely, and every requested or captured field must exist on both sides; coverage reports gaps and prevents PASS."),
       sourceDir: z.string().optional().describe("Absolute source root containing app code, optional figbridge.connect.json, and design tokens."),
       rootSelector: z.string().optional().describe("CSS selector to scope both specs (e.g. 'main'). Default body.")
     },
