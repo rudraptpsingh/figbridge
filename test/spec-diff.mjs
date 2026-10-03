@@ -85,6 +85,17 @@ function find(deltas, pred) { return deltas.find(pred); }
   assert(find(r2.deltas, d => d.kind === "structure" && d.field === "extra"), "extra-node structure delta absent", JSON.stringify(r2.deltas));
 }
 
+// A missing Figma component retains its exact node and master identity for source mapping.
+{
+  const a = { type: "frame", name: "Root", children: [
+    { type: "frame", name: "Photo controls", _figmaId: "9:9", _mainComponentId: "95:2634" },
+  ] };
+  const b = { type: "frame", name: "Root", _testid: "loupe-stage", children: [] };
+  const issue = diffSpecs(a, b).deltas.find(d => d.kind === "structure" && d.field === "missing");
+  assert(issue?.figmaNodeId === "9:9" && issue?.figmaComponentId === "95:2634" && issue.testid === "loupe-stage",
+    "missing Figma component must retain its exact identity and app parent anchor", JSON.stringify(issue));
+}
+
 // An inserted sibling must not make every following component look changed.
 {
   const target = { type: "frame", name: "Loupe", children: [

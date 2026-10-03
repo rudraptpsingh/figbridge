@@ -334,11 +334,11 @@ export function diffSpecs(specA, specB, opts = {}) {
     // Icon identity: when both nodes are inline SVGs, compare glyph geometry.
     if (a.type === "svg" && b.type === "svg") {
       const ai = iconSig(a), bi = iconSig(b);
-      if (ai && bi && ai !== bi) emit({ path, name, kind: "icon", field: "glyph", a: "(svg)", b: "(different svg)", severity: "med", testid: bTestid });
+      if (ai && bi && ai !== bi) emit({ path, name, kind: "icon", field: "glyph", a: "(svg)", b: "(different svg)", severity: "med", testid: bTestid, figmaNodeId: a._figmaId || a.id || null, figmaComponentId: a._mainComponentId || null });
     }
     const { pairs, onlyA, onlyB } = pairChildren(a.children, b.children);
-    for (const n of onlyA) emit({ path, name: nodeLabel(n), kind: "structure", field: "missing", a: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), b: null, severity: "high", detail: `present in ${labelA}, absent in ${labelB}`, testid: bTestid });
-    for (const n of onlyB) emit({ path, name: nodeLabel(n), kind: "structure", field: "extra", a: null, b: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), severity: "high", detail: `present in ${labelB}, absent in ${labelA}`, testid: n._testid || bTestid });
+    for (const n of onlyA) emit({ path, name: nodeLabel(n), kind: "structure", field: "missing", a: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), b: null, severity: "high", detail: `present in ${labelA}, absent in ${labelB}`, testid: bTestid, figmaNodeId: n._figmaId || n.id || null, figmaComponentId: n._mainComponentId || null });
+    for (const n of onlyB) emit({ path, name: nodeLabel(n), kind: "structure", field: "extra", a: null, b: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), severity: "high", detail: `present in ${labelB}, absent in ${labelA}`, testid: n._testid || bTestid, figmaParentNodeId: a._figmaId || a.id || null });
     for (const [an, bn] of pairs) walk(an, bn, path + " > " + nodeLabel(an), depth + 1, bTestid, bState);
   }
 
