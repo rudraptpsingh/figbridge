@@ -906,6 +906,11 @@ export function createServer(port) {
           const { buildSourceIndex, annotateDeltas } = await import("./source-index.js");
           const index = await buildSourceIndex(sourceDir);
           result.deltas = annotateDeltas(result.deltas, index);
+          if (result.coverage?.provisionalPairs) {
+            result.coverage.provisionalPairs = result.coverage.provisionalPairs.map(pair => ({
+              ...pair, deltas: annotateDeltas(pair.deltas, index),
+            }));
+          }
           result.tokenDrift = index.tokenDrift;
         }
         return asText(result);

@@ -556,6 +556,31 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
       candidates: candidatesFor(a, null) })).filter(p => p.candidates.length);
   allCandidatePairs.sort((a, b) => b.candidates[0].score - a.candidates[0].score ||
     String(a.mockupId).localeCompare(String(b.mockupId)));
+  // Surface value-level evidence for only a uniquely supported visual pair.
+  // These remain provisional: geometry/paint can coincide across controls,
+  // and only an explicit reviewed anchor can count toward matched coverage.
+  const provisionalPairs = [];
+  for (const pair of allCandidatePairs) {
+    const [best, second] = pair.candidates;
+    if (best.score < 1.05 || best.paintMatch !== true ||
+      (second && best.score - second.score < 0.05)) continue;
+    const a = aNodes.find(n => (n._figmaId || n.id) === pair.mockupId);
+    const bs = bNodes.filter(n => n._testid === best.appTestid && !pairedSourceB.has(n));
+    if (!a || bs.length !== 1 || a.type !== bs[0].type) continue;
+    const b = bs[0];
+    const aState = aStates.get(a), bState = bStates.get(b);
+    if (aState && bState && aState !== bState) continue;
+    const rivals = aNodes.filter(n => n !== a && !pairedSourceA.has(n) &&
+      (n._figmaId || n.id) && scorePair(n, b)?.score >= best.score - 0.05);
+    if (rivals.length) continue;
+    const values = diffSpecs(
+      { type: "frame", name: "provisional", children: [projected(a, pair.name, null, null, aState)] },
+      { type: "frame", name: "provisional", children: [projected(b, pair.name, null, bTestids.get(b), bState)] },
+      { maxDeltas: 100 });
+    provisionalPairs.push({ mockupId: pair.mockupId, name: pair.name,
+      appTestid: best.appTestid, score: best.score, deltas: values.deltas,
+      deltasOmitted: values.summary.omitted });
+  }
   const maxCandidatePairs = opts.maxCandidatePairs || 100;
   const regions = (mockup.children || []).map(region => {
     let nodes = 0, matched = 0;
@@ -570,7 +595,7 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
     unpairedNodes: { mockup: aNodes.length - pairedA.length, app: bNodes.length - pairedB.length },
     unpairedInventory: { mockup: inventory(aNodes, pairedSourceA, aPaths),
       app: inventory(bNodes, pairedSourceB, bPaths) },
-    regions, anchorAlternatives,
+    regions, anchorAlternatives, provisionalPairs,
     candidatePairs: allCandidatePairs.slice(0, maxCandidatePairs),
     candidatePairsOmitted: Math.max(0, allCandidatePairs.length - maxCandidatePairs),
     requested: allAnchors.length, generatedAnchors: generated.length,

@@ -402,13 +402,13 @@ function find(deltas, pred) { return deltas.find(pred); }
   const mappingHelp = diffAnchoredSpecs(
     { type: "frame", name: "Figma", children: [
       { type: "frame", name: "view switch", _figmaId: "2:1", _rect: { x: 10, y: 10, w: 100, h: 40 }, fill: "#222222" },
-      { type: "frame", name: "new control", _figmaId: "2:2", _rect: { x: 200, y: 10, w: 100, h: 40 } },
+      { type: "frame", name: "new control", _figmaId: "2:2", _rect: { x: 200, y: 10, w: 100, h: 40 }, fill: "#333333" },
     ] },
     { type: "frame", name: "App", children: [
       { type: "frame", name: "wrapper", _testid: "view-switch-wrapper", _rect: { x: 10, y: 10, w: 100, h: 40 }, children: [
         { type: "frame", name: "painted", _testid: "view-switch-control", _rect: { x: 10, y: 10, w: 100, h: 40 }, fill: "#222222" },
       ] },
-      { type: "frame", name: "new", _testid: "new-control", _rect: { x: 200, y: 10, w: 100, h: 40 } },
+      { type: "frame", name: "new", _testid: "new-control", _rect: { x: 200, y: 10, w: 102, h: 40 }, fill: "#333333" },
     ] },
     [{ name: "view switch", mockupId: "2:1", appTestid: "view-switch-wrapper", fields: ["x", "y", "width", "height"] }]
   );
@@ -420,6 +420,23 @@ function find(deltas, pred) { return deltas.find(pred); }
     "unpaired design control should have a geometry candidate, not an automatic PASS", JSON.stringify(mappingHelp.coverage));
   assert(mappingHelp.coverage.regions.some(r => r.mockupId === "2:2" && r.unpairedNodes === 1),
     "region inventory must show which design area still needs mapping", JSON.stringify(mappingHelp.coverage));
+  assert(mappingHelp.coverage.provisionalPairs.some(p => p.mockupId === "2:2" && p.appTestid === "new-control" &&
+    p.deltas.some(d => d.field === "width" && d.a === 100 && d.b === 102)),
+    "high-confidence unpaired nodes should expose measured provisional value deltas", JSON.stringify(mappingHelp.coverage));
+  assert(mappingHelp.coverage.wholeScreenCertified === false && mappingHelp.coverage.matched === 1,
+    "provisional pair must not certify an unreviewed design mapping", JSON.stringify(mappingHelp.coverage));
+  const ambiguousProvisional = diffAnchoredSpecs(
+    { type: "frame", name: "Design", children: [
+      { type: "frame", name: "ambiguous", _figmaId: "4:1", _rect: { x: 0, y: 0, w: 90, h: 30 }, fill: "#333333" },
+    ] },
+    { type: "frame", name: "App", children: [
+      { type: "frame", name: "first", _testid: "first", _rect: { x: 0, y: 0, w: 90, h: 30 }, fill: "#333333" },
+      { type: "frame", name: "second", _testid: "second", _rect: { x: 0, y: 0, w: 90, h: 30 }, fill: "#333333" },
+    ] },
+    [{ name: "missing anchor", mockupId: "missing", appTestid: "missing" }]
+  );
+  assert(ambiguousProvisional.coverage.provisionalPairs.length === 0,
+    "tied visual candidates must remain suggestions without provisional value verdicts", JSON.stringify(ambiguousProvisional.coverage));
   const differentStates = diffAnchoredSpecs(
     { type: "frame", name: "Figma", children: [{ type: "frame", name: "focus", _state: "on", children: [
       { type: "text", name: "label", _figmaId: "3:1", characters: "Focus point", color: "#ffffff", fontWeight: 500 },
