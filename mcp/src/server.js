@@ -912,6 +912,8 @@ export function createServer(port) {
             }));
           }
           result.tokenDrift = index.tokenDrift;
+          const { buildReviewPlan } = await import("./review-plan.js");
+          result.reviewPlan = buildReviewPlan(result);
         }
         return asText(result);
       } catch (e) { return asText({ ok: false, error: e.message }); }
