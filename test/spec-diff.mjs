@@ -342,6 +342,13 @@ function find(deltas, pred) { return deltas.find(pred); }
   );
   assert(partialGeometry.deltas.some(d => d.field === "x" && d.a === 10 && d.b === 14), "partial captured x must be compared", JSON.stringify(partialGeometry.deltas));
   assert(!partialGeometry.deltas.some(d => d.field === "width"), "explicit x-only anchor must not compare width", JSON.stringify(partialGeometry.deltas));
+  const nullMeasurement = diffAnchoredSpecs(
+    { type: "frame", name: "Figma", children: [{ type: "text", name: "title", _figmaId: "1:4", fontFamily: "Inter" }] },
+    { type: "frame", name: "App", children: [{ type: "text", name: "title", _testid: "title", fontFamily: null }] },
+    [{ name: "title", mockupId: "1:4", appTestid: "title", fields: ["fontFamily"] }]
+  );
+  assert(nullMeasurement.coverage.unmeasured.some(d => d.field === "fontFamily" && !d.appMeasured), "null app values must remain unmeasured", JSON.stringify(nullMeasurement.coverage));
+  assert(nullMeasurement.ok === false, "null measurement must keep the comparison non-PASS");
   let duplicateRejected = false;
   try { diffAnchoredSpecs(figma, app, [anchors[0], anchors[0]]); }
   catch { duplicateRejected = true; }

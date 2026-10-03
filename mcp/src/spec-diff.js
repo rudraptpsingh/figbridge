@@ -366,12 +366,12 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
   const pairedA = [], pairedB = [], unmatched = [], unmeasured = [];
   let requestedFields = 0, measuredFields = 0;
   const hasMeasurement = (node, field) => {
-    if (field === "state") return Object.hasOwn(node, "_state") && node._state !== undefined;
+    if (field === "state") return Object.hasOwn(node, "_state") && node._state != null;
     if (field === "x" || field === "y")
       return Number.isFinite(node._rect?.[field] ?? node[field]);
     if (field === "width" || field === "height")
       return Number.isFinite(node._rect?.[field === "width" ? "w" : "h"] ?? node[field]);
-    return Object.hasOwn(node, field) && node[field] !== undefined;
+    return Object.hasOwn(node, field) && node[field] != null;
   };
   const projected = (node, name, selectedFields) => {
     const rect = node._rect;
