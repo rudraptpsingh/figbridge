@@ -446,7 +446,14 @@ export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
   const result = diffSpecs(
     { type: "frame", name: "anchors", children: pairedA },
     { type: "frame", name: "anchors", children: pairedB }, opts);
-  result.coverage = { requested: anchors.length, matched: pairedA.length, unmatched,
+  // An anchored diff measures only the named nodes. A small reference export
+  // can match every requested anchor while omitting most of the actual screen.
+  // Expose the captured tree sizes and the nodes left outside the comparison
+  // so callers cannot mistake an anchor PASS for a whole-screen certificate.
+  result.coverage = { scope: "selected-anchors", wholeScreenCertified: false,
+    captureNodes: { mockup: aNodes.length, app: bNodes.length },
+    unpairedNodes: { mockup: aNodes.length - pairedA.length, app: bNodes.length - pairedB.length },
+    requested: anchors.length, matched: pairedA.length, unmatched,
     requestedFields, measuredFields, unmeasured };
   result.summary.unmatchedAnchors = unmatched.length;
   result.summary.unmeasuredFields = unmeasured.length;

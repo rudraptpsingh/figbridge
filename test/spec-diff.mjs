@@ -307,6 +307,12 @@ function find(deltas, pred) { return deltas.find(pred); }
   ];
   const r = diffAnchoredSpecs(figma, app, anchors);
   assert(r.coverage.matched === 2, "both anchors should match");
+  assert(r.coverage.scope === "selected-anchors" && r.coverage.wholeScreenCertified === false,
+    "an anchored subset must disclose that it cannot certify the whole screen", JSON.stringify(r.coverage));
+  assert(r.coverage.captureNodes.mockup === 3 && r.coverage.captureNodes.app === 4,
+    "coverage must disclose both captured tree sizes", JSON.stringify(r.coverage));
+  assert(r.coverage.unpairedNodes.mockup === 1 && r.coverage.unpairedNodes.app === 2,
+    "coverage must disclose nodes outside the paired subset", JSON.stringify(r.coverage));
   assert(find(r.deltas, d => d.path.includes("stage") && d.field === "height" && d.a === 734 && d.b === 820), "stage delta must use the named anchor", JSON.stringify(r.deltas));
   assert(find(r.deltas, d => d.path.includes("stage") && d.field === "fill"), "default anchor must compare inspected paint", JSON.stringify(r.deltas));
   assert(find(r.deltas, d => d.path.includes("filmstrip") && d.field === "x" && d.a === 240 && d.b === 241), "viewport x drift must be reported", JSON.stringify(r.deltas));
