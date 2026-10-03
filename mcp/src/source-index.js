@@ -31,6 +31,24 @@ function lineOf(text, idx) {
   return line;
 }
 
+function arrayLiteralAt(text, open) {
+  if (text[open] !== "[") return null;
+  let depth = 0, quote = null, escaped = false;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === "`") { quote = c; continue; }
+    if (c === "[") depth++;
+    if (c === "]" && --depth === 0) return text.slice(open, i + 1);
+  }
+  return null;
+}
+
 async function walk(dir, files, depth) {
   if (files.length >= MAX_FILES || depth > 12) return;
   let entries;
@@ -65,9 +83,10 @@ export async function buildSourceIndex(sourceDir) {
   await walk(sourceDir, files, 0);
   out.fileCount = files.length;
 
-  const TESTID_RE = /\bdata-(?:testid|test-id|component)\s*=\s*[{]?\s*["'`]([^"'`]+)["'`]/g;
+  const TESTID_RE = /\b(?:data-(?:testid|test-id|component)|testId)\s*=\s*[{]?\s*["'`]([^"'`]+)["'`]/g;
   const TESTID_TEMPLATE_RE = /\b(?:data-testid|testId)\s*=\s*\{[^\n`]{0,120}`([^`]+)`/g;
   const TESTID_CONDITIONAL_RE = /\bdata-testid\s*=\s*\{\s*[a-zA-Z_$][\w.$]*\s*\?\s*(['"])([^'"`]+)\1\s*:\s*(['"])([^'"`]+)\3\s*\}/g;
+  const TESTID_PREFIX_RE = /\btestIdPrefix\s*=\s*['"]([^'"]+)['"]/g;
   const CSSVAR_RE = /--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
 
   for (const file of files) {
@@ -110,6 +129,27 @@ export async function buildSourceIndex(sourceDir) {
     // them as exact owners; a broad `${testId}-toggle` template must not win.
     while ((m = TESTID_CONDITIONAL_RE.exec(text))) {
       for (const id of [m[2], m[4]]) {
+        const candidate = { file: rel, line: lineOf(text, m.index), states: [] };
+        (out.byTestidVariants[id] ||= []).push(candidate);
+        if (!out.byTestid[id]) out.byTestid[id] = { file: rel, line: candidate.line };
+      }
+    }
+    // A segmented caller owns ids assembled from its literal prefix and the
+    // option keys declared immediately above it. Resolve only those keys;
+    // an arbitrary suffix would be a guess about a control that may not exist.
+    while ((m = TESTID_PREFIX_RE.exec(text))) {
+      const before = text.slice(Math.max(0, m.index - 3000), m.index);
+      const optionsAt = before.lastIndexOf("const options");
+      if (optionsAt < 0) continue;
+      const optionSource = before.slice(optionsAt);
+      const declaration = /\boptions\b[^=]{0,180}=\s*\[/.exec(optionSource);
+      if (!declaration) continue;
+      const open = optionsAt + declaration.index + declaration[0].length - 1;
+      const literal = arrayLiteralAt(before, open);
+      if (!literal) continue;
+      const keys = [...literal.matchAll(/\bkey\s*:\s*['"]([^'"]+)['"]/g)].map(x => x[1]);
+      for (const key of new Set(keys)) {
+        const id = `${m[1]}-${key}`;
         const candidate = { file: rel, line: lineOf(text, m.index), states: [] };
         (out.byTestidVariants[id] ||= []).push(candidate);
         if (!out.byTestid[id]) out.byTestid[id] = { file: rel, line: candidate.line };

@@ -47,6 +47,12 @@ try {
     'export const Filmstrip = ({ loupeMode }) => <div data-testid={loupeMode ? \'cull-loupe-filmstrip\' : \'thumbnail-strip-root\'} />;\n');
   await writeFile(path.join(dir, "src", "components", "Generic.tsx"),
     'export const Generic = ({ testId }) => <div data-testid={`${testId}-toggle`} />;\n');
+  await writeFile(path.join(dir, "src", "components", "FrameTools.tsx"),
+    'export const FrameTools = () => <Button testId="top-bar-export">Export</Button>;\n');
+  await writeFile(path.join(dir, "src", "components", "ViewSwitch.tsx"),
+    'const options = [{ key: "grid", label: "Grid" }, { key: "loupe", label: "Loupe" }];\n' +
+    'const unrelated = { key: "hidden" };\n' +
+    'export const ViewSwitch = () => <Segmented testIdPrefix="cull-view" options={options} />;\n');
   await writeFile(path.join(dir, "figbridge.connect.json"), JSON.stringify({ version: 1, components: [
     { figma: { name: "Shot Select Card", nodeId: "1:2" }, code: { source: "src/components/PhotoCard.tsx", export: "PhotoCard" } },
   ] }));
@@ -103,6 +109,13 @@ try {
     "fallback template test id should resolve through its authored source");
   assert(resolveSource({ testid: "cull-loupe-filmstrip" }, idx)?.file.endsWith("Filmstrip.tsx"),
     "conditional JSX literal must resolve to its authored source");
+  assert(resolveSource({ testid: "top-bar-export" }, idx)?.file.endsWith("FrameTools.tsx"),
+    "literal testId prop must resolve to its JSX caller");
+  assert(resolveSource({ testid: "cull-view-grid" }, idx)?.file.endsWith("ViewSwitch.tsx") &&
+    resolveSource({ testid: "cull-view-loupe" }, idx)?.file.endsWith("ViewSwitch.tsx"),
+    "segmented prefix plus declared option keys must resolve to the caller");
+  assert(resolveSource({ testid: "cull-view-hidden" }, idx) === null,
+    "undeclared segmented option must not be guessed");
   const exactVsTemplate = annotateDeltas([{ name: "Filmstrip", testid: "cull-loupe-filmstrip", kind: "spacing", field: "width", a: 80, b: 70 }], idx)[0];
   assert(exactVsTemplate.sourceFile?.endsWith("Filmstrip.tsx") && !exactVsTemplate.sourceCandidates,
     "exact JSX branch must outrank a generic template", JSON.stringify(exactVsTemplate));
