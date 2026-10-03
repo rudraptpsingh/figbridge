@@ -29,6 +29,9 @@ try {
     JSON.stringify({ variables: { "space/4": { type: "float", value: 16 } } }));
   await writeFile(path.join(dir, "src", "components", "Align.tsx"),
     'export const Align = () => <section data-testid="align" className="w-[84px]">x</section>;\n');
+  await writeFile(path.join(dir, "src", "components", "Distant.tsx"),
+    '<div data-testid="target">target</div>\n' + '\n'.repeat(15) +
+    '<div className="w-[84px]">unrelated width</div>\n');
   await writeFile(path.join(dir, "src", "components", "Stateful.tsx"),
     '<section data-testid="stateful" data-state="empty" className="p-v2-8" />\n' +
     '<section data-testid="stateful" data-state={ready ? \'matched\' : \'suggested\'} className="ml-10" />\n');
@@ -124,6 +127,9 @@ try {
   assert(authoredStyle(idx, "src/components/Align.tsx", 1)?.className === "w-[84px]", "current authored sizing rule missing");
   assert(sourceEvidence({ kind: "spacing", field: "x", a: 124, b: 84 }, idx, "src/components/Align.tsx") === null, "absolute x should not become a guessed local margin edit");
   assert(sourceEvidence({ ...widthDelta, b: 85 }, idx, "src/components/Align.tsx") === null, "must not guess when computed size has no source literal");
+  const distant = annotateDeltas([{ name: "target", testid: "target", kind: "spacing", field: "width", a: 64, b: 84 }], idx)[0];
+  assert(distant.sourceFile?.endsWith("Distant.tsx") && !distant.codeChange,
+    "a unique literal elsewhere in the owner file is not evidence for the captured control", JSON.stringify(distant));
 
   console.log(`PASS  source-index unit tests (${passed} assertions, ${idx.fileCount} files indexed).`);
 } finally {

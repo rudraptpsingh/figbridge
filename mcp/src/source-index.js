@@ -260,7 +260,7 @@ export function tokenHint(delta, index) {
 
 /** Find a uniquely matching authored dimension literal. Computed dimensions
  * can come from flex/grid/parents, so absence of evidence is a valid result. */
-export function sourceEvidence(delta, index, sourceFile) {
+export function sourceEvidence(delta, index, sourceFile, anchorLine = null) {
   if (!index || !sourceFile || !["width", "height"].includes(delta.field) || typeof delta.a !== "number" || typeof delta.b !== "number") return null;
   const root = path.resolve(index.sourceDir);
   const absolute = path.resolve(root, sourceFile);
@@ -277,11 +277,13 @@ export function sourceEvidence(delta, index, sourceFile) {
   const hits = patterns.flatMap((re) => [...text.matchAll(re)].map((m) => ({ current: m[0], offset: m.index })));
   if (hits.length !== 1) return null;
   const hit = hits[0];
+  const hitLine = lineOf(text, hit.offset);
+  if (Number.isInteger(anchorLine) && Math.abs(hitLine - anchorLine) > 8) return null;
   const hint = tokenHint(delta, index);
   const uniqueToken = hint && hint.candidates.length === 1 && hint.token.includes(delta.field) ? hint.token : null;
   const replacement = uniqueToken ? `var(${uniqueToken})` : `${delta.a}px`;
   const suggested = hit.current.replace(expected, replacement);
-  return { line: lineOf(text, hit.offset), current: hit.current, suggested,
+  return { line: hitLine, current: hit.current, suggested,
     token: uniqueToken, tokenSource: uniqueToken ? hint.source : null,
     confidence: "unique-authored-literal" };
 }
@@ -337,7 +339,7 @@ export function annotateDeltas(deltas, index, componentMap = null) {
           const style = authoredStyle(index, out.sourceFile, out.sourceLine);
           if (style) out.authoredStyle = style;
         }
-        const evidence = sourceEvidence(d, index, out.sourceFile);
+        const evidence = sourceEvidence(d, index, out.sourceFile, out.sourceLine);
         if (evidence) out.codeChange = evidence;
       }
     }
