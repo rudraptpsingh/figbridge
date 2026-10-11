@@ -8,11 +8,13 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { startBridge } from "../mcp/src/bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BRIDGE = path.join(__dirname, "..", "mcp", "src", "bridge.js");
+// Imported from a child via `node -e`: must be a file:// URL, not a bare
+// path (a Windows path like D:\... is read as a "d:" URL scheme).
+const BRIDGE = pathToFileURL(path.join(__dirname, "..", "mcp", "src", "bridge.js")).href;
 const PORT = 7361;
 
 function fail(m) {

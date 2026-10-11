@@ -10,13 +10,20 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitAfterChild } from "./_exit.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(__dirname, "..", "mcp", "bin", "figbridge-mcp.js");
 const PORT = 7332; // off-default to avoid clashing with a running instance
 
 function log(...a) { process.stdout.write("• " + a.join(" ") + "\n"); }
-function fail(msg) { console.error("✗", msg); process.exit(1); }
+function fail(msg) {
+  if (!exiting) console.error("✗", msg);
+  exiting = true;
+  exitAfterChild(child, 1);
+  throw new Error("test failed"); // stop the caller; exit happens once the child closes
+}
+let exiting = false;
 
 const child = spawn("node", [BIN], {
   stdio: ["pipe", "pipe", "pipe"],
@@ -63,7 +70,7 @@ function rpc(method, params) {
 async function main() {
   log("waiting for bridge to come up...");
   let up = false;
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 150; i++) {
     await delay(100);
     try {
       const r = await fetch(`http://127.0.0.1:${PORT}/health`);
@@ -125,8 +132,7 @@ async function main() {
   log("bridge_status ok");
 
   log("ALL TESTS PASSED");
-  child.kill();
-  process.exit(0);
+  exitAfterChild(child, 0);
 }
 
-main().catch((e) => { fail(e && e.stack || e); });
+main().catch((e) => { try { fail(e && e.stack || e); } catch {} });

@@ -11,6 +11,7 @@
 //   elevation   — box-shadow (the depth/elevation ladder), opacity, backdrop blur
 //   icon        — SVG glyph identity (wrong/missing icon)
 //   structure   — nodes present on one side but not the other
+//   state       — explicit data-state markers disagree
 //
 // This generalizes the plugin-side `diff-frame-vs-spec` (Figma-node-vs-spec)
 // to spec-vs-spec, so we can diff a rendered app against a mockup without a
@@ -20,6 +21,7 @@ const SEVERITY = { high: 3, med: 2, low: 1 };
 
 // Per-field category + severity. Anything not listed is ignored.
 const FIELD_RULES = {
+  state: { kind: "state", severity: "high" },
   // copy
   characters: { kind: "copy", severity: "high" },
   // color
@@ -50,6 +52,8 @@ const FIELD_RULES = {
   cornerRadius: { kind: "spacing", severity: "med", tol: 0.5 },
   width: { kind: "spacing", severity: "low", tol: 2 },
   height: { kind: "spacing", severity: "low", tol: 2 },
+  x: { kind: "spacing", severity: "med", tol: 2 },
+  y: { kind: "spacing", severity: "med", tol: 2 },
 };
 
 function normHex(c) {
@@ -59,9 +63,8 @@ function normHex(c) {
 }
 
 // ── Perceptual colour (CIE Lab + ΔE76) ──────────────────────────────────────
-// Exact-hex equality treats #ffffff vs #fafafa as a "difference" though it's
-// imperceptible. ΔE gates on perceptibility instead, killing that false-positive
-// noise. JND ≈ 2.3 in ΔE76.
+// Exact authored colours are reported by default. The optional tolerant mode
+// uses ΔE76 to suppress differences below the approximate JND of 2.3.
 const COLOR_JND = 2.3;
 function hexToRgb(h) {
   const s = String(h).trim().replace(/^#/, "");
@@ -81,14 +84,14 @@ function rgbToLab([r, g, b]) {
 function deltaE76(l1, l2) {
   return Math.sqrt((l1[0] - l2[0]) ** 2 + (l1[1] - l2[1]) ** 2 + (l1[2] - l2[2]) ** 2);
 }
-// Two colour signatures differ *perceptibly*? When both are plain 6-hex, gate on
-// ΔE; otherwise (alpha / gradient / structure in the sig) use exact inequality.
-function perceptibleColorDiff(av, bv) {
+// When both signatures are plain 6-hex, include ΔE and apply the JND only in
+// tolerant mode; alpha/gradient signatures are compared directly.
+function perceptibleColorDiff(av, bv, tolerant) {
   if (av === bv) return { differ: false, deltaE: null };
   const ra = hexToRgb(av), rb = hexToRgb(bv);
   if (ra && rb) {
     const dE = deltaE76(rgbToLab(ra), rgbToLab(rb));
-    return { differ: dE > COLOR_JND, deltaE: dE };
+    return { differ: dE > (tolerant ? COLOR_JND : 0), deltaE: dE };
   }
   return { differ: true, deltaE: null };
 }
@@ -96,7 +99,7 @@ function perceptibleColorDiff(av, bv) {
 // Full fill signature — captures solid colour AND translucency (glass) AND
 // gradients (cinematic/clay). Spec fills are a hex string, a gradient string,
 // or an array of paint layers ([{kind:'solid',color,alpha}, {kind:'linear-gradient',value}, ...]).
-function fillSig(fill) {
+function fillSig(fill, tolerant) {
   if (fill == null) return null;
   if (typeof fill === "string") {
     if (/gradient/i.test(fill)) return "grad:" + fill.replace(/\s+/g, " ").trim().toLowerCase();
@@ -107,7 +110,7 @@ function fillSig(fill) {
     for (const layer of fill) {
       if (!layer) continue;
       if (layer.kind === "solid" && layer.color) {
-        parts.push(normHex(layer.color) + (layer.alpha != null && layer.alpha < 0.999 ? "@" + (Math.round(layer.alpha * 100) / 100) : ""));
+        parts.push(normHex(layer.color) + (layer.alpha != null && (tolerant ? layer.alpha < 0.999 : layer.alpha !== 1) ? "@" + (tolerant ? Math.round(layer.alpha * 100) / 100 : layer.alpha) : ""));
       } else if (layer.kind && /gradient/i.test(layer.kind)) {
         parts.push("grad:" + String(layer.value || layer.kind).replace(/\s+/g, " ").trim().toLowerCase());
       } else if (layer.kind === "image") {
@@ -121,13 +124,13 @@ function fillSig(fill) {
 
 // Full stroke/border signature — colour + alpha + width + style (not just the
 // colour). Fine translucent borders (glass) and width changes now surface.
-function strokeSig(stroke) {
+function strokeSig(stroke, tolerant) {
   if (!stroke) return null;
   if (typeof stroke === "string") return normHex(stroke);
   const c = normHex(stroke.color);
   if (!c) return null;
-  const a = stroke.alpha != null && stroke.alpha < 0.999 ? "@" + (Math.round(stroke.alpha * 100) / 100) : "";
-  const w = stroke.width != null ? String(Math.round(stroke.width * 10) / 10) + "px" : "";
+  const a = stroke.alpha != null && (tolerant ? stroke.alpha < 0.999 : stroke.alpha !== 1) ? "@" + (tolerant ? Math.round(stroke.alpha * 100) / 100 : stroke.alpha) : "";
+  const w = stroke.width != null ? String(tolerant ? Math.round(stroke.width * 10) / 10 : stroke.width) + "px" : "";
   const st = stroke.style && stroke.style !== "solid" ? stroke.style : "";
   return [c + a, w, st].filter((x) => x !== "").join("/");
 }
@@ -145,16 +148,28 @@ function normText(s) {
   return s == null ? null : String(s).replace(/\s+/g, " ").trim();
 }
 
+function fontWeightValue(value) {
+  if (typeof value === "number") return value;
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (/^[1-9]00$/.test(raw)) return Number(raw);
+  const weights = { thin: 100, extralight: 200, ultralight: 200, light: 300,
+    regular: 400, normal: 400, book: 400, medium: 500, semibold: 600,
+    demibold: 600, bold: 700, extrabold: 800, ultrabold: 800, black: 900 };
+  return weights[raw.toLowerCase().replace(/[\s_-]/g, "")] ?? value;
+}
+
 // Collapse a box-shadow array ([{x,y,blur,spread,color,alpha,inset}, …]) into a
 // rounded, comparable signature. Elevation differences (a card that lost its
 // shadow, a popover at the wrong depth) surface as a changed signature.
-function shadowSig(shadow) {
+function shadowSig(shadow, tolerant) {
   if (!shadow) return null;
   const arr = Array.isArray(shadow) ? shadow : [shadow];
   if (!arr.length) return null;
+  const measure = (value) => tolerant ? Math.round(value || 0) : (value || 0);
   return arr.map((s) => [
-    Math.round(s.x || 0), Math.round(s.y || 0), Math.round(s.blur || 0),
-    Math.round(s.spread || 0), normHex(s.color), Math.round((s.alpha == null ? 1 : s.alpha) * 100) / 100,
+    measure(s.x), measure(s.y), measure(s.blur),
+    measure(s.spread), normHex(s.color), tolerant ? Math.round((s.alpha == null ? 1 : s.alpha) * 100) / 100 : (s.alpha == null ? 1 : s.alpha),
     s.inset ? "inset" : "",
   ].join(",")).join(" | ");
 }
@@ -179,24 +194,30 @@ function iconSig(node) {
 }
 
 // Compare one field on a paired (a, b). Returns a delta object or null.
-function compareField(field, a, b, rule, path, name) {
+function compareField(field, a, b, rule, path, name, tolerant) {
   let av, bv;
   switch (field) {
-    case "fill": av = fillSig(a.fill); bv = fillSig(b.fill); break;
-    case "stroke": av = strokeSig(a.stroke); bv = strokeSig(b.stroke); break;
+    case "state": av = a._state; bv = b._state; break;
+    case "fill": av = fillSig(a.fill, tolerant); bv = fillSig(b.fill, tolerant); break;
+    case "stroke": av = strokeSig(a.stroke, tolerant); bv = strokeSig(b.stroke, tolerant); break;
     case "outline": av = outlineSig(a.outline); bv = outlineSig(b.outline); break;
-    case "shadow": av = shadowSig(a.shadow); bv = shadowSig(b.shadow); break;
-    case "textShadow": av = shadowSig(a.textShadow); bv = shadowSig(b.textShadow); break;
+    case "shadow": av = shadowSig(a.shadow, tolerant); bv = shadowSig(b.shadow, tolerant); break;
+    case "textShadow": av = shadowSig(a.textShadow, tolerant); bv = shadowSig(b.textShadow, tolerant); break;
     case "color": av = normHex(a.color); bv = normHex(b.color); break;
     // text formatting: coalesce null→"none" so present-vs-absent flips surface
     case "textTransform": av = a.textTransform || "none"; bv = b.textTransform || "none"; break;
     case "textDecoration": av = a.textDecoration || "none"; bv = b.textDecoration || "none"; break;
     case "characters": av = normText(a.characters); bv = normText(b.characters); break;
+    case "fontWeight": av = fontWeightValue(a.fontWeight); bv = fontWeightValue(b.fontWeight); break;
+    // DOM specs carry viewport geometry in _rect. Figma/spec-only trees may
+    // omit it; never compare a relative layout x against a viewport x.
+    case "x": av = a._rect && a._rect.x; bv = b._rect && b._rect.x; break;
+    case "y": av = a._rect && a._rect.y; bv = b._rect && b._rect.y; break;
     case "padding": {
       const at = padTuple(a.padding), bt = padTuple(b.padding);
       if (!at && !bt) return null;
       const aa = at || [0, 0, 0, 0], bb = bt || [0, 0, 0, 0];
-      const tol = rule.tol || 0;
+      const tol = tolerant ? (rule.tol || 0) : 0;
       if (aa.every((v, i) => Math.abs(v - bb[i]) <= tol)) return null;
       av = aa.join("/"); bv = bb.join("/");
       return { path, name, kind: rule.kind, field, a: av, b: bv, severity: rule.severity };
@@ -207,6 +228,7 @@ function compareField(field, a, b, rule, path, name) {
   // diffs cover node presence; a present-vs-absent fill is usually noise).
   if (av == null || bv == null) {
     if (av == null && bv == null) return null;
+    if (rule.kind === "state") return null; // one-sided marker is not a comparable state
     // Surface only meaningful presence flips: color/copy appearing/vanishing,
     // and elevation gained/lost (a card that lost its shadow, an element faded).
     if (rule.kind !== "color" && rule.kind !== "copy" && rule.kind !== "elevation") return null;
@@ -214,37 +236,55 @@ function compareField(field, a, b, rule, path, name) {
   // Perceptual colour gate: suppress imperceptible colour diffs (ΔE < JND) and
   // report ΔE when both sides are plain hex.
   if (rule.kind === "color" && av != null && bv != null) {
-    const pc = perceptibleColorDiff(av, bv);
+    const pc = perceptibleColorDiff(av, bv, tolerant);
     if (!pc.differ) return null;
     const d = { path, name, kind: rule.kind, field, a: av, b: bv, severity: rule.severity };
     if (pc.deltaE != null) d.deltaE = Math.round(pc.deltaE * 10) / 10;
     return d;
   }
+  // Figma names the authored family "Inter" while the browser exposes the
+  // variable-font package's CSS family as "Inter Variable".
+  if (field === "fontFamily" && /^Inter(?: Variable)?$/i.test(String(av)) &&
+      /^Inter(?: Variable)?$/i.test(String(bv))) return null;
   if (typeof av === "number" && typeof bv === "number") {
-    if (Math.abs(av - bv) <= (rule.tol || 0)) return null;
+    if (Math.abs(av - bv) <= (tolerant ? (rule.tol || 0) : 0)) return null;
   } else if (av === bv) {
     return null;
   }
   return { path, name, kind: rule.kind, field, a: av, b: bv, severity: rule.severity };
 }
 
-// Pair children of two frames by (type, ordinal-within-type): 1st text ↔ 1st
-// text, 2nd frame ↔ 2nd frame, etc. Stable when structure matches (the
-// mockup-vs-app fidelity case) and naturally surfaces copy/colour/spacing
-// diffs on otherwise-aligned nodes. Unpaired nodes become structure deltas.
+// Match unique named siblings before ordinal pairing. A newly inserted frame
+// must not steal the following frame's identity and turn one structure issue
+// into a run of bogus geometry/copy issues. Generic or repeated names retain
+// the positional fallback because their identity is genuinely ambiguous.
 function pairChildren(aChildren, bChildren) {
   const pairs = [], onlyA = [], onlyB = [];
-  const bByType = {};
-  (bChildren || []).forEach((n) => { (bByType[n.type] = bByType[n.type] || []).push({ n, used: false }); });
-  const seen = {};
-  for (const an of aChildren || []) {
-    const t = an.type;
-    const ord = (seen[t] = (seen[t] || 0)); seen[t]++;
-    const bucket = bByType[t] || [];
-    if (bucket[ord]) { pairs.push([an, bucket[ord].n]); bucket[ord].used = true; }
-    else onlyA.push(an);
-  }
-  for (const t of Object.keys(bByType)) for (const e of bByType[t]) if (!e.used) onlyB.push(e.n);
+  const aa = aChildren || [], bb = bChildren || [];
+  const usedA = new Set(), usedB = new Set();
+  const key = (n) => n && n.name ? `${n.type}\u0000${n.name}` : null;
+  const counts = (nodes) => {
+    const out = new Map();
+    for (const n of nodes) { const k = key(n); if (k) out.set(k, (out.get(k) || 0) + 1); }
+    return out;
+  };
+  const aCounts = counts(aa), bCounts = counts(bb);
+  const bUnique = new Map();
+  bb.forEach((n, i) => { const k = key(n); if (k && bCounts.get(k) === 1) bUnique.set(k, i); });
+  aa.forEach((an, ai) => {
+    const k = key(an), bi = k && aCounts.get(k) === 1 ? bUnique.get(k) : undefined;
+    if (bi !== undefined) { pairs.push([an, bb[bi]]); usedA.add(ai); usedB.add(bi); }
+  });
+  const bByType = new Map();
+  bb.forEach((n, i) => { if (!usedB.has(i)) { const bucket = bByType.get(n.type) || []; bucket.push(i); bByType.set(n.type, bucket); } });
+  aa.forEach((an, ai) => {
+    if (usedA.has(ai)) return;
+    const bucket = bByType.get(an.type) || [];
+    const bi = bucket.shift();
+    if (bi === undefined) onlyA.push(an);
+    else { pairs.push([an, bb[bi]]); usedB.add(bi); }
+  });
+  bb.forEach((n, i) => { if (!usedB.has(i)) onlyB.push(n); });
   return { pairs, onlyA, onlyB };
 }
 
@@ -265,33 +305,41 @@ export function diffSpecs(specA, specB, opts = {}) {
   const maxDepth = opts.maxDepth || 24;
   const labelA = opts.labelA || "a";
   const labelB = opts.labelB || "b";
+  const tolerant = opts.tolerant === true;
   const deltas = [];
   let nodesCompared = 0;
+  let totalFound = 0;
+  const byKind = { state: 0, color: 0, typography: 0, copy: 0, spacing: 0, elevation: 0, icon: 0, structure: 0 };
+  let high = 0, med = 0, low = 0;
 
   function emit(d) {
-    if (deltas.length < maxDeltas) deltas.push(d);
+    totalFound++;
+    byKind[d.kind] = (byKind[d.kind] || 0) + 1;
+    if (d.severity === "high") high++; else if (d.severity === "med") med++; else low++;
+    deltas.push(d);
   }
 
-  function walk(a, b, path, depth) {
+  function walk(a, b, path, depth, inheritedTestid, inheritedState) {
     if (!a || !b || depth > maxDepth) return;
     nodesCompared++;
     const name = nodeLabel(a);
     // The app-side (b) anchor lets the caller resolve a delta to its source file.
-    const bTestid = b._testid || null;
+    const bTestid = b._testid || inheritedTestid || null;
+    const bState = b._state || inheritedState || null;
     for (const field of Object.keys(FIELD_RULES)) {
       const rule = FIELD_RULES[field];
-      const d = compareField(field, a, b, rule, path, name);
-      if (d) { d.testid = bTestid; emit(d); }
+      const d = compareField(field, a, b, rule, path, name, tolerant);
+      if (d) { d.testid = bTestid; d.state = bState; d.figmaNodeId = a._figmaId || a.id || null; d.figmaComponentId = a._mainComponentId || null; if (!b._testid && inheritedTestid) d.anchorVia = "ancestor-data-testid"; emit(d); }
     }
     // Icon identity: when both nodes are inline SVGs, compare glyph geometry.
     if (a.type === "svg" && b.type === "svg") {
       const ai = iconSig(a), bi = iconSig(b);
-      if (ai && bi && ai !== bi) emit({ path, name, kind: "icon", field: "glyph", a: "(svg)", b: "(different svg)", severity: "med", testid: bTestid });
+      if (ai && bi && ai !== bi) emit({ path, name, kind: "icon", field: "glyph", a: "(svg)", b: "(different svg)", severity: "med", testid: bTestid, figmaNodeId: a._figmaId || a.id || null, figmaComponentId: a._mainComponentId || null });
     }
     const { pairs, onlyA, onlyB } = pairChildren(a.children, b.children);
-    for (const n of onlyA) emit({ path, name: nodeLabel(n), kind: "structure", field: "missing", a: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), b: null, severity: "high", detail: `present in ${labelA}, absent in ${labelB}`, testid: bTestid });
-    for (const n of onlyB) emit({ path, name: nodeLabel(n), kind: "structure", field: "extra", a: null, b: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), severity: "high", detail: `present in ${labelB}, absent in ${labelA}`, testid: n._testid || bTestid });
-    for (const [an, bn] of pairs) walk(an, bn, path + " > " + nodeLabel(an), depth + 1);
+    for (const n of onlyA) emit({ path, name: nodeLabel(n), kind: "structure", field: "missing", a: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), b: null, severity: "high", detail: `present in ${labelA}, absent in ${labelB}`, testid: bTestid, figmaNodeId: n._figmaId || n.id || null, figmaComponentId: n._mainComponentId || null });
+    for (const n of onlyB) emit({ path, name: nodeLabel(n), kind: "structure", field: "extra", a: null, b: nodeLabel(n) + (n.characters ? ' "' + normText(n.characters).slice(0, 32) + '"' : ""), severity: "high", detail: `present in ${labelB}, absent in ${labelA}`, testid: n._testid || bTestid, figmaParentNodeId: a._figmaId || a.id || null });
+    for (const [an, bn] of pairs) walk(an, bn, path + " > " + nodeLabel(an), depth + 1, bTestid, bState);
   }
 
   walk(specA, specB, nodeLabel(specA), 0);
@@ -299,25 +347,283 @@ export function diffSpecs(specA, specB, opts = {}) {
   // Highest severity first, then by category, so the agent fixes the loudest
   // mismatches first.
   deltas.sort((x, y) => SEVERITY[y.severity] - SEVERITY[x.severity] || x.kind.localeCompare(y.kind));
-
-  const byKind = { color: 0, typography: 0, copy: 0, spacing: 0, elevation: 0, icon: 0, structure: 0 };
-  let high = 0, med = 0, low = 0;
-  for (const d of deltas) {
-    byKind[d.kind] = (byKind[d.kind] || 0) + 1;
-    if (d.severity === "high") high++; else if (d.severity === "med") med++; else low++;
-  }
+  const reported = deltas.slice(0, maxDeltas);
 
   return {
-    ok: deltas.length === 0,
+    ok: totalFound === 0,
     summary: {
-      total: deltas.length,
-      truncated: deltas.length >= maxDeltas,
+      total: reported.length,
+      totalFound,
+      omitted: totalFound - reported.length,
+      truncated: totalFound > reported.length,
       nodesCompared,
       byKind,
       high, med, low,
     },
-    deltas,
+    deltas: reported,
   };
+}
+
+/** Compare explicit Figma-node ↔ native data-testid pairs across different trees.
+ * Unmatched or ambiguous anchors remain visible; they never count as a match. */
+export function diffAnchoredSpecs(mockup, app, anchors, opts = {}) {
+  if (!Array.isArray(anchors) || (anchors.length === 0 && !opts.autoTextAnchors))
+    throw new Error("anchors must be a nonempty array unless autoTextAnchors is enabled");
+  const collect = (root) => {
+    const nodes = [], paths = new Map(), nearestTestids = new Map(), nearestStates = new Map();
+    const visit = (node, parentPath, inheritedTestid, inheritedState) => {
+      if (!node || typeof node !== "object") return;
+      nodes.push(node);
+      const path = parentPath ? `${parentPath} > ${nodeLabel(node)}` : nodeLabel(node);
+      paths.set(node, path);
+      const testid = node._testid || inheritedTestid || null;
+      nearestTestids.set(node, testid);
+      const state = node._state || inheritedState || null;
+      nearestStates.set(node, state);
+      for (const child of node.children || []) visit(child, path, testid, state);
+    };
+    visit(root, "", null, null);
+    return { nodes, paths, nearestTestids, nearestStates };
+  };
+  const { nodes: aNodes, paths: aPaths, nearestStates: aStates } = collect(mockup);
+  const { nodes: bNodes, paths: bPaths, nearestTestids: bTestids, nearestStates: bStates } = collect(app);
+  const generated = [];
+  if (opts.autoTextAnchors) {
+    const manualIds = new Set(anchors.map(a => a.mockupId).filter(Boolean));
+    const manualText = new Set(anchors.map(a => a.appText).filter(Boolean));
+    const textNodes = (nodes) => {
+      const byText = new Map();
+      for (const node of nodes) {
+        if (node.type !== "text" || !node.characters) continue;
+        const key = normText(node.characters);
+        if (!key) continue;
+        const list = byText.get(key) || [];
+        list.push(node); byText.set(key, list);
+      }
+      return byText;
+    };
+    const aText = textNodes(aNodes), bText = textNodes(bNodes);
+    for (const [value, aa] of aText) {
+      const bb = bText.get(value) || [];
+      if (aa.length !== 1 || bb.length !== 1) continue;
+      const id = aa[0]._figmaId || aa[0].id;
+      if (!id || manualIds.has(id) || manualText.has(value)) continue;
+      generated.push({ name: `Text: ${value.slice(0, 60)}`, mockupId: id, appText: value });
+    }
+  }
+  const allAnchors = anchors.concat(generated);
+  if (!allAnchors.length) throw new Error("no unique text anchors found");
+  const pairedA = [], pairedB = [], pairedRecords = [], unmatched = [], unmeasured = [], stateMismatched = [];
+  const pairedSourceA = new Set(), pairedSourceB = new Set();
+  let requestedFields = 0, measuredFields = 0;
+  const hasMeasurement = (node, field) => {
+    if (field === "state") return Object.hasOwn(node, "_state") && node._state != null;
+    if (field === "x" || field === "y")
+      return Number.isFinite(node._rect?.[field] ?? node[field]);
+    if (field === "width" || field === "height")
+      return Number.isFinite(node._rect?.[field === "width" ? "w" : "h"] ?? node[field]);
+    return Object.hasOwn(node, field) && node[field] != null;
+  };
+  const effectiveTextSpec = (node) => {
+    if (node.type !== "text" || !Array.isArray(node.ranges) || node.ranges.length !== 1 ||
+      node.ranges[0].start !== 0 || node.ranges[0].end !== String(node.characters || "").length)
+      return node;
+    const range = node.ranges[0];
+    const effective = { ...node };
+    for (const field of ["fontSize", "fontWeight", "color", "textDecoration"])
+      if (range[field] != null) effective[field] = range[field];
+    // The DOM capture measured the text container, while Figma's TEXT bounds
+    // and alignment describe the glyph box. Until a glyph range is captured,
+    // these container values are genuinely unmeasured for this comparison.
+    for (const field of ["x", "y", "width", "height", "lineHeight", "textAlign"])
+      delete effective[field];
+    delete effective._rect;
+    return effective;
+  };
+  const projected = (node, name, selectedFields, inheritedTestid, inheritedState) => {
+    const rect = node._rect;
+    const { children, ...nodeFields } = node;
+    const x = rect?.x ?? node.x, y = rect?.y ?? node.y;
+    const width = rect?.w ?? node.width, height = rect?.h ?? node.height;
+    const measuredRect = {};
+    if (Number.isFinite(x)) measuredRect.x = x;
+    if (Number.isFinite(y)) measuredRect.y = y;
+    if (Number.isFinite(width)) measuredRect.w = width;
+    if (Number.isFinite(height)) measuredRect.h = height;
+    const projectedNode = {
+      ...nodeFields, name,
+      x, y, width, height,
+      _rect: Object.keys(measuredRect).length ? measuredRect : undefined,
+    };
+    if (!projectedNode._testid && inheritedTestid) projectedNode._testid = inheritedTestid;
+    if (!projectedNode._state && inheritedState) projectedNode._state = inheritedState;
+    if (selectedFields) {
+      const selected = new Set(selectedFields);
+      for (const field of Object.keys(FIELD_RULES)) {
+        if (selected.has(field)) continue;
+        if (field === "state") delete projectedNode._state;
+        else if (field === "x" || field === "y") {
+          if (projectedNode._rect) delete projectedNode._rect[field];
+          delete projectedNode[field];
+        } else {
+          if (field === "width" && projectedNode._rect) delete projectedNode._rect.w;
+          if (field === "height" && projectedNode._rect) delete projectedNode._rect.h;
+          delete projectedNode[field];
+        }
+      }
+    }
+    return projectedNode;
+  };
+  const seenNames = new Set(), seenMockup = new Set(), seenApp = new Set();
+  for (const anchor of allAnchors) {
+    if (!anchor || !anchor.name || !(anchor.appTestid || anchor.appText) || !(anchor.mockupId || anchor.mockupName)) {
+      throw new Error("each anchor needs name, appTestid or appText, and mockupId or mockupName");
+    }
+    const mockupKey = anchor.mockupId ? `id:${anchor.mockupId}` : `name:${anchor.mockupName}`;
+    const appKey = anchor.appTestid ? `testid:${anchor.appTestid}` : `text:${anchor.appText}`;
+    if (seenNames.has(anchor.name) || seenMockup.has(mockupKey) || seenApp.has(appKey)) {
+      throw new Error(`duplicate anchor: ${anchor.name}`);
+    }
+    seenNames.add(anchor.name); seenMockup.add(mockupKey); seenApp.add(appKey);
+    if (anchor.fields && (!Array.isArray(anchor.fields) || anchor.fields.length === 0 ||
+      anchor.fields.some((field) => !Object.hasOwn(FIELD_RULES, field)))) {
+      throw new Error(`anchor ${anchor.name} has invalid fields`);
+    }
+    const aa = aNodes.filter((n) => anchor.mockupId
+      ? (n._figmaId || n.id) === anchor.mockupId
+      : n.name === anchor.mockupName);
+    const bb = bNodes.filter((n) => anchor.appTestid
+      ? n._testid === anchor.appTestid
+      : n.type === "text" && normText(n.characters) === normText(anchor.appText));
+    if (aa.length !== 1 || bb.length !== 1) {
+      unmatched.push({ name: anchor.name, mockupId: anchor.mockupId || null,
+        appTestid: anchor.appTestid || null, appText: anchor.appText || null,
+        mockupMatches: aa.length, appMatches: bb.length });
+      continue;
+    }
+    // An anchor without an explicit field list must inspect every field that
+    // either captured side actually contains. Otherwise missing app typography
+    // or geometry can silently disappear from the ordinary field diff.
+    const measuredA = effectiveTextSpec(aa[0]), measuredB = effectiveTextSpec(bb[0]);
+    let selectedFields = anchor.fields || Object.keys(FIELD_RULES).filter((field) =>
+      hasMeasurement(measuredA, field) || hasMeasurement(measuredB, field));
+    const aState = aStates.get(aa[0]), bState = bStates.get(bb[0]);
+    if (aState && bState && aState !== bState) {
+      stateMismatched.push({ name: anchor.name, mockupState: aState, appState: bState,
+        blockedFields: selectedFields.filter(field => field !== "state") });
+      selectedFields = ["state"];
+    }
+    for (const field of selectedFields) {
+      requestedFields++;
+      const mockupMeasured = field === "state" ? aState != null : hasMeasurement(measuredA, field);
+      const appMeasured = field === "state" ? bState != null : hasMeasurement(measuredB, field);
+      if (mockupMeasured && appMeasured) measuredFields++;
+      else unmeasured.push({ name: anchor.name, field, mockupMeasured, appMeasured });
+    }
+    pairedSourceA.add(aa[0]); pairedSourceB.add(bb[0]);
+    pairedRecords.push({ name: anchor.name, mockup: aa[0], app: bb[0] });
+    pairedA.push(projected(measuredA, anchor.name, selectedFields, null, aState));
+    pairedB.push(projected(measuredB, anchor.name, selectedFields, bTestids.get(bb[0]), bState));
+  }
+  const result = diffSpecs(
+    { type: "frame", name: "anchors", children: pairedA },
+    { type: "frame", name: "anchors", children: pairedB }, opts);
+  // An anchored diff measures only the named nodes. A small reference export
+  // can match every requested anchor while omitting most of the actual screen.
+  // Expose the captured tree sizes and the nodes left outside the comparison
+  // so callers cannot mistake an anchor PASS for a whole-screen certificate.
+  const inventory = (nodes, paired, paths) => nodes.filter(n => !paired.has(n)).map(n => ({
+    path: paths.get(n), name: nodeLabel(n), type: n.type || null,
+    id: n._figmaId || n.id || null, testid: n._testid || null,
+  }));
+  const rectOf = (node) => {
+    const r = node._rect || { x: node.x, y: node.y, w: node.width, h: node.height };
+    return [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0 ? r : null;
+  };
+  const overlapOf = (a, b) => {
+    const x = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+    const y = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    const intersection = x * y;
+    return intersection / (a.w * a.h + b.w * b.h - intersection);
+  };
+  const scorePair = (a, b) => {
+    const ar = rectOf(a), br = rectOf(b);
+    if (!ar || !br) return null;
+    const overlap = overlapOf(ar, br);
+    if (overlap < 0.7) return null;
+    const af = fillSig(a.fill, false), bf = fillSig(b.fill, false);
+    const paintMatch = af && bf ? af === bf : null;
+    const score = overlap + (paintMatch === true ? 0.15 : af && !bf ? -0.15 : 0) +
+      (a.type === "text" && b.type === "text" && normText(a.characters) === normText(b.characters) ? 0.1 : 0);
+    return { score: Math.round(score * 1000) / 1000, overlap: Math.round(overlap * 1000) / 1000,
+      paintMatch };
+  };
+  const candidatesFor = (a, excluded) => bNodes.filter(b => b._testid && b !== excluded)
+    .map(b => ({ b, measure: scorePair(a, b) })).filter(x => x.measure)
+    .sort((x, y) => y.measure.score - x.measure.score || x.b._testid.localeCompare(y.b._testid))
+    .slice(0, 3).map(({ b, measure }) => ({ appTestid: b._testid, path: bPaths.get(b), ...measure }));
+  const anchorAlternatives = pairedRecords.map(({ name, mockup: a, app: b }) => {
+    const current = scorePair(a, b);
+    const alternatives = candidatesFor(a, b).filter(c => c.score > (current?.score ?? 0) + 0.05);
+    return alternatives.length ? { name, mockupId: a._figmaId || a.id || null,
+      currentAppTestid: b._testid || bTestids.get(b), candidates: alternatives } : null;
+  }).filter(Boolean);
+  const allCandidatePairs = aNodes.filter(a => !pairedSourceA.has(a) && (a._figmaId || a.id))
+    .map(a => ({ mockupId: a._figmaId || a.id, name: nodeLabel(a), path: aPaths.get(a),
+      candidates: candidatesFor(a, null) })).filter(p => p.candidates.length);
+  allCandidatePairs.sort((a, b) => b.candidates[0].score - a.candidates[0].score ||
+    String(a.mockupId).localeCompare(String(b.mockupId)));
+  // Surface value-level evidence for only a uniquely supported visual pair.
+  // These remain provisional: geometry/paint can coincide across controls,
+  // and only an explicit reviewed anchor can count toward matched coverage.
+  const provisionalPairs = [];
+  for (const pair of allCandidatePairs) {
+    const [best, second] = pair.candidates;
+    if (best.score < 1.05 || best.paintMatch !== true ||
+      (second && best.score - second.score < 0.05)) continue;
+    const a = aNodes.find(n => (n._figmaId || n.id) === pair.mockupId);
+    const bs = bNodes.filter(n => n._testid === best.appTestid && !pairedSourceB.has(n));
+    if (!a || bs.length !== 1 || a.type !== bs[0].type) continue;
+    const b = bs[0];
+    const aState = aStates.get(a), bState = bStates.get(b);
+    if (aState && bState && aState !== bState) continue;
+    const rivals = aNodes.filter(n => n !== a && !pairedSourceA.has(n) &&
+      (n._figmaId || n.id) && scorePair(n, b)?.score >= best.score - 0.05);
+    if (rivals.length) continue;
+    const values = diffSpecs(
+      { type: "frame", name: "provisional", children: [projected(a, pair.name, null, null, aState)] },
+      { type: "frame", name: "provisional", children: [projected(b, pair.name, null, bTestids.get(b), bState)] },
+      { maxDeltas: 100 });
+    provisionalPairs.push({ mockupId: pair.mockupId, name: pair.name,
+      appTestid: best.appTestid, score: best.score, deltas: values.deltas,
+      deltasOmitted: values.summary.omitted });
+  }
+  const maxCandidatePairs = opts.maxCandidatePairs || 100;
+  const regions = (mockup.children || []).map(region => {
+    let nodes = 0, matched = 0;
+    const visit = n => { nodes++; if (pairedSourceA.has(n)) matched++;
+      for (const child of n.children || []) visit(child); };
+    visit(region);
+    return { mockupId: region._figmaId || region.id || null, name: nodeLabel(region),
+      capturedNodes: nodes, matchedNodes: matched, unpairedNodes: nodes - matched };
+  });
+  result.coverage = { scope: "selected-anchors", wholeScreenCertified: false,
+    captureNodes: { mockup: aNodes.length, app: bNodes.length },
+    unpairedNodes: { mockup: aNodes.length - pairedA.length, app: bNodes.length - pairedB.length },
+    unpairedInventory: { mockup: inventory(aNodes, pairedSourceA, aPaths),
+      app: inventory(bNodes, pairedSourceB, bPaths) },
+    regions, anchorAlternatives, provisionalPairs,
+    candidatePairs: allCandidatePairs.slice(0, maxCandidatePairs),
+    candidatePairsOmitted: Math.max(0, allCandidatePairs.length - maxCandidatePairs),
+    requested: allAnchors.length, generatedAnchors: generated.length,
+    stateMismatched,
+    matched: pairedA.length, unmatched,
+    requestedFields, measuredFields, unmeasured };
+  result.summary.unmatchedAnchors = unmatched.length;
+  result.summary.unmeasuredFields = unmeasured.length;
+  result.summary.stateMismatchedAnchors = stateMismatched.length;
+  result.ok = result.ok && unmatched.length === 0 && unmeasured.length === 0 && stateMismatched.length === 0;
+  return result;
 }
 
 // ── Design-language fingerprint ───────────────────────────────────────────

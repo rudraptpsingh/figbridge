@@ -1,5 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import os from "node:os";
 import { setLatest, getLatest } from "./store.js";
 
 const CORS_HEADERS = {
@@ -127,6 +128,27 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
       return;
     }
 
+    // Code Connect for the plugin UI — POST /code-connect { node, fileKey? }.
+    // The plugin describes the selected instance; we map it through the
+    // figbridge.connect.json remembered for that Figma file.
+    if (req.method === "POST" && req.url === "/code-connect") {
+      let chunks = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", async () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+          const node = body.node || null;
+          if (!node) return send(res, 400, { ok: false, error: "node required" });
+          const cc = await import("./code-connect.js");
+          const file = cc.findConnectFile({ fileKey: body.fileKey || node.fileKey || null });
+          if (!file) return send(res, 200, { ok: false, mapped: false, error: "No figbridge.connect.json for this file. Run connect_components (or set FIGBRIDGE_CONNECT)." });
+          send(res, 200, { ...cc.getCodeConnect(cc.readConnect(file), node), connectFile: file });
+        } catch (e) { send(res, 500, { ok: false, error: e.message }); }
+      });
+      req.on("error", (e) => send(res, 500, { ok: false, error: e.message }));
+      return;
+    }
+
     // External command injection — POST /command { action, args, timeoutMs? }
     // Lets any local script drive figbridge without going through MCP.
     // Same trust model as the rest of the bridge: 127.0.0.1 only.
@@ -242,7 +264,7 @@ export function startBridge(preferredPort = 7331, log = () => {}, portRange = 9)
               const b64chrome = await screenshotUrl(args.url, { width: args.width || 1280, fullPage: true });
               const figR = await sendCommand("export-frame", { nodeId: args.nodeId, scale: args.scale || 0.5 }, 60000);
               if (!figR || !figR.ok) return send(res, 200, { ok: false, error: "figma export failed", figmaError: figR && figR.error });
-              const outDir = args.outDir || "/tmp";
+              const outDir = args.outDir || os.tmpdir();
               const chromePath = path.join(outDir, (args.prefix || "diff") + "-chrome.png");
               const figmaPath  = path.join(outDir, (args.prefix || "diff") + "-figma.png");
               await writeMaybe(b64chrome, chromePath);

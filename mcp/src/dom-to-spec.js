@@ -1002,7 +1002,7 @@
     // get rendered as their visual indicator (filled/empty circle or
     // square). Select shows the currently-selected option text.
     if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-      const inputType = (tag === 'input' ? el.getAttribute('type') : null) || tag;
+      const inputType = tag === 'input' ? (el.getAttribute('type') || 'text') : tag;
       const r = el.getBoundingClientRect();
       if (inputType === 'radio' || inputType === 'checkbox') {
         const checked = el.checked || el.hasAttribute('checked');
@@ -1043,6 +1043,17 @@
       const placeholder = el.getAttribute('placeholder') || '';
       const display = value || placeholder;
       const isPlaceholder = !value && !!placeholder;
+      let placeholderPaint = null;
+      if (isPlaceholder) {
+        try {
+          const pseudo = window.getComputedStyle(el, '::placeholder');
+          const color = rgbToHex(pseudo.color);
+          const pseudoOpacity = parseFloat(pseudo.opacity);
+          const alpha = alphaOfColor(pseudo.color) *
+            (Number.isFinite(pseudoOpacity) ? pseudoOpacity : 1);
+          placeholderPaint = { color, opacity: alpha < 1 ? alpha : null };
+        } catch (e) { /* Unmeasured is safer than a guessed paint. */ }
+      }
       const frame = {
         type: 'frame',
         name: name + ':' + tag,
@@ -1062,8 +1073,8 @@
           fontSize: Math.round(px(cs.fontSize) || 14),
           fontWeight: fontWeight(cs),
           fontFamily: fontFamilyOf(cs),
-          color: isPlaceholder ? '#94a3b8' : rgbToHex(cs.color),
-          opacity: isPlaceholder ? 0.6 : opacityOf(cs),
+          color: isPlaceholder ? placeholderPaint?.color ?? null : rgbToHex(cs.color),
+          opacity: isPlaceholder ? placeholderPaint?.opacity ?? null : opacityOf(cs),
         }] : [],
       };
       return frame;
@@ -1400,6 +1411,8 @@
       // mockup-vs-app diff can resolve each node back to its source file.
       const _tid = child.getAttribute('data-testid') || child.getAttribute('data-test-id') || child.getAttribute('data-component');
       if (_tid) cn._testid = _tid;
+      const _state = child.getAttribute('data-state');
+      if (_state) cn._state = _state;
       // Absolute (document-relative; page is scrolled to 0) geometry for the
       // layout-metrics math: grid / alignment / spacing / component pitch.
       const _r = child.getBoundingClientRect();

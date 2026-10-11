@@ -69,6 +69,7 @@ Existing users on ≤ 0.1.1 should run `npx figbridge-mcp@latest update` once. C
 - **UI dedupe guard needs `nodeIds`.** `ui.html` drops any `result` message whose `msg.nodeIds` doesn't match `state.pending.nodeIds`. `exportNodes` / `exportSelection` must include `nodeIds` explicitly in `postMessage`. Otherwise the loading view stays up forever while `timing` arrives underneath (the tell: footer shows timing, output area stuck on "Exporting…").
 - **Port 7331 EADDRINUSE auto-fallback** (since 0.1.6): `startBridge` walks 7331..7340 on EADDRINUSE and returns `{ server, port }`. Plugin UI probes `/health` across the same range before connecting. `FIGBRIDGE_PORT=NNNN` still overrides the preferred starting port.
 - **Clean shutdown** (since 0.1.6): `server.js` exits on stdin end/close and SIGTERM/SIGINT/SIGHUP, closing the HTTP server first. Prevents zombie processes piling up when Claude Desktop respawns us.
+- **Code Connect node info lives twice.** `codeConnectInfo()` in `plugin/code.js` (Code tab, pushed as `codeConnectNode`) and `nodeInfoScript()` in `mcp/src/code-connect.js` (run via `run-script`, so `get_code_connect` works with older plugins) must return the same shape. `test/code-connect.mjs` runs both against one fake `figma` and fails on drift.
 - **`figbridge-mcp doctor`** (since 0.1.6): reaps orphan figbridge-mcp processes (SIGTERM then SIGKILL) and probes 7331..7340 for live bridges. `init` / `update` run the reaper before rewriting the config so the next Claude launch lands on a clean :7331.
 
 ## Commit message conventions

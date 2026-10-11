@@ -25,6 +25,7 @@ function fakePlugin() {
   const handlers = {
     "select":          () => ({ ok: true, selected: [{ id: "1:2", name: "Card" }] }),
     "export-node":     () => ({ ok: true, exported: true }),
+    "export-design-spec": () => ({ ok: true, spec: { type: "frame", _figmaId: "1:2", name: "Home", children: [{ type: "text", characters: "Welcome" }] } }),
     "list-screens":    () => ({ ok: true, screens: [{ id: "1:2", name: "Home", category: "home" }] }),
     "list-components": () => ({ ok: true, components: [{ id: "c:1", name: "Button", variants: ["primary","secondary"], usageCount: 12 }] }),
     "describe-screen": () => ({ ok: true, screen: { id: "1:2", name: "Home", textContent: "Welcome" } }),
@@ -168,6 +169,7 @@ async function main() {
   const cases = [
     ["select_node",      { nodeId: "1:2" },                    /selected|1:2/ ],
     ["export_node",      { nodeId: "1:2" },                    /Home|<div>hi<\/div>/ ],
+    ["export_design_spec", { nodeId: "1:2" },                 /_figmaId|Welcome/ ],
     ["list_screens",     {},                                   /Home/ ],
     ["list_components",  {},                                   /Button/ ],
     ["describe_screen",  { nodeId: "1:2" },                    /Welcome/ ],

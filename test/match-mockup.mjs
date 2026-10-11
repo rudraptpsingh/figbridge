@@ -19,7 +19,7 @@ function assert(condition, message, detail) {
 // Same structure (so nodes pair) but differing copy, button color, and gap.
 // The card carries a data-testid — the app's own component anchor — so the
 // codebase-aware path can resolve deltas on it to a source file.
-const page = (title, heading, gap, btnColor) => `<!doctype html>
+const page = (title, heading, gap, btnColor, btnWidth) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
 <style>
   body { margin: 0; font-family: Arial, sans-serif; background: #ffffff; color: #111111; }
@@ -27,7 +27,7 @@ const page = (title, heading, gap, btnColor) => `<!doctype html>
   .card { display: flex; flex-direction: column; gap: ${gap}px; padding: 24px; background: #f5f5f5; border-radius: 12px; }
   h1 { font-size: 24px; margin: 0; }
   p { font-size: 14px; margin: 0; color: #666666; }
-  button { padding: 12px 18px; border: 0; border-radius: 8px; color: #fff; background: ${btnColor}; font-size: 14px; }
+  button { box-sizing: border-box; width: ${btnWidth}px; padding: 12px 18px; border: 0; border-radius: 8px; color: #fff; background: ${btnColor}; font-size: 14px; }
 </style></head>
 <body><main><section class="card" data-testid="shot-card">
   <h1>${heading}</h1>
@@ -35,8 +35,8 @@ const page = (title, heading, gap, btnColor) => `<!doctype html>
   <button>Select shots</button>
 </section></main></body></html>`;
 
-const mockup = page("Mockup", "Sunset Shoot", 16, "#3d7dff");
-const app = page("App", "Sunset Session", 8, "#ff5a3d"); // copy + gap + button color differ
+const mockup = page("Mockup", "Sunset Shoot", 16, "#3d7dff", 64);
+const app = page("App", "Sunset Session", 8, "#ff5a3d", 84); // copy + gap + button color + width differ
 
 const server = createServer((req, res) => {
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -63,18 +63,29 @@ try {
   assert(pl.some(d => d.kind === "spacing"), "punch-list should catch the gap change", JSON.stringify(pl));
   assert(/match_mockup again|NOT a match/.test(r.nextAction), "nextAction should prescribe the loop when not matching", r.nextAction);
 
+  const capped = await matchMockup(url("/mockup"), url("/app"), { widths: [768], minScore: 0, maxDeltas: 1, settleMs: 150 });
+  assert(capped.specSummary.truncated && capped.summary.omittedIssues > 0 && !capped.summary.structuredComplete && !capped.pass,
+    "capped issue reports must remain REVIEW even when pixel threshold allows the image", JSON.stringify(capped.summary));
+
   // ── Identical pages: should pass cleanly ──
   const same = await matchMockup(url("/mockup"), url("/mockup"), { widths: [768], minScore: 96, settleMs: 150 });
   assert((same.punchList || []).length === 0, "identical pages should yield an empty punch-list", JSON.stringify(same.punchList));
   assert(same.summary.worstVisualScore >= 96, "identical pages should score >= threshold", JSON.stringify(same.summary));
   assert(same.pass === true, "identical pages should pass", JSON.stringify(same.summary));
 
+  const missingRoot = await matchMockup(url("/mockup"), url("/mockup"), {
+    widths: [768], minScore: 96, settleMs: 150, rootSelector: "#missing-design-state",
+  });
+  assert(missingRoot.pass === false && missingRoot.specError, "a failed structured comparison cannot certify a visual match", JSON.stringify(missingRoot.summary));
+
   // ── Codebase-aware: sourceDir resolves deltas to files + token hints ──
   srcDir = await mkdtemp(path.join(tmpdir(), "figapp-"));
   await mkdir(path.join(srcDir, "components"), { recursive: true });
+  await mkdir(path.join(srcDir, "design"), { recursive: true });
   await writeFile(path.join(srcDir, "index.css"), ":root { --accent: #3d7dff; }\n");
+  await writeFile(path.join(srcDir, "design", "v2Tokens.json"), JSON.stringify({ css: { "--v2-action-width": "64px" } }));
   await writeFile(path.join(srcDir, "components", "ShotCard.tsx"),
-    'export const ShotCard = () => <section data-testid="shot-card">x</section>;\n');
+    'export const ShotCard = () => <section data-testid="shot-card"><button className="w-[84px]">x</button></section>;\n');
 
   const mapped = await matchMockup(url("/mockup"), url("/app"), { widths: [768], minScore: 96, settleMs: 150, sourceDir: srcDir });
   assert(mapped.source && mapped.source.fileCount >= 2, "source index should report indexed files", JSON.stringify(mapped.source));
@@ -85,6 +96,9 @@ try {
   assert(mp.some(d => d.tokenHint && d.tokenHint.includes("--accent")),
     "the mockup button colour should map to the --accent token hint",
     JSON.stringify(mp.map(d => ({ kind: d.kind, field: d.field, a: d.a, tokenHint: d.tokenHint }))));
+  assert(mp.some(d => d.field === "width" && d.a === 64 && d.b === 84 && d.codeChange?.current === "w-[84px]" && d.codeChange?.suggested === "w-[var(--v2-action-width)]"),
+    "dimension delta should quote exact current code and a Figma-token-backed replacement",
+    JSON.stringify(mp.filter(d => d.field === "width")));
 
   console.log(`PASS  matchMockup closed visual-diff loop + codebase-aware mapping (${passed} assertions).`);
 } finally {
