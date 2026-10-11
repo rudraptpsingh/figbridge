@@ -11,7 +11,8 @@ if (!block) throw new Error('design spec exporter missing');
 const figmaRoot = {
   id: '1:1', type: 'FRAME', name: 'Loupe', width: 1440, height: 900,
   visible: true, absoluteBoundingBox: { x: 100, y: 200, width: 1440, height: 900 },
-  fills: [{ type: 'SOLID', visible: true, color: { r: 0.1, g: 0.2, b: 0.3 }, opacity: 1 }],
+  fills: [{ type: 'SOLID', visible: true, color: { r: 0.1, g: 0.2, b: 0.3 }, opacity: 1, boundVariables: {color:{type:"VARIABLE_ALIAS",id:"surface"}} }],
+  boundVariables: { itemSpacing: {type:'VARIABLE_ALIAS',id:'space'}, paddingLeft: {type:'VARIABLE_ALIAS',id:'space'}, width: {type:'VARIABLE_ALIAS',id:'missing'} },
   opacity: 1,
   strokes: [{ type: 'SOLID', visible: true, color: { r: 1, g: 1, b: 1 }, opacity: 0.10000000149011612 }],
   strokeWeight: 1,
@@ -33,8 +34,9 @@ const figmaRoot = {
       fills: [{ type: 'IMAGE', visible: true, imageHash: 'abc' }] },
   ],
 };
+let variableReads = 0;
 const sandbox = {
-  figma: { mixed: Symbol('mixed'), fileKey: 'file-key', getNodeByIdAsync: async id => id === '1:1' ? figmaRoot : null },
+  figma: { variables: { getVariableByIdAsync: async id => { variableReads++; return id === 'missing' ? null : {name: id === 'space' ? 'space/1' : 'surface/1', resolvedType: id === 'space' ? 'FLOAT' : 'COLOR'} } }, mixed: Symbol('mixed'), fileKey: 'file-key', getNodeByIdAsync: async id => id === '1:1' ? figmaRoot : null },
 };
 vm.createContext(sandbox);
 vm.runInContext(block[1] + '\nthis.exportDesignSpec = exportDesignSpec;', sandbox);
@@ -57,4 +59,8 @@ assert(spec.children[1]._state === 'on' && spec.children[1]._figmaProps.State.va
   'variant state must be captured for matched-state review');
 assert(spec.children[1]._mainComponentId === '99:1' && spec.children[1]._mainComponentName === 'Photo controls',
   'instance must retain its exact main component identity for design-to-code mapping');
-console.log('PASS  design spec export (10 assertions).');
+assert(spec._tokenBindings.some(b => b.field === 'fills[0].color' && b.name === 'surface/1'), 'paint token identity preserved');
+assert(spec._tokenBindings.some(b => b.field === 'itemSpacing' && b.name === 'space/1'), 'layout token identity preserved');
+assert(spec._tokenBindings.some(b => b.field === 'width' && b.variableId === 'missing' && !b.name) && capture.warnings.some(w => w.reason === 'variable-unavailable'), 'unavailable variable remains explicitly incomplete');
+assert(variableReads === 3, 'repeated variable bindings resolved only once per export');
+console.log('PASS  design spec export (14 assertions).');

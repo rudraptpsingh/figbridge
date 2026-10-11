@@ -1503,7 +1503,12 @@
     const spec = nodeForElement(root, { maxDepth, embedImages }, 0);
     if (spec) {
       spec.name = opts.name || (document.title || 'Imported page');
-      if (opts.viewport) spec.width = opts.viewport;
+      // Scoped components keep their measured width and root anchor. A
+      // viewport-sized shell makes 56px controls appear 1280px wide and
+      // dropping the root test ID makes explicit comparisons unresolvable.
+      var rootTestid = root.getAttribute("data-testid") || root.getAttribute("data-test-id") || root.getAttribute("data-component");
+      if (rootTestid) spec._testid = rootTestid;
+      if (opts.viewport && (rootSelector === "body" || rootSelector === "html")) spec.width = opts.viewport;
       if (rootSelector !== 'body' && rootSelector !== 'html' && !spec.fill) {
         const inheritedFill = pageBackgroundFill();
         if (inheritedFill) spec.fill = inheritedFill;
