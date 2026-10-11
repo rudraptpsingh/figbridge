@@ -599,12 +599,52 @@ async function exportDesignSpec(nodeId) {
     }
     return out.length ? out : null;
   }
+  var variableCache = {};
+  async function bindings(node) {
+    var out = [];
+    async function read(values, prefix) {
+      if (!values || typeof values !== "object") return;
+      var keys = Object.keys(values);
+      for (var k = 0; k < keys.length; k++) {
+        var field = keys[k], aliases = Array.isArray(values[field]) ? values[field] : [values[field]];
+        for (var a = 0; a < aliases.length; a++) {
+          var alias = aliases[a];
+          if (!alias || alias.type !== "VARIABLE_ALIAS") continue;
+          var entry = { field: prefix + field, variableId: alias.id };
+          try {
+            if (!Object.prototype.hasOwnProperty.call(variableCache, alias.id)) {
+              variableCache[alias.id] = figma.variables && typeof figma.variables.getVariableByIdAsync === "function"
+                ? await figma.variables.getVariableByIdAsync(alias.id) : null;
+            }
+            var variable = variableCache[alias.id];
+            if (variable) { entry.name = variable.name; entry.resolvedType = variable.resolvedType; }
+            else capture.warnings.push({ nodeId: node.id, field: entry.field, reason: "variable-unavailable", variableId: alias.id });
+          } catch (error) {
+            capture.warnings.push({ nodeId: node.id, field: entry.field, reason: "variable-unavailable", variableId: alias.id });
+          }
+          out.push(entry);
+        }
+      }
+    }
+    await read(node.boundVariables, "");
+    var paintFields = ["fills", "strokes"];
+    for (var p = 0; p < paintFields.length; p++) {
+      var field = paintFields[p], paints = node[field];
+      if (!Array.isArray(paints)) continue;
+      for (var i = 0; i < paints.length; i++) {
+        if (paints[i] && paints[i].visible !== false) await read(paints[i].boundVariables, field + "[" + i + "].");
+      }
+    }
+    return out;
+  }
   async function visit(node) {
     if (node.visible === false) { capture.hiddenSubtrees++; return null; }
     capture.visibleNodes++;
     var b = node.absoluteBoundingBox;
     var spec = { type: node.type === "TEXT" ? "text" : "frame", name: node.name || node.type,
       _figmaId: node.id, _figmaType: node.type };
+    var tokenBindings = await bindings(node);
+    if (tokenBindings.length) spec._tokenBindings = tokenBindings;
     if (node.type === "INSTANCE" && node.componentProperties) {
       spec._figmaProps = {};
       Object.keys(node.componentProperties).forEach(function (key) {
